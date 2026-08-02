@@ -1,0 +1,38 @@
+# Metadata & duplicates
+
+Two tools for tidying a library: an editor for an item's details, and a scan for accidental copies. Both are on-device features — they're available in *This device* mode, not when reading from a [server](/app/server).
+
+## Editing metadata
+
+Open the action sheet on any item (long-press its cover) and choose **Edit metadata**.
+
+![Metadata editor](/img/app/metadata-edit.png)
+
+You can edit:
+
+- **Title**
+- **Series**, **Volume**, **Chapter**
+- **Author / writer**, **Artist**
+- **Genre**, **Year**
+- **Summary**
+
+Tap **Save** to write the changes; the library updates immediately. Series and volume/chapter feed the automatic **Series** grouping on the home view.
+
+### Search online
+
+Don't want to type it all? Tap the **globe** in the editor's top bar to search public sources for a match.
+
+CB8 queries **Google Books** first, then falls back to **Open Library** — both free and keyless. Pick a result and its title, author, year, genre, and summary fill the form (you can still tweak anything before saving). Nothing is sent anywhere except the search text you type.
+
+## Finding duplicates
+
+Imported the same book twice? **Settings → Find duplicates** scans your on-device library for likely copies. A clean library looks like this:
+
+![Find duplicates](/img/app/duplicates.png)
+
+When it finds copies, it groups them two ways:
+
+- **Identical files** — same size and page count (a strong signal it's the same file).
+- **Matching titles** — same title, different files (a softer hint worth a look).
+
+Each group lists its copies with covers; tap one to open it, or use the **delete** button to remove the redundant copy. Deleting here behaves like deleting from the action sheet — it drops the catalog entry and removes an imported file from the device, but leaves [watched-folder](/app/importing) originals untouched.

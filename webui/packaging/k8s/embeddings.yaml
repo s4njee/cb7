@@ -1,0 +1,96 @@
+# GPU embedding service: Hugging Face TEI serving bge-large-en-v1.5 on the mars
+# 3090, exposing an OpenAI-compatible API in-cluster. The CB8 server calls it at
+# http://cb8-embeddings.cb8.svc:8000/v1/embeddings.
+#
+# TEI (vs vLLM/Infinity) has stable, arch-specific images; `86-1.8` targets the
+# 3090's compute capability (sm_86). bge-large is 1024-d, matching the schema —
+# so swapping to Qwen3-4B later is config-only (image + EMBED_MODEL + re-index).
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cb8-embeddings-cache
+  namespace: cb8
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cb8-embeddings
+  namespace: cb8
+  labels: { app: cb8-embeddings }
+spec:
+  replicas: 1
+  strategy: { type: Recreate } # single GPU — never two pods at once
+  selector:
+    matchLabels: { app: cb8-embeddings }
+  template:
+    metadata:
+      labels: { app: cb8-embeddings }
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector:
+        kubernetes.io/hostname: mars
+      tolerations:
+        - key: csearch.org/opportunistic
+          operator: Exists
+          effect: NoSchedule
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: tei
+          image: ghcr.io/huggingface/text-embeddings-inference:86-1.8
+          # entrypoint is text-embeddings-router; args follow.
+          args:
+            - --model-id=BAAI/bge-large-en-v1.5
+            - --port=8000
+          ports:
+            - containerPort: 8000
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+            requests:
+              cpu: "2"
+              memory: 4Gi
+          volumeMounts:
+            - name: cache
+              mountPath: /data
+          startupProbe: # first start downloads + loads the model
+            httpGet: { path: /health, port: 8000 }
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            periodSeconds: 15
+          # Restart the pod when /health stays unhealthy: a GPU CUDA-context fault
+          # (CUDA_ERROR_LAUNCH_FAILED) corrupts the process unrecoverably, and
+          # without a liveness probe TEI just sits NotReady forever. ~2 min of
+          # sustained failure before restart; startupProbe gates the model-load
+          # window so this never fires during startup. (Won't help a full node
+          # freeze — that needs the node back — but covers in-process GPU faults.)
+          livenessProbe:
+            httpGet: { path: /health, port: 8000 }
+            periodSeconds: 30
+            failureThreshold: 4
+      volumes:
+        - name: cache
+          persistentVolumeClaim:
+            claimName: cb8-embeddings-cache
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cb8-embeddings
+  namespace: cb8
+spec:
+  selector: { app: cb8-embeddings }
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000

@@ -1,0 +1,145 @@
+# Security Hardening
+
+> **Think of this as a friendly checklist, not a warning.** Most of it is already handled for you if you run CB8 with the standard Docker setup on your home network. If that's you, the **must-dos** are short: pick strong passwords, keep your `BETTER_AUTH_SECRET` stable, and don't open your database to the world. The rest is good hygiene you can do at your own pace.
+
+CB8 is usually run on a trusted home network (your LAN), but even there it holds real things worth protecting: your user accounts, login sessions, reading progress, and a full list of your library. Nothing here is scary — it's just a few sensible habits, the same ones you'd apply to any app that has a login. Any unfamiliar word is defined in the [Glossary](/glossary).
+
+## Baseline checklist
+
+Run through this once when you set up CB8. The items marked **(must-do)** are the
+few that matter most for a home, LAN-only Docker user; the rest are extra polish.
+
+- **(must-do)** Generate a strong `BETTER_AUTH_SECRET` once and never change it (see [Secrets](#secrets) below).
+- **(must-do)** Use a strong Postgres (database) password.
+- **(must-do)** Don't expose Postgres to the internet — the standard setups already keep it private.
+- Connect your library folders read-only (look-but-don't-touch). The bundled Docker and Kubernetes examples already do this.
+- Run the API and worker as a non-root user where possible — the bundled images already do this.
+- Use HTTPS (an encrypted connection) for any access from outside your trusted home network. See [Reverse proxy and HTTPS](/reverse-proxy).
+- Set `BETTER_AUTH_TRUSTED_ORIGINS` to the exact address people use.
+- Back up Postgres before upgrades.
+- Keep your Docker images and host system updated.
+- Use your firewall to limit who can reach CB8 to just the networks that need it.
+
+## Secrets
+
+`BETTER_AUTH_SECRET` is a long random value CB8 uses to keep your logins secure
+(technically, it signs the cookies that remember you're signed in). Generate one
+random value like this and use it forever:
+
+```bash
+openssl rand -hex 32
+```
+
+Store the value in one of these places (whichever matches your setup):
+
+- Docker Compose `.env` file, or
+- a Kubernetes Secret, or
+- a systemd environment file / secret manager.
+
+**Don't change it once it's set.** Changing this secret instantly logs everyone
+out. (And if you run more than one copy of the API for scale, they must all share
+the exact same value, or logins will misbehave.)
+
+## Authentication origins
+
+For safety, CB8's login system only accepts sign-ins from web addresses you've
+told it to trust. An **origin** is the front part of a URL (its scheme, host, and
+port). List the exact address(es) people actually use to open CB8:
+
+```ini
+BETTER_AUTH_URL=https://reader.example.com
+BETTER_AUTH_TRUSTED_ORIGINS=https://reader.example.com,http://192.168.1.248:4218
+```
+
+If a login mysteriously fails (often with a "cross-site" complaint), it's almost
+always because the address you opened isn't in this list — add it and restart the
+API. See [Reverse proxy and HTTPS](/reverse-proxy) for more on origins.
+
+## Network exposure
+
+This is about *who can reach CB8 over the network*.
+
+If CB8 stays on your home network only:
+
+- Where your platform allows, make CB8 listen only on your trusted home network.
+- Use your firewall so only your home network can reach CB8's port.
+- Never publish the Postgres (database) port.
+
+If you make CB8 reachable from the internet:
+
+- Put it behind HTTPS (an encrypted connection). See [Reverse proxy and HTTPS](/reverse-proxy).
+- For a private instance, add an extra gate so only invited people can reach it —
+  a VPN (a private encrypted tunnel into your network), Tailscale, Cloudflare
+  Access, Authelia, or your proxy's password protection.
+- Glance at the logs now and then for repeated failed login attempts.
+- Keep a backup copy somewhere other than the CB8 host itself.
+
+## Filesystem mounts
+
+Connect your comic and e-book folders **read-only** — that means CB8 can read
+them but can never change or delete your files, which is exactly what you want.
+The bundled Docker and Kubernetes examples already do this for `/comics` and
+`/ebooks`, so you usually get this for free.
+
+CB8 never needs to modify your original library. The only places it writes are:
+
+- Postgres,
+- `CB8_DATA_DIR` for cache/uploads,
+- `CB8_UPSCALE_CACHE_DIR` if HD upscaling is enabled.
+
+If a scan can't read your files, the right fix is to adjust the *read*
+permissions on the host (so the CB8 user can read them) — not to make your
+library writeable.
+
+## Container user
+
+For safety, CB8 runs as a limited, non-administrator user (uid/gid `10001`)
+rather than as root. Just make sure the folders you connect are readable by that
+user:
+
+```bash
+ls -ld /mnt/raid6/comics /mnt/raid6/ebooks /srv/cb8/data
+```
+
+The data directory must be writeable; library directories only need read/execute.
+
+## Database
+
+Postgres (your database) holds the important, can't-be-rebuilt data, so it's the
+thing to protect most:
+
+- Use a strong password — not the default one.
+- Don't open its port (`5432`) beyond the app's own private network.
+- Back it up regularly with `pg_dump`.
+- Keep those backups somewhere private — they contain user accounts, login
+  sessions, and your complete catalog.
+
+## Uploads
+
+Files you upload through the web page are stored under `CB8_DATA_DIR`. If you let
+other people upload too:
+
+- Make sure there's plenty of free disk space.
+- Put `CB8_DATA_DIR` on storage you can monitor (or that has size limits).
+- Back up uploads if CB8 holds the only copy of those files.
+
+## Admin account
+
+The very first time CB8 starts, it creates an `admin` account and prints a
+randomly generated password in the logs. **Sign in and change that password right
+away,** then save the new one in a password manager.
+
+There's no "forgot password" link. If you later lose the admin password, getting
+back in means editing the database directly or starting with a fresh database and
+rescanning — so keep it somewhere safe.
+
+## Updates
+
+Before upgrades:
+
+1. Back up Postgres.
+2. Save the current image tag.
+3. Keep secrets stable.
+4. Upgrade API and worker together.
+
+See [Upgrades and rollback](/upgrades).

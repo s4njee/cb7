@@ -1,0 +1,28 @@
+# LAN LoadBalancer for the freya Argo CD UI/API.
+#
+# A separate service from the bundled `argocd-server` ClusterIP (which other Argo
+# components use internally). k3s klipper ServiceLB binds this port on the node
+# IP (192.168.1.156). argocd-server serves TLS on 8080, so the UI is at
+# https://192.168.1.156:4443 (self-signed cert — accept the browser warning).
+#
+# Ports already taken on the node: 80/443 (traefik), 4218 (cb8), 3000/4210
+# (csearch) — hence 4443.
+#
+# Apply once: kubectl --context freya apply -f packaging/argocd/argocd-server-lb.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: argocd-server-lb
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-server-lb
+    app.kubernetes.io/part-of: argocd
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: argocd-server
+  ports:
+    - name: https
+      protocol: TCP
+      port: 4443
+      targetPort: 8080

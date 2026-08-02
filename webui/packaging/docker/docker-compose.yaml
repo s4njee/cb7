@@ -1,0 +1,152 @@
+# CB8 multi-container deployment — mirrors the k8s topology (packaging/k8s).
+#
+# Three services, same as the cluster:
+#   cb8-postgres  Postgres 18 + pgvector — the source of truth (catalog, covers,
+#                 users/sessions, ebook search vectors, pg-boss job queue).
+#   cb8           Fastify API + React UI (dist/standalone.mjs). Enqueues jobs.
+#   cb8-worker    Background worker (dist/worker.mjs) — drains the pg-boss queues
+#                 (library scans, ebook search backfill) and runs the auto-rescan
+#                 scheduler. Same image as cb8, different command.
+#
+# The standalone server REQUIRES Postgres (it throws without DATABASE_URL);
+# SQLite is only the desktop app's database. On-disk state under CB8_DATA_DIR is
+# just the regenerable image cache plus uploaded archives — durable data lives in
+# Postgres, so back up the `cb8-postgres-data` volume (or use pg_dump).
+#
+# Build the image with `docker compose build` (build context is the repo root)
+# or pull a pre-built one by setting CB8_IMAGE. For secrets, run `./cb8-init.sh`
+# once to generate a .env with a strong CB8_DB_PASSWORD and BETTER_AUTH_SECRET
+# (BETTER_AUTH_SECRET is otherwise auto-generated and persisted on first boot),
+# then `docker compose up -d`.
+#
+# After the stack is up, sign in as admin and add /comics and /ebooks as library
+# paths from the web UI.
+
+services:
+  cb8-postgres:
+    # pgvector image = stock postgres:18 + the `vector` extension, matching
+    # packaging/k8s/postgres.yaml. Backs the ebook semantic-search index.
+    # NOTE: a PG18 server will NOT start on an older major's data directory —
+    # bumping this tag means re-initializing the volume (the catalog re-ingests).
+    image: pgvector/pgvector:pg18
+    container_name: cb8-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cb8
+      POSTGRES_DB: cb8
+      POSTGRES_PASSWORD: ${CB8_DB_PASSWORD:?set CB8_DB_PASSWORD in .env}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    # Tuning mirrors the k8s manifest (sized for a large bulk ingest). Lower
+    # shared_buffers / maintenance_work_mem for a small host if needed.
+    command:
+      - "-c"
+      - "shared_buffers=2GB"
+      - "-c"
+      - "maintenance_work_mem=1GB"
+      - "-c"
+      - "max_wal_size=4GB"
+      - "-c"
+      - "work_mem=64MB"
+    volumes:
+      - cb8-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "cb8", "-d", "cb8"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+
+  cb8:
+    image: ${CB8_IMAGE:-cb8:latest}
+    build:
+      context: ../..
+      dockerfile: packaging/docker/Dockerfile
+    container_name: cb8
+    restart: unless-stopped
+    user: "10001:10001"
+    depends_on:
+      cb8-postgres:
+        condition: service_healthy
+    ports:
+      - "${CB8_PUBLISH_PORT:-4218}:8008"
+    environment:
+      DATABASE_URL: postgres://cb8:${CB8_DB_PASSWORD:?set CB8_DB_PASSWORD in .env}@cb8-postgres:5432/cb8
+      CB8_DATA_DIR: /var/lib/cb8
+      CB8_PORT: "8008"
+      CB8_HOST: 0.0.0.0
+      CB8_INGEST_CONCURRENCY: ${CB8_INGEST_CONCURRENCY:-4}
+      CB8_ARCHIVE_LIST_TIMEOUT_MS: ${CB8_ARCHIVE_LIST_TIMEOUT_MS:-60000}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
+      BETTER_AUTH_TRUSTED_ORIGINS: ${BETTER_AUTH_TRUSTED_ORIGINS:-}
+      # Trust X-Forwarded-Host/Proto so the public origin is accepted behind a
+      # reverse proxy without enumerating it. Leave unset for direct/LAN access.
+      CB8_TRUST_PROXY_HEADERS: ${CB8_TRUST_PROXY_HEADERS:-}
+      # NOTE: the image presets CB8_MDNS=0 — LAN discovery is off here because a
+      # bridge-network container can't multicast to the LAN. See the host-network
+      # variant below to turn it on; clients otherwise pair by QR or by address.
+    volumes:
+      - ${CB8_DATA_PATH:-/srv/cb8/data}:/var/lib/cb8
+      - ${CB8_COMICS_PATH:-/mnt/raid6/comics}:/comics
+      - ${CB8_EBOOKS_PATH:-/mnt/raid6/ebooks}:/ebooks
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8008/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+
+    # --- LAN discovery (mDNS): host-network variant -------------------------
+    # By default the client apps can't auto-discover this container: mDNS is
+    # multicast on the local link, and a bridge-network container has its own
+    # network namespace — its multicast never reaches the LAN, and the IP it
+    # would advertise isn't routable from your phone. So the image ships with
+    # CB8_MDNS=0 and you pair by QR or by typing the host's address.
+    #
+    # To make `_cb8._tcp.local.` discoverable, put the container on the host's
+    # network stack. UNCOMMENT the two lines below AND comment out the `ports:`
+    # block above:
+    #
+    #   network_mode: host
+    #   environment:
+    #     CB8_MDNS: "1"          # merge into the existing environment: block
+    #
+    # Caveats, in order of how often they bite:
+    #   - `ports:` becomes invalid under host networking and CB8_PUBLISH_PORT
+    #     stops meaning anything — the server binds CB8_PORT (8008) directly on
+    #     the host. Set CB8_PORT: "4218" here if you want the old published port.
+    #   - Linux only. Docker Desktop (macOS/Windows) runs containers inside a VM,
+    #     so `network_mode: host` is the VM's network, not your LAN's — discovery
+    #     still won't work. Run bare-node there, or use QR/manual pairing.
+    #   - The container now shares the host's ports; check for a clash on 8008.
+    #   - cb8-postgres stays on the bridge, so reach it via the host: change
+    #     DATABASE_URL's host from `cb8-postgres` to `127.0.0.1` and publish
+    #     5432 on the postgres service.
+    # Verify from another machine on the LAN: `dns-sd -B _cb8._tcp` (macOS) or
+    # `avahi-browse -rt _cb8._tcp` (Linux).
+
+  cb8-worker:
+    # Same image as cb8, run with the worker entrypoint instead of the API.
+    image: ${CB8_IMAGE:-cb8:latest}
+    container_name: cb8-worker
+    restart: unless-stopped
+    user: "10001:10001"
+    command: ["/usr/bin/tini", "--", "node", "/app/dist/worker.mjs"]
+    depends_on:
+      cb8-postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://cb8:${CB8_DB_PASSWORD:?set CB8_DB_PASSWORD in .env}@cb8-postgres:5432/cb8
+      CB8_DATA_DIR: /var/lib/cb8
+      # Scans parallelize archive-open + thumbnailing; raise on a beefier host.
+      CB8_INGEST_CONCURRENCY: ${CB8_WORKER_INGEST_CONCURRENCY:-8}
+      # Enqueue an idempotent ebook search backfill on worker start (k8s parity).
+      SEARCH_BACKFILL_ON_START: "1"
+    volumes:
+      # Shares the API's data dir so both see the same uploaded archives
+      # (CB8_DATA_DIR/web-uploads) and image cache, plus the read-only libraries.
+      - ${CB8_DATA_PATH:-/srv/cb8/data}:/var/lib/cb8
+      - ${CB8_COMICS_PATH:-/mnt/raid6/comics}:/comics
+      - ${CB8_EBOOKS_PATH:-/mnt/raid6/ebooks}:/ebooks
+
+volumes:
+  cb8-postgres-data:

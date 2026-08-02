@@ -1,0 +1,82 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "CB8",
+  "version": "0.1.0",
+  "identifier": "com.cb8.shelf",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1430",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "CB8",
+        "width": 1180,
+        "height": 820,
+        "minWidth": 400,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Book",
+    "shortDescription": "Ebook & comic reader for CB8 servers",
+    "longDescription": "CB8 is a fast, offline-friendly reading app for your own library: comics (CBZ/CBR) with single, spread, and webtoon layouts, plus reflowable EPUB and PDF books with themes, bookmarks, highlights, and cross-device reading positions.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["epub"],
+        "mimeType": "application/epub+zip",
+        "name": "EPUB Book",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["pdf"],
+        "mimeType": "application/pdf",
+        "name": "PDF Document",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["cbz"],
+        "mimeType": "application/vnd.comicbook+zip",
+        "name": "Comic Book Archive",
+        "role": "Viewer",
+        "rank": "Owner",
+        "exportedType": {
+          "identifier": "com.cb8.shelf.cbz",
+          "conformsTo": ["public.zip-archive", "public.data"]
+        }
+      },
+      {
+        "ext": ["cbr"],
+        "mimeType": "application/vnd.comicbook-rar",
+        "name": "Comic Book RAR",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.cb8.shelf.cbr",
+          "conformsTo": ["public.data"]
+        }
+      }
+    ],
+    "iOS": {
+      "infoPlist": "Info.ios.plist",
+      "developmentTeam": "CBCWMTN2X2"
+    }
+  }
+}

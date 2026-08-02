@@ -1,0 +1,76 @@
+# NVIDIA device plugin — makes the GPU schedulable in the freya cluster.
+#
+# Runs only on mars (the 3090 node) via nodeSelector, and uses the `nvidia`
+# RuntimeClass that k3s auto-created once nvidia-container-toolkit was installed.
+# Once this is Ready, the mars node advertises `nvidia.com/gpu`. Time-slicing
+# (the ConfigMap below) advertises the single 3090 as several shareable replicas
+# so TEI embeddings + Real-ESRGAN upscaling (+ a future OCR worker) can run on it
+# concurrently — they time-share compute and share VRAM (plenty on a 24GB card).
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nvidia-device-plugin-config
+  namespace: kube-system
+data:
+  config.yaml: |-
+    version: v1
+    sharing:
+      timeSlicing:
+        resources:
+          - name: nvidia.com/gpu
+            replicas: 4
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-device-plugin-daemonset
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      name: nvidia-device-plugin-ds
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        name: nvidia-device-plugin-ds
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector:
+        kubernetes.io/hostname: mars
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+        - key: CriticalAddonsOnly
+          operator: Exists
+        # mars is tainted as an "opportunistic" node — tolerate it so GPU
+        # workloads can land there.
+        - key: csearch.org/opportunistic
+          operator: Exists
+          effect: NoSchedule
+      priorityClassName: system-node-critical
+      containers:
+        - name: nvidia-device-plugin-ctr
+          image: nvcr.io/nvidia/k8s-device-plugin:v0.17.1
+          env:
+            - name: FAIL_ON_INIT_ERROR
+              value: "false"
+            - name: CONFIG_FILE
+              value: /config/config.yaml
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: device-plugin
+              mountPath: /var/lib/kubelet/device-plugins
+            - name: config
+              mountPath: /config
+      volumes:
+        - name: device-plugin
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
+        - name: config
+          configMap:
+            name: nvidia-device-plugin-config

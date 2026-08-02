@@ -1,0 +1,17 @@
+export default {
+  index: 'Overview',
+  installation: 'Installation',
+  configuration: 'Configuration',
+  usage: 'Usage',
+  app: 'The app',
+  formats: 'Format support',
+  glossary: 'Glossary',
+  architecture: 'Architecture',
+  operations: 'Operations',
+  troubleshooting: 'Troubleshooting',
+  'backup-restore': 'Backup & restore',
+  upgrades: 'Upgrades & rollback',
+  'reverse-proxy': 'Reverse proxy & HTTPS',
+  security: 'Security',
+  'gpu-services': 'GPU services',
+}

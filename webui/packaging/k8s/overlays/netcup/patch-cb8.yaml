@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cb8
+  namespace: cb8
+spec:
+  template:
+    spec:
+      nodeSelector: null
+      containers:
+        - name: cb8
+          env:
+            - name: BETTER_AUTH_URL
+              value: https://books.sanjee.dev
+            - name: BETTER_AUTH_TRUSTED_ORIGINS
+              value: https://books.sanjee.dev
+            - name: CB8_TRUST_PROXY_HEADERS
+              value: "1"
+      volumes:
+        - name: web-uploads
+          persistentVolumeClaim:
+            claimName: cb8-web-uploads
+          nfs: null
+        - name: comics
+          emptyDir: {}
+          nfs: null
+        - name: ebooks
+          emptyDir: {}
+          nfs: null

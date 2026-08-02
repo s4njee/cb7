@@ -1,0 +1,34 @@
+node_modules/
+dist/
+.vite/
+out/
+scratch/
+*.js.map
+*.tar.gz
+
+# Generated TypeDoc API docs (regenerate with `pnpm docs:api`).
+docs/api/
+test_typedoc.log
+typedoc-warnings.log
+
+# Editor / atomic-write temp files (e.g. foo.ts.tmp.12345.deadbeef).
+*.tmp.*
+
+# OS / editor / tooling cruft.
+.DS_Store
+.env
+.env.*
+# ...but the committed template must stay tracked (cb8-init.sh copies it to .env).
+!.env.example
+.pnpm-store/
+.claude/
+
+# Local comic libraries — never part of the repo.
+/Marvel Omnibus*/
+/comics/
+/library/
+*.cbz
+*.cbr
+*.epub
+*.pdf
+*.mobi

@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cb8-worker
+  namespace: cb8
+spec:
+  template:
+    spec:
+      nodeSelector: null
+      volumes:
+        - name: web-uploads
+          persistentVolumeClaim:
+            claimName: cb8-web-uploads
+          nfs: null
+        - name: comics
+          emptyDir: {}
+          nfs: null
+        - name: ebooks
+          emptyDir: {}
+          nfs: null

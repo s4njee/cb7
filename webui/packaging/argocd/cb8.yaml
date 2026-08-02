@@ -1,0 +1,44 @@
+# Argo CD Application for CB8 — GitOps for the freya deployment.
+#
+# Argo CD (installed in the freya cluster's `argocd` namespace) watches
+# webui/packaging/k8s on the `main` branch and keeps the `cb8` namespace in
+# sync. The image tag is pinned in kustomization.yaml, so a `git push` that
+# changes those manifests rolls out automatically (automated sync + selfHeal +
+# prune). NB: this is a monorepo — the server lives under webui/, so the source
+# path is webui/packaging/k8s (not packaging/k8s).
+#
+# Bootstrap once:
+#   kubectl --context freya apply -f packaging/argocd/cb8.yaml
+#
+# Prerequisite secrets must already exist in the cb8 namespace (Argo does NOT
+# manage them): cb8-db, cb8-secrets, registry-s8njee-pull.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cb8
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/s4njee/CB8.git
+    path: webui/packaging/k8s
+    targetRevision: main
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cb8
+  # Dynamically-provisioned PVCs get volumeName (bound PV) and volumeMode set by
+  # the cluster — immutable fields absent from the manifests. Ignore them so
+  # adopted/bound PVCs don't sit in a perpetual, un-appliable OutOfSync.
+  ignoreDifferences:
+    - group: ""
+      kind: PersistentVolumeClaim
+      jsonPointers:
+        - /spec/volumeName
+        - /spec/volumeMode
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

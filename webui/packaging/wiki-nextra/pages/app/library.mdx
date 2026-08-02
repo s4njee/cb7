@@ -1,0 +1,45 @@
+# Library & organization
+
+The home view is a cover grid with a colored format badge on each item (CBZ, CBT, PDF, EPUB). Above it sit quick filters; down the side (or along the bottom, on a phone) are the ways to slice your collection.
+
+![Library grid with filters and shelves](/img/app/library.png)
+
+## Filters and shelves
+
+The filter row narrows the grid instantly:
+
+- **All / Comics / Books** — by type.
+- **Favorites** — items you've hearted.
+- **In progress** — anything you've started but not finished.
+
+Two shelves sit above the grid when they have anything to show:
+
+- **Continue Reading** — what you have open, most recent first. It updates live as you read.
+- **Want to Read** — a to-read list you build yourself (add items from the action sheet, below).
+
+## The tabs
+
+| Tab | What it shows |
+| --- | --- |
+| **All** | The full grid, with the filters and shelves above. |
+| **Recent** | Recently added or opened items. |
+| **Collections** | Lists you create and drop items into by hand. |
+| **Series** | Auto-grouped folders — items sharing a series name (parsed on import) collect here. |
+| **Tags** | Browse by the free-form tags you've applied. |
+
+**Collections** are manual and arbitrary ("To finish", "Lent out"). **Series** are automatic, from the file's folder or name. Use whichever fits.
+
+## The action sheet
+
+**Long-press** any cover (or right-click on desktop) to open its action sheet. From here you can:
+
+![Long-press action sheet](/img/app/action-sheet.png)
+
+- **Add to favorites** — toggles the heart.
+- **Want to read** — adds or removes it from the Want to Read shelf.
+- **Edit metadata** — opens the [metadata editor](/app/metadata).
+- **Tags** — add or remove tags inline.
+- **Collections** — tick the lists this item belongs to, or create a new one.
+- **Delete from library** — removes the catalog entry and the imported file from the device. (Watched-folder files referenced in place are not deleted — see [Importing](/app/importing).)
+
+> In **server mode**, item-management actions (want-to-read, edit, delete) are hidden — the server owns that library. You'll still see favorites and reading progress.

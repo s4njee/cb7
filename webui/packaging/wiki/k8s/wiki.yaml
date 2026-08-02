@@ -1,0 +1,155 @@
+# Wiki.js for the CB8 docs, in its own `wiki` namespace.
+#
+# A single Wiki.js pod + a dedicated single-replica Postgres (its own data, kept
+# separate from the CB8 app database). Deploy with:
+#   kubectl apply -k packaging/wiki/k8s
+# after creating the DB secret (the manifests do NOT manage it):
+#   kubectl -n wiki create secret generic wiki-db --from-literal=password=<STRONG_PW>
+#
+# The same password must be used by both the Postgres container and Wiki.js, so
+# both read it from this one secret. The Service is a LoadBalancer on :3000 to
+# mirror the cb8 Service style — change to ClusterIP + Ingress if you prefer.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: wiki
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: wiki-postgres-data
+  namespace: wiki
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: { requests: { storage: 5Gi } }
+  # Uses the cluster's default storageClass.
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wiki-postgres
+  namespace: wiki
+  labels: { app: wiki-postgres }
+spec:
+  selector: { app: wiki-postgres }
+  ports:
+    - { name: postgres, port: 5432, targetPort: 5432 }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wiki-postgres
+  namespace: wiki
+  labels: { app: wiki-postgres }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: wiki-postgres }
+  template:
+    metadata:
+      labels: { app: wiki-postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          env:
+            - name: POSTGRES_USER
+              value: wiki
+            - name: POSTGRES_DB
+              value: wiki
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: wiki-db, key: password }
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - { name: postgres, containerPort: 5432 }
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "wiki", "-d", "wiki"] }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            exec: { command: ["pg_isready", "-U", "wiki", "-d", "wiki"] }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits: { cpu: "1", memory: "1Gi" }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: wiki-postgres-data }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wiki
+  namespace: wiki
+  labels: { app: wiki }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: wiki }
+  template:
+    metadata:
+      labels: { app: wiki }
+    spec:
+      containers:
+        - name: wiki
+          image: ghcr.io/requarks/wiki:2
+          ports:
+            - { name: http, containerPort: 3000 }
+          env:
+            - name: DB_TYPE
+              value: postgres
+            - name: DB_HOST
+              value: wiki-postgres
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              value: wiki
+            - name: DB_NAME
+              value: wiki
+            - name: DB_PASS
+              valueFrom:
+                secretKeyRef: { name: wiki-db, key: password }
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits: { cpu: "1", memory: "1Gi" }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wiki
+  namespace: wiki
+  labels: { app: wiki }
+spec:
+  type: LoadBalancer
+  selector: { app: wiki }
+  ports:
+    # Host LB port. NOT 3000 — k3s servicelb binds the LB port as a host port and
+    # 3000 is already taken on this cluster (csearch-api-lb). 4219 sits next to
+    # cb8's 4218 and is free. The container still listens on 3000 (targetPort).
+    - name: http
+      port: 4219
+      targetPort: http
+      protocol: TCP

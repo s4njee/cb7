@@ -1,0 +1,172 @@
+# Reverse Proxy and HTTPS
+
+> **You only need this page if you want a custom web address, a secure "https://" padlock, or to reach CB8 from outside your home.** If you just use CB8 on your home network (your LAN) by typing in an address like `http://192.168.1.248:4218`, you can safely skip this entire page.
+
+This page covers putting CB8 behind a **reverse proxy** — a small piece of software that sits in front of CB8 and handles the public web address and security for it. People do this for three reasons: a friendly hostname (like `reader.example.com` instead of a bare IP address), **HTTPS** (the encrypted, padlock-in-the-browser connection, also called TLS), and access control. New to these terms? The [Glossary](/glossary) has plain-language definitions.
+
+**What success looks like:** you open `https://reader.example.com`, see the padlock, and sign in normally — with the reverse proxy quietly handling encryption and certificates behind the scenes.
+
+The one rule that trips people up: CB8's login system (better-auth) only accepts sign-ins coming from web addresses it has been told to trust. An **origin** is just the front part of a URL — its scheme, host, and port together, like `https://reader.example.com`. So when you put CB8 behind a proxy, you must point two settings, `BETTER_AUTH_URL` and `BETTER_AUTH_TRUSTED_ORIGINS`, at the address people actually use.
+
+## Required CB8 settings
+
+If users open:
+
+```text
+https://reader.example.com
+```
+
+set:
+
+```ini
+BETTER_AUTH_URL=https://reader.example.com
+BETTER_AUTH_TRUSTED_ORIGINS=https://reader.example.com
+```
+
+If users also use the LAN URL, include that too:
+
+```ini
+BETTER_AUTH_TRUSTED_ORIGINS=https://reader.example.com,http://192.168.1.248:4218
+```
+
+Origins must match **exactly** — the same scheme and port. `http://` and
+`https://` count as two different origins, so list both if you use both.
+
+Below are recipes for the three most common reverse proxies. You only need **one** of them — pick whichever you already run or find easiest, and ignore the others.
+
+## Caddy
+
+Caddy is the easiest path to HTTPS — it's a great first choice if you're starting
+fresh. It automatically obtains and renews the **certificate** (the digital ID
+card that proves your site is genuine and enables the padlock), as long as your
+hostname is reachable from the internet and its DNS points at the proxy.
+
+```caddyfile
+reader.example.com {
+  reverse_proxy 127.0.0.1:4218
+}
+```
+
+If CB8 runs on another LAN host:
+
+```caddyfile
+reader.example.com {
+  reverse_proxy 192.168.1.248:4218
+}
+```
+
+CB8 environment:
+
+```ini
+BETTER_AUTH_URL=https://reader.example.com
+BETTER_AUTH_TRUSTED_ORIGINS=https://reader.example.com
+```
+
+## Nginx
+
+Nginx is a popular, mature proxy. Unlike Caddy it doesn't fetch certificates for
+you, so this example assumes you've already obtained one (for instance with
+Let's Encrypt / Certbot).
+
+```nginx
+server {
+  listen 80;
+  server_name reader.example.com;
+  return 301 https://$host$request_uri;
+}
+
+server {
+  listen 443 ssl http2;
+  server_name reader.example.com;
+
+  ssl_certificate /etc/letsencrypt/live/reader.example.com/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/reader.example.com/privkey.pem;
+
+  client_max_body_size 0;
+
+  location / {
+    proxy_pass http://127.0.0.1:4218;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    proxy_read_timeout 3600s;
+  }
+}
+```
+
+Some Nginx installs need a `map` for `Connection`:
+
+```nginx
+map $http_upgrade $connection_upgrade {
+  default upgrade;
+  '' close;
+}
+```
+
+Set:
+
+```ini
+BETTER_AUTH_URL=https://reader.example.com
+BETTER_AUTH_TRUSTED_ORIGINS=https://reader.example.com
+```
+
+## Traefik
+
+Traefik is handy if you already run your services with Docker, because you
+configure it with labels right on the container. This example assumes CB8 is on
+the same Docker network as Traefik:
+
+```yaml
+labels:
+  - traefik.enable=true
+  - traefik.http.routers.cb8.rule=Host(`reader.example.com`)
+  - traefik.http.routers.cb8.entrypoints=websecure
+  - traefik.http.routers.cb8.tls.certresolver=letsencrypt
+  - traefik.http.services.cb8.loadbalancer.server.port=8008
+```
+
+If you use the provided Compose stack unchanged, CB8 listens inside the container
+on `8008`; the host-published `4218` port is only for direct host access.
+
+Set:
+
+```ini
+BETTER_AUTH_URL=https://reader.example.com
+BETTER_AUTH_TRUSTED_ORIGINS=https://reader.example.com
+```
+
+## Large uploads and long scans
+
+CB8 lets you upload files through the browser and shows live progress while it
+imports them. By default many proxies cut off large or slow transfers, which can
+make big uploads fail. To avoid that, tell your proxy to allow large uploads and
+patient, long-running responses:
+
+- Disable or raise upload body limits (`client_max_body_size 0` in Nginx).
+- Use generous read timeouts for slow uploads or scans.
+- Do not buffer streaming responses if your proxy has that option.
+
+Good news: scanning a library *folder* doesn't send file data through the proxy
+at all — the worker reads those files directly. Only files you upload through the
+web page are affected by these limits.
+
+## Public internet guidance
+
+Exposing CB8 to the open internet is possible, but it means anyone in the world
+can reach the login page, so take a few sensible precautions:
+
+- Use HTTPS only — never put plain, unencrypted `http://` on the public internet.
+- Keep `BETTER_AUTH_SECRET` private and unchanged (it's the key that keeps logins valid).
+- Use strong passwords for the admin and every user account.
+- Never expose Postgres (your database) to the internet.
+- For a private, family-only instance, consider an extra layer of protection so
+  only people you invite can even reach the login page — a **VPN** (a private
+  encrypted tunnel into your network), Tailscale, Cloudflare Access, Authelia, or
+  your proxy's built-in password protection.
+- Keep CB8 updated and back up Postgres before upgrading.
+
+For the full, friendly checklist, see [Security hardening](/security).

@@ -1,0 +1,39 @@
+/* CB8 brand theme for the Nextra docs.
+ *
+ * Matches the app icon: red accent (#EF4D4D ≈ hsl(0 84% 62%)) on a near-black
+ * background (#0B0B0E), with the off-white "CB" / red "8" mark in the navbar.
+ * These override nextra-theme-docs' defaults (imported before this file in
+ * pages/_app.jsx), which compose colors from these CSS variables:
+ *   accent  = hsl(var(--nextra-primary-hue) var(--nextra-primary-saturation) var(--nextra-primary-lightness))
+ *   surface = rgb(var(--nextra-bg))
+ */
+
+:root {
+  --nextra-primary-hue: 0deg;
+  --nextra-primary-saturation: 84%;
+  --nextra-primary-lightness: 56%; /* slightly deeper red for contrast on white */
+}
+
+.dark {
+  --nextra-primary-hue: 0deg;
+  --nextra-primary-saturation: 84%;
+  --nextra-primary-lightness: 63%; /* ~#EF4D4D on the dark surface */
+  --nextra-bg: 11, 11, 14;         /* #0B0B0E — the icon's background */
+}
+
+/* Tint the dark-mode chrome (sidebar/search/cards) to sit on the darker bg. */
+.dark body {
+  background-color: #0b0b0e;
+}
+
+/* App screenshots are tall portrait captures. Cap their width and center them so
+   they read like a device held in hand rather than a full-bleed page block. The
+   near-black screenshot background blends into the page, so no frame is needed. */
+.nextra-content img {
+  max-width: 360px !important;
+  width: 100% !important;
+  height: auto !important;
+  margin: 1.75rem auto;
+  display: block;
+  border-radius: 14px;
+}

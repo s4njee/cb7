@@ -1,0 +1,80 @@
+/* PDF reader — single page, two-page spread, or continuous vertical scroll.
+
+   The page gets the whole screen. A PDF page is fit with
+   `min(box.width / pageWidth, box.height / pageHeight)`, so *every* pixel taken
+   off the box shrinks the page in both axes at once — reserving a chrome-sized
+   band top and bottom cost about a fifth of the page area on a tablet. The
+   reader chrome is an overlay that hides on tap, so reserving space for it
+   permanently was paying its rent even while it wasn't there. It now floats
+   over the page, which is what the native client does and what every PDF and
+   comic reader does.
+
+   Only the safe-area insets are honored: a page under the notch or the home
+   indicator is genuinely obscured, not merely overlapped. */
+
+.pdf-wrap {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  min-height: 0;
+}
+
+.pdf-viewport {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  position: relative;
+}
+
+/* Continuous vertical scroll (webtoon-style for PDFs). */
+.pdf-wrap.pdf-scroll-mode {
+  padding-left: max(4px, env(safe-area-inset-left));
+  padding-right: max(4px, env(safe-area-inset-right));
+}
+.pdf-scroll {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  -webkit-overflow-scrolling: touch;
+}
+.pdf-scroll-page {
+  /* Continuous mode is width-driven: the page renders at the container width,
+     so a fixed cap here is a direct cap on page size. Let it fill. */
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  /* Placeholder height until the canvas paints; avoids layout thrash. */
+  min-height: 40vh;
+}
+
+/* The canvas is sized in JS (backing store in device pixels, CSS box in layout
+   pixels); these caps only keep it inside the viewport mid-resize. */
+.pdf-canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  animation: rIn var(--duration-med) var(--ease-standard);
+}
+.pdf-scroll .pdf-canvas {
+  max-height: none;
+  width: 100%;
+  height: auto;
+  /* Continuous scroll recycles canvases — entrance motion causes flicker. */
+  animation: none;
+}

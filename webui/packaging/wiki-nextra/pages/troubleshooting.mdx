@@ -1,0 +1,263 @@
+# Troubleshooting
+
+First, don't panic. Whatever's gone wrong, your comics and books are safe — CB8
+only ever reads your library files, it never changes or deletes them. Almost every
+problem here is fixable by adjusting a setting and restarting.
+
+This page is organized by symptom: find the thing you're seeing, read the short
+"what this means" note, then follow the fix. Most CB8 problems come down to one of
+four things:
+
+- the website can't reach its database (Postgres),
+- the worker (the background helper that scans your library) isn't running,
+- CB8 can't find the folder you pointed it at, or
+- the login system doesn't recognize the web address you're signing in from.
+
+Unfamiliar word? Check the [Glossary](/glossary).
+
+## Quick checks
+
+When in doubt, start here. These commands gather the basic facts about your setup.
+The logs (CB8's running diary) usually contain the real explanation.
+
+### Docker Compose
+
+```bash
+cd packaging/docker
+docker compose ps
+docker compose logs --tail=200 cb8
+docker compose logs --tail=200 cb8-worker
+docker compose logs --tail=100 cb8-postgres
+curl -fsS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:${CB8_PUBLISH_PORT:-4218}/
+```
+
+### Kubernetes
+
+```bash
+kubectl -n cb8 get pods,svc,pvc
+kubectl -n cb8 logs deploy/cb8 --tail=200
+kubectl -n cb8 logs deploy/cb8-worker --tail=200
+kubectl -n cb8 logs deploy/cb8-postgres --tail=100
+```
+
+## Login is rejected as cross-site
+
+What this means: for security, CB8 keeps a list of web addresses it trusts for
+sign-in. The address you're using isn't on that list, so it refuses the login. (An
+"origin" is the exact web address — see [Glossary](/glossary).) This almost always
+means the URL you are using is missing from `BETTER_AUTH_TRUSTED_ORIGINS`, the
+setting that holds that trusted list.
+
+Origins must match exactly: scheme, hostname, and port. These are all different:
+
+- `http://192.168.1.248:4218`
+- `http://freya.local:4218`
+- `https://reader.example.com`
+
+Fix:
+
+1. Add every URL users actually open to `BETTER_AUTH_TRUSTED_ORIGINS`.
+2. If using HTTPS or a reverse proxy, set `BETTER_AUTH_URL` to the public HTTPS URL.
+3. Restart the API container / Deployment.
+4. Try signing in from the exact same URL you added.
+
+Example:
+
+```ini
+BETTER_AUTH_URL=https://reader.example.com
+BETTER_AUTH_TRUSTED_ORIGINS=https://reader.example.com,http://192.168.1.248:4218
+```
+
+See [Reverse proxy and HTTPS](/reverse-proxy) for proxy examples.
+
+## Guest can read, but progress does not save
+
+What this means: nothing is broken — this is how guest mode is designed. Guests can
+browse and read, but they can't save anything. The server turns away attempts to
+save progress, favorites, or other changes (it replies with `401`, the web code for
+"not signed in"). To have your reading position and favorites remembered, sign in
+with a real account. In the app, a small guest badge shows when you're in this mode.
+
+## Library path added, but nothing appears
+
+What this means: when you add a folder, the website just writes a "please scan this"
+note onto a to-do list. The actual scanning is done by the worker (the background
+helper). If the worker isn't running, your folder gets noted but nothing ever gets
+read — so nothing shows up.
+
+Check the worker:
+
+```bash
+docker compose ps cb8-worker
+docker compose logs cb8-worker --tail=200
+```
+
+or:
+
+```bash
+kubectl -n cb8 get pod -l app=cb8-worker
+kubectl -n cb8 logs deploy/cb8-worker --tail=200
+```
+
+Also confirm you added the path as CB8 sees it from inside, not the path on your
+actual machine. CB8 runs in a container — a sealed box — and your real folders are
+mapped to simpler names inside that box. You must add the inside name. In the Docker
+setup the mapping is:
+
+| Host `.env` value | Path to add in CB8 |
+| --- | --- |
+| `CB8_COMICS_PATH=/mnt/raid6/comics` | `/comics` |
+| `CB8_EBOOKS_PATH=/mnt/raid6/ebooks` | `/ebooks` |
+
+## Scan sees zero files
+
+What this means: CB8 looked in the folder but came up empty-handed. Usually it's
+pointed at the wrong place, or it isn't allowed to read what's there.
+
+Common causes:
+
+- The wrong path was added. Add `/comics` or `/ebooks`, not `/mnt/...`, inside Docker.
+- The folder on your machine is actually empty, or isn't connected where CB8 expects.
+- (Kubernetes) the storage mount points don't match the setup file. A PVC is the
+  storage slot Kubernetes hands to CB8 — see [Glossary](/glossary).
+- Your files are in a format CB8 doesn't open. See [Format support](/formats).
+- File permissions stop CB8 (which runs as user `10001`) from reading the folder.
+
+The commands below let you look inside CB8 and confirm whether it can see your files.
+
+Docker inspection:
+
+```bash
+docker compose exec cb8 ls -la /comics
+docker compose exec cb8-worker find /comics -maxdepth 2 -type f | head
+```
+
+Kubernetes inspection:
+
+```bash
+kubectl -n cb8 exec deploy/cb8 -- ls -la /comics
+kubectl -n cb8 exec deploy/cb8-worker -- sh -c 'find /comics -maxdepth 2 -type f | head'
+```
+
+What you should see: a list of your files. If both commands come back empty, CB8
+genuinely can't see your library at that path — revisit the causes above.
+
+## Server will not start
+
+What this means: CB8 tried to start but stopped itself because something essential is
+missing or wrong. The reason is in the logs. Find the message that matches yours in
+the table below and apply its fix.
+
+Look for these messages in API or worker logs:
+
+| Log / symptom | Likely cause | Fix |
+| --- | --- | --- |
+| `DATABASE_URL is required` | Missing Postgres connection string | Set `DATABASE_URL` for both API and worker. |
+| Cannot connect to Postgres | Wrong password, host, database, or Postgres not ready | Check the `cb8-db` secret / Compose `.env` and Postgres health. |
+| `vector` extension unavailable | Postgres lacks pgvector | Use `pgvector/pgvector:pg18` or install pgvector on bare metal. |
+| Archive tool missing | `7z` / `unrar` not found | Install tools or set `CB8_SEVENZIP_PATH` / `CB8_UNRAR_PATH`. |
+| SPA assets 404 | Bad `CB8_WEB_ROOT` override | Unset it unless you know the asset path. |
+
+## Archive import fails
+
+What this means: a comic file is really a zip-style archive of page images, and CB8
+relies on two small helper programs to open them. If a helper is missing, that
+comic can't be unpacked.
+
+- `7z` is used for **CBZ** files (and as a fallback for CBR).
+- `unrar` is used for **CBR/RAR** files when it's available.
+
+The Docker images come with these built in. If you installed on bare metal (directly
+on the machine, no container), you need to provide them yourself. Verify:
+
+```bash
+7z
+unrar
+```
+
+What you should see: each command prints its own help or version text. If instead
+you get `command not found`, that tool is missing and needs installing (or pointing
+to). If they are not found automatically, tell CB8 where they are:
+
+```ini
+CB8_SEVENZIP_PATH=/usr/bin/7z
+CB8_UNRAR_PATH=/usr/bin/unrar
+```
+
+For very large archives, raise:
+
+```ini
+CB8_ARCHIVE_LIST_TIMEOUT_MS=120000
+CB8_ARCHIVE_EXTRACT_TIMEOUT_MS=60000
+```
+
+## Kubernetes pods are Pending
+
+What this means: Kubernetes has accepted CB8 but hasn't been able to actually start
+it — usually because it's waiting on something (a place to run, or storage) that
+isn't available. This section only applies if you're running on Kubernetes.
+
+Check:
+
+```bash
+kubectl -n cb8 describe pod <pod-name>
+kubectl -n cb8 get pvc
+```
+
+Common causes (these are leftovers from the author's own setup that you need to
+adjust for yours):
+
+- `nodeSelector` points at the author's home server (`freya` / `mars`), which doesn't
+  exist in your cluster.
+- The storage slot (PVC) can't be created because the named storage class isn't set up.
+- The GPU files ask for an NVIDIA GPU on a cluster that doesn't have one (or its driver).
+- A private download key (`registry-s8njee-pull`, a "secret") is referenced but not
+  created. A secret is a stored credential — see [Glossary](/glossary).
+
+See [Install on Kubernetes](/installation/kubernetes), especially "What you must change".
+
+## Docker container starts, then exits
+
+What this means: CB8 starts up but immediately shuts back down, so it never stays
+running. The logs will say why.
+
+Read the logs:
+
+```bash
+docker compose logs cb8
+docker compose logs cb8-worker
+```
+
+One common reason: the database was created by an older version of Postgres. A newer
+Postgres won't open old data — it refuses rather than risk corrupting it. The stored
+data lives in a "volume" (a named storage area that survives restarts; see
+[Glossary](/glossary)). The setup uses `pgvector/pgvector:pg18`, so don't point it at
+a volume that an older Postgres created without doing a proper upgrade first. See
+[Upgrades and rollback](/upgrades) for the safe way to do this.
+
+## Page loads are slow
+
+What this means: this is often normal the first time. When you open a comic CB8 has
+never shown before, it has to unpack it and prepare the images, which takes a moment.
+After that it remembers the result (caches it) and later opens are fast. If, however,
+*every* page is slow even on re-reads, something deeper is the bottleneck:
+
+- Make sure the library mount is local or fast enough for random reads.
+- Lower `CB8_INGEST_CONCURRENCY` on small NAS hosts during scans.
+- Keep `CB8_DATA_DIR` on reasonably fast storage for image caches.
+- For HD upscaling, use a persistent `CB8_UPSCALE_CACHE_DIR`; otherwise expensive
+  pages regenerate repeatedly.
+
+## Still stuck
+
+That's OK — gathering a few details makes it much easier to spot the problem (and is
+exactly what you'd want on hand if you ask someone for help). Collect:
+
+- Deployment type: Docker, Kubernetes, or bare metal.
+- The URL you use in the browser and the value of `BETTER_AUTH_TRUSTED_ORIGINS`.
+- API logs and worker logs.
+- The exact library path you added in the UI.
+- Output of `docker compose ps` or `kubectl -n cb8 get pods,svc,pvc`.
+
+Then compare against [Configuration](/configuration), [Operations](/operations),
+and the relevant install page.

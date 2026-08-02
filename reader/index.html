@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover"
+    />
+    <title>CB8</title>
+  </head>
+
+  <body>
+    <script>
+      // requestAnimationFrame never fires while the document is hidden, and
+      // epub.js pumps its internal task queue on rAF — so opening a book in a
+      // hidden webview (app switched away mid-open, cold start) would hang at
+      // "Opening book…" until the next repaint. Race every rAF against a
+      // timeout: when visible the native frame wins (timing unchanged); when
+      // hidden the timeout keeps async pipelines draining.
+      (function () {
+        var native = window.requestAnimationFrame.bind(window);
+        var nativeCancel = window.cancelAnimationFrame.bind(window);
+        var nextId = 1;
+        var pending = {};
+        window.requestAnimationFrame = function (cb) {
+          var id = nextId++;
+          function fire(ts) {
+            var p = pending[id];
+            if (!p) return;
+            delete pending[id];
+            nativeCancel(p.raf);
+            clearTimeout(p.timer);
+            cb(ts);
+          }
+          pending[id] = {
+            raf: native(fire),
+            timer: setTimeout(function () { fire(performance.now()); }, 120),
+          };
+          return id;
+        };
+        window.cancelAnimationFrame = function (id) {
+          var p = pending[id];
+          if (!p) return;
+          delete pending[id];
+          nativeCancel(p.raf);
+          clearTimeout(p.timer);
+        };
+      })();
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

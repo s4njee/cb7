@@ -1,0 +1,12 @@
+# Wiki.js for the CB8 docs.
+#
+# Deploy:  kubectl apply -k packaging/wiki/k8s
+#
+# Prerequisite secret (create once, not managed here):
+#   kubectl create namespace wiki
+#   kubectl -n wiki create secret generic wiki-db --from-literal=password=<STRONG_PW>
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - wiki.yaml

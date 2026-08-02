@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  iOS Info.plist additions, merged by the Tauri CLI into the generated
+  `gen/apple/reader_iOS/Info.plist` at `tauri ios dev|build` time. Referenced
+  explicitly from `tauri.conf.json` (`bundle.iOS.infoPlist`); the CLI also
+  auto-detects this filename next to the config. Nothing in `gen/` is
+  hand-edited — regenerating the Xcode project keeps these keys.
+
+  DISC-4: browsing `_cb8._tcp` triggers the local-network permission prompt on
+  iOS 14+. Both keys are required — a missing usage description crashes the
+  app on first browse, and a service type absent from NSBonjourServices is
+  silently refused. Denial degrades to an empty browse (see discovery.rs), not
+  an error banner.
+
+  QR-3: the barcode-scanner plugin reads NSCameraUsageDescription itself and
+  rejects the scan with "NSCameraUsageDescription is not in the app Info.plist"
+  when it is absent — so without this key the Scan button is permanently dead
+  on a real device (a simulator has no camera, so nothing catches it there).
+
+  ATS: the app's own API traffic never touches App Transport Security — it goes
+  through Rust (reqwest/rustls, raw sockets), not NSURLSession — and the
+  production webview only loads bundled assets plus the `cb8://` scheme. The
+  one thing ATS does gate is `tauri ios dev` on a physical device, where the
+  webview loads the dev server over plain http from a LAN address.
+  NSAllowsLocalNetworking is the narrow key for exactly that: it permits
+  insecure loads to local-network addresses **without** relaxing anything for
+  the public internet, unlike NSAllowsArbitraryLoads.
+
+  Files / share sheet:
+  - UIFileSharingEnabled + library under Documents (see state.rs) makes the
+    on-device shelf visible in the Files app (On My iPhone → CB8).
+  - LSSupportsOpeningDocumentsInPlace lets "Open in CB8" hand us a readable
+    URL without forcing a full Files copy when the source allows it; we still
+    *copy into* our library so re-reads never depend on a security-scoped
+    bookmark.
+  - UISupportsDocumentBrowser surfaces us as a document-aware app in the
+    system document browser.
+  Document types (CFBundleDocumentTypes / UTExportedTypeDeclarations) come
+  from tauri.conf.json `bundle.fileAssociations`, not this file.
+-->
+<plist version="1.0">
+<dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>CB8 looks for book servers on your network</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_cb8._tcp</string>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>CB8 scans the pairing code shown by your server</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>UISupportsDocumentBrowser</key>
+	<true/>
+</dict>
+</plist>

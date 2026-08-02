@@ -1,0 +1,95 @@
+# CB8 background worker.
+#
+# Same image as the `cb8` web server, but runs `dist/worker.mjs` instead of the
+# Fastify server. It drains the pg-boss queues (library scans, ebook search
+# backfill) and runs the auto-rescan scheduler — all the heavy/long work that
+# used to run inside the API process. Jobs live in Postgres, so a restart resumes
+# in-flight work; handlers are idempotent so re-delivery never duplicates rows.
+#
+# Comics/ebooks are mounted read-only over NFS, so the worker could run on any
+# node; kept pinned to `freya` for now (near Postgres). No Service / ports: the
+# worker exposes no HTTP.
+#
+# The image tag is pinned centrally in kustomization.yaml (the `images` transform
+# matches registry.s8njee.com/cb8 for both this and the cb8 Deployment), so this
+# worker always runs the same build as the API.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cb8-worker
+  namespace: cb8
+  labels: { app: cb8-worker }
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: { app: cb8-worker }
+  template:
+    metadata:
+      labels: { app: cb8-worker }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      nodeSelector:
+        kubernetes.io/hostname: freya
+      imagePullSecrets:
+        - name: registry-s8njee-pull
+      containers:
+        - name: worker
+          image: registry.s8njee.com/cb8:latest
+          imagePullPolicy: Always
+          command: ["/usr/bin/tini", "--", "node", "/app/dist/worker.mjs"]
+          env:
+            - name: CB8_DATA_DIR
+              value: /var/lib/cb8
+            # Parallel archive-open + sharp thumbnailing during a scan. freya is
+            # 16c/32t with 64GB, so give the 40k ingest more lanes (default is 4).
+            - name: CB8_INGEST_CONCURRENCY
+              value: "8"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: cb8-db
+                  key: url
+            # Ebook search: the in-cluster GPU embedding service (TEI on mars).
+            - name: EMBED_URL
+              value: http://cb8-embeddings:8000/v1/embeddings
+            - name: EMBED_MODEL
+              value: BAAI/bge-large-en-v1.5
+            # Enqueue an idempotent ebook search backfill on worker start.
+            - name: SEARCH_BACKFILL_ON_START
+              value: "1"
+          resources:
+            requests: { cpu: "1", memory: "1Gi" }
+            limits:   { cpu: "8", memory: "8Gi" }
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/cb8
+            - name: web-uploads
+              mountPath: /var/lib/cb8/web-uploads
+            - name: comics
+              mountPath: /comics
+            - name: ebooks
+              mountPath: /ebooks
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: web-uploads
+          nfs:
+            server: 192.168.1.156
+            path: /mnt/raid6/CB8
+        - name: comics
+          nfs:
+            server: 192.168.1.156
+            path: /mnt/raid6/comics
+            readOnly: true
+        - name: ebooks
+          nfs:
+            server: 192.168.1.156
+            path: /mnt/raid6/ebooks
+            readOnly: true

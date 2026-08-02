@@ -1,0 +1,9 @@
+node_modules
+.next
+pages
+*.config.*
+package.json
+pnpm-lock.yaml
+.gitignore
+README.md
+k8s

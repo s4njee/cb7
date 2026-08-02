@@ -1,0 +1,48 @@
+# The CB8 app
+
+The CB8 app is the reader you actually hold — on a phone, a tablet, or a Mac. It's a single library for **CBZ/CBT comics, PDFs, and EPUB books**, with covers, search, collections, series, tags, and a *Continue Reading* shelf shared across all of them.
+
+![CB8 library on an iPad](/img/app/library.png)
+
+## On-device or server — same app
+
+The app is **hybrid**, and that's the one idea worth understanding up front:
+
+- **This device** — files live in the app, the catalog is in local storage, everything works offline. No server required.
+- **A server** — point the app at a self-hosted [CB8 server](/) and browse and read your whole remote library, with your place synced back.
+
+Switching between the two is one tap in the top bar. The interface is identical either way — see [Connecting to a server](/app/server).
+
+> **You don't need a server to use the app.** Install it, import a few files, and you have a complete offline reader. The server is only for sharing one library across devices and accounts.
+
+## Platforms
+
+| Platform | Status |
+| --- | --- |
+| **iOS / iPadOS** | Full support |
+| **Android** (phone & tablet) | Full support |
+| **macOS** | Full support, with drag-and-drop import, keyboard shortcuts, and a native menu bar |
+| **Windows / Linux** | Scaffolded; not yet a first-class build |
+
+The layout adapts to the screen: a bottom navigation bar on a phone, a sidebar rail and denser grid on a tablet or desktop.
+
+## Getting the app
+
+CB8 is open source. Until store builds are posted, install it from source with the [Flutter SDK](https://docs.flutter.dev/get-started/install):
+
+```bash
+git clone https://github.com/s4njee/cb8_flutter
+cd cb8_flutter
+flutter pub get
+flutter run            # to a connected device or simulator
+```
+
+To build a release artifact for a platform, use the matching command — `flutter build ipa`, `flutter build apk`, or `flutter build macos`. The project's [`README.md`](https://github.com/s4njee/cb8_flutter) has the per-platform details.
+
+## Where to next
+
+- [Library & organization](/app/library) — the grid, filters, collections, series, and tags.
+- [Reading](/app/reading) — comic, EPUB, and PDF readers, and how your place is kept.
+- [Importing & watched folders](/app/importing) — get files in, and keep a folder in sync.
+- [Metadata & duplicates](/app/metadata) — edit details, pull them from the web, and clean up copies.
+- [Connecting to a server](/app/server) — pair with a self-hosted CB8 server.

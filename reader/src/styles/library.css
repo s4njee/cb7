@@ -1,0 +1,688 @@
+/* CB8 — library-surface styles (sort, status chips, collections/series pivot,
+   favorite hearts, book detail sheet, cover overflow, pull-to-refresh).
+   Extends app.css using the same tokens; owned by the library feature set. */
+
+/* ------------------------------------------------------------- sort control */
+
+.sort-control {
+  position: relative;
+  margin-left: auto;
+}
+.sort-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+}
+.sort-pill.active,
+.sort-pill:hover {
+  background: var(--surface);
+  color: var(--fg);
+}
+.sort-pill-label {
+  white-space: nowrap;
+}
+.sort-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--surface2);
+}
+.sort-menu {
+  position: absolute;
+  top: 40px;
+  right: 0;
+  min-width: 190px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 6px;
+  z-index: 50;
+  animation: rUp var(--duration-med) var(--ease-standard);
+}
+.sort-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  font-size: 13.5px;
+  color: var(--fg);
+}
+.sort-menu-item:hover {
+  background: var(--surface2);
+}
+.sort-menu-item.active {
+  color: var(--accent);
+}
+.sort-check {
+  color: var(--accent);
+  font-size: 12px;
+}
+.sort-menu-sep {
+  height: 1px;
+  background: var(--line);
+  margin: 5px 6px;
+}
+
+/* --------------------------------------------------------------- sub-filter row */
+
+.filters-sub {
+  padding: 12px 40px 0;
+  flex: none;
+  /* Stable block when chips mount (sign-in / shelf change) so the grid doesn't jump. */
+  min-height: calc(12px + 32px);
+}
+.status-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  /* Reserve one chip row so chips appearing later don't shove the grid. */
+  min-height: 32px;
+}
+.chip {
+  padding: 6px 13px;
+  border-radius: 18px;
+  font-size: 12.5px;
+  font-weight: 500;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.chip:hover {
+  color: var(--fg);
+}
+.chip.active {
+  background: var(--surface);
+  color: var(--fg);
+  border-color: transparent;
+}
+.chip-fav.active {
+  color: var(--accent);
+}
+.chip-heart {
+  font-size: 12.5px;
+  line-height: 1;
+}
+.chip-fav.active .chip-heart {
+  color: var(--accent);
+}
+
+/* ------------------------------------------------------ collections / series */
+
+.scope-row {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 26px;
+}
+.scope-group {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.scope-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.scope-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.scope-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 500;
+  max-width: 260px;
+}
+.scope-chip:hover {
+  border-color: var(--accent);
+}
+.scope-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scope-chip-count {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--muted);
+  background: var(--surface2);
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.scope-breadcrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 4px 0;
+}
+.scope-breadcrumb:hover {
+  color: var(--fg);
+}
+.scope-breadcrumb .crumb-root {
+  color: var(--accent);
+}
+.scope-breadcrumb .crumb-name {
+  color: var(--fg);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* --------------------------------------------------------- favorite heart */
+
+.cover-wrap {
+  position: relative;
+  width: 100%;
+}
+.fav-heart {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  line-height: 1;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+  opacity: 0;
+  transition:
+    opacity var(--duration-fast) var(--ease-standard),
+    transform var(--duration-instant) var(--ease-standard);
+  z-index: 2;
+}
+.cover-wrap:hover .fav-heart,
+.fav-heart:focus-visible {
+  opacity: 1;
+}
+.fav-heart:hover {
+  transform: scale(1.1);
+}
+.fav-heart.on {
+  opacity: 1;
+  color: #ff6b81;
+  background: rgba(0, 0, 0, 0.34);
+}
+/* Touch devices have no hover — keep the heart discoverable only once favorited;
+   favorite is also on the detail sheet opened via overflow / long-press. */
+@media (hover: none) {
+  .fav-heart {
+    opacity: 0;
+  }
+  .fav-heart.on {
+    opacity: 1;
+  }
+}
+
+/* --------------------------------------------------------- cover overflow */
+
+.cover-overflow {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 2;
+  width: 30px;
+  height: 26px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--fg);
+  background: rgba(20, 21, 25, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(8px);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+.cover-wrap:hover .cover-overflow,
+.cover-overflow:focus-visible {
+  opacity: 1;
+}
+.cover-overflow:hover {
+  background: rgba(20, 21, 25, 0.88);
+}
+@media (hover: none) {
+  .cover-overflow {
+    opacity: 0.92;
+  }
+}
+
+/* --------------------------------------------------------- book detail sheet */
+
+.book-detail-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  animation: rIn var(--duration-med) var(--ease-standard);
+  padding: 0;
+}
+.book-detail-backdrop:not(.phone) {
+  align-items: center;
+  padding: 24px;
+}
+.book-detail-sheet {
+  width: min(440px, 100%);
+  max-height: min(92vh, 720px);
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 8px 16px 18px;
+  animation: rUp var(--duration-med) var(--ease-standard);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.book-detail-sheet.phone {
+  width: 100%;
+  max-height: 92vh;
+  border-radius: 20px 20px 0 0;
+  border-bottom: none;
+  padding: 6px 16px calc(16px + env(safe-area-inset-bottom));
+}
+.book-detail-grab {
+  display: none;
+  width: 36px;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--line);
+  margin: 4px auto 0;
+}
+.book-detail-sheet.phone .book-detail-grab {
+  display: block;
+}
+.book-detail-top {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 28px;
+}
+.book-detail-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--muted);
+  background: var(--surface2);
+  border: 1px solid var(--line);
+}
+.book-detail-close:hover {
+  color: var(--fg);
+}
+.book-detail-hero {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.book-detail-cover {
+  flex: none;
+  width: 96px;
+}
+.book-detail-cover-art {
+  width: 96px;
+  aspect-ratio: 2 / 3;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+  border: 1px solid var(--line);
+}
+.book-detail-cover-art .cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.book-detail-hero-text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 2px;
+}
+.book-detail-title {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+  margin: 0;
+}
+.book-detail-meta {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.book-detail-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.book-detail-kind {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+}
+.book-detail-source-detail {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.book-detail-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  margin: 0;
+}
+.book-detail-fact {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.book-detail-fact dt {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.book-detail-fact dd {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.book-detail-progress {
+  margin-top: -2px;
+}
+.book-detail-progress-track {
+  height: 4px;
+  border-radius: 4px;
+  background: var(--progress-track);
+  overflow: hidden;
+}
+.book-detail-progress-track > div {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--accent);
+}
+.book-detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.book-detail-tag {
+  font-size: 11.5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  background: var(--surface2);
+}
+.book-detail-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+.book-detail-primary {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--bg);
+  background: var(--accent);
+  border: none;
+}
+.book-detail-primary:hover {
+  filter: brightness(1.06);
+}
+.book-detail-action {
+  width: 100%;
+  text-align: left;
+  padding: 11px 12px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  color: var(--fg);
+  border: 1px solid transparent;
+  background: transparent;
+}
+.book-detail-action:hover {
+  background: var(--surface2);
+}
+.book-detail-action.danger {
+  color: var(--danger, #d2544a);
+}
+
+/* Source / availability pill — detail / action surfaces only. */
+.source-badge {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  background: var(--surface2);
+}
+.source-badge.tone-local {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.source-badge.tone-server {
+  color: var(--fg);
+  opacity: 0.85;
+}
+.source-badge.tone-offline {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+.source-badge.tone-muted {
+  color: var(--muted);
+}
+
+/* --------------------------------------------------------- pull-to-refresh */
+
+.lib-ptr {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 1;
+}
+.lib-ptr-spin {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+}
+.lib-ptr-spin.spinning {
+  animation: libspin 0.7s linear infinite;
+}
+.lib-content {
+  will-change: transform;
+}
+
+/* ---------------------------------------------------------- infinite scroll */
+
+.grid-sentinel {
+  height: 1px;
+}
+.load-more {
+  padding: 22px 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.load-more .status-spinner {
+  width: 14px;
+  height: 14px;
+  border-width: 1.5px;
+}
+
+@keyframes libspin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------------------------------------------------------------- responsive */
+
+@media (max-width: 820px) {
+  .filters-sub {
+    padding: 12px 20px 0;
+  }
+}
+
+/* ------------------------------------------------------------ shelf tabs */
+/* Which library you're looking at is a bigger question than how it's
+   filtered, so the switch sits above the filter row and reads as a heading
+   rather than another pill in the same soup. */
+.shelf-tabs {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 0 40px;
+  margin-bottom: 14px;
+}
+.shelf-tab {
+  position: relative;
+  padding: 6px 2px 8px;
+  margin-right: 18px;
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.shelf-tab.active {
+  color: var(--fg);
+}
+.shelf-tab.active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.shelf-tab.ghost {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+}
+.shelf-tab-n {
+  margin-left: 6px;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+/* -------------------------------------------------------- empty shelf */
+/* An empty shelf is a new install, not a failure — so it gets the two ways
+   to fill it rather than an apology. */
+.empty-invite {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: 420px;
+  margin: 0 auto;
+}
+.empty-title {
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.empty-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 10px;
+}
+.empty-actions .btn-accent,
+.empty-actions .btn-ghost {
+  width: auto;
+  margin: 0;
+  padding: 9px 18px;
+}
+
+@media (max-width: 640px) {
+  .shelf-tabs {
+    padding: 0 20px;
+  }
+}

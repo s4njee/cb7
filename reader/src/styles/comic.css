@@ -1,0 +1,26 @@
+/* Comic reader additions: manga page direction and wide (double-page) scans.
+   Base .comic-paged / .comic-page / .thumb-strip rules live in app.css. */
+
+/* Manga reads right-to-left. Flipping the visual axis in CSS rather than
+   reversing the page arrays means every index stays in reading order, so the
+   spread/pairing maths never has to know which way the book runs. */
+.comic-paged.rtl {
+  flex-direction: row-reverse;
+}
+
+/* The strip is a scroll container, so it gets `direction` rather than
+   `row-reverse`: that also puts the inline start — and the initial scroll
+   position — on page 1 at the right, instead of at the end of the book. */
+.thumb-strip.rtl {
+  direction: rtl;
+}
+
+/* A landscape page is a two-page spread that was scanned as a single image, so
+   it renders alone and takes the whole stage. Height drives the box and the
+   measured ratio (set inline) drives the width, which keeps it at the same
+   optical scale as the paired portrait pages around it. */
+.comic-paged .comic-page.wide {
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+}

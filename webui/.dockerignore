@@ -1,0 +1,23 @@
+node_modules
+.pnpm-store
+out
+dist
+.vite
+.git
+.github
+.idea
+.vscode
+*.log
+coverage
+.DS_Store
+packaging/k8s
+
+# Local comic/book library + generated docs — never belong in the build context
+Marvel Omnibus - Part One/
+**/*.cbz
+**/*.cbr
+**/*.cbt
+**/*.pdf
+**/*.epub
+**/*.mobi
+docs

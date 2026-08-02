@@ -1,0 +1,26 @@
+# CB8 deployment for the single `freya` k3s cluster (control-plane `freya` +
+# worker `mars`). The base manifests are already freya-correct (nodeSelector
+# freya, /mnt/raid6 hostPaths, Service :4218, registry.s8njee.com image pulled
+# with the registry-s8njee-pull secret), so this overlay only pins the image tag.
+#
+# Deploy:  kubectl apply -k packaging/k8s   (current context must be `freya`)
+# Update:  bump `newTag` below to a freshly pushed image, then re-apply.
+#
+# Secrets required in the cb8 namespace (create once, not managed here):
+#   cb8-db                key `url` (DATABASE_URL) + `password`
+#   cb8-secrets           key `better-auth-secret`
+#   registry-s8njee-pull  dockerconfigjson for registry.s8njee.com
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - cb8.yaml
+  - postgres.yaml
+  - worker.yaml
+  - embeddings.yaml
+  - upscale.yaml
+
+images:
+  - name: registry.s8njee.com/cb8
+    newTag: "20260802-023717-amd64"

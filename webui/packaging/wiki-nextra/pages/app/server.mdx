@@ -1,0 +1,46 @@
+# Connecting to a server
+
+Everything so far works with no server at all. Pair the app with a [self-hosted CB8 server](/) and the same screens read your **remote** library instead — covers, search, reading, and progress sync — over the server's API. Switching is one tap, and the interface doesn't change.
+
+## Pointing the app at your server
+
+In the top bar, tap the source selector (it reads **This device**) and switch to a server, or **Add server…** to register a new one.
+
+![Switching between this device and a server](/img/app/server-switch.png)
+
+Enter the server's address — the same `host:port` you reach its web UI on:
+
+```
+http://192.168.1.50:4218
+```
+
+`4218` is the default published Docker port. Switch back to **This device** any time; your on-device library is untouched while you're connected.
+
+## Guest vs. signed in
+
+Against a server you can browse two ways:
+
+- **Guest** — browse and read without an account. Your reading position **isn't** saved on the server.
+- **Signed in** — the server saves where you left off, so your place follows you across every device pointed at it.
+
+The app shows a **guest badge** and a one-tap **sign-in** prompt when a server needs an account to save progress. (The server rejects writes from guests by design — that's expected, not an error.)
+
+## If sign-in is refused
+
+If the server rejects your login as cross-site, the cause is almost always a **trusted origin** the server doesn't recognize. The server only accepts sign-ins from origins listed in `BETTER_AUTH_TRUSTED_ORIGINS`, and that list must include **every** address you reach it by — LAN IP, hostname, `.local` name, each with its port:
+
+```bash
+# on the server, in packaging/docker/.env
+BETTER_AUTH_TRUSTED_ORIGINS=http://192.168.1.50:4218,http://freya.local:4218
+```
+
+See the server's [Configuration](/configuration) and [Reverse proxy & HTTPS](/reverse-proxy) pages for the exact format. The [Troubleshooting](/troubleshooting) page covers login failures in more depth.
+
+## What's on-device only
+
+A few features manage the local library directly and are hidden in server mode, since the server owns its own catalog:
+
+- Editing metadata, deleting items, the Want to Read shelf
+- Watched folders and duplicate detection
+
+Favorites and reading progress work in both modes.

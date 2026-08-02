@@ -1,0 +1,175 @@
+# CB8 headless deployment.
+#
+# Single pod (`replicas: 1`, `strategy: Recreate`). Durable state lives in
+# Postgres (DATABASE_URL); the only on-disk state is regenerable cache + the
+# ingest log, so /var/lib/cb8 is an emptyDir.
+#
+# Storage layout:
+#   - data        /var/lib/cb8             emptyDir — image cache (ephemeral;
+#                                           cover thumbnails live in Postgres).
+#   - web-uploads /var/lib/cb8/web-uploads uploaded archives          [NFS, rw]
+#                                           (durable; shared with cb8-worker so
+#                                           ingest and page serving see the same
+#                                           files — emptyDir is per-pod, so it
+#                                           lost uploads on restart/across pods).
+#   - comics      /comics                  comic archives (.cbz / .cbr) [NFS, ro]
+#   - ebooks      /ebooks                  e-book files (.epub/.pdf)    [NFS, ro]
+#
+# comics/ebooks are mounted read-only over NFS from freya's ZFS exports
+# (sharenfs), so any node can read them — e.g. a future mars-side OCR worker.
+#
+# After the pod is up, sign in as admin and add /comics and /ebooks as
+# library paths from the web UI.
+#
+# Single k3s cluster: `freya` is the control-plane (and holds all the data, so
+# the pod is pinned to it); `mars` is a worker for spare capacity. Deploy with
+# `kubectl apply -k packaging/k8s` after creating the cb8-db / cb8-secrets /
+# registry-s8njee-pull secrets. The image tag is pinned in kustomization.yaml.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cb8
+
+---
+# Persistent cache for GPU-upscaled comic pages (Real-ESRGAN output). Kept off
+# the ephemeral /var/lib/cb8 emptyDir because regenerating pages is GPU-expensive
+# — survives restarts; the API LRU-evicts within this budget. local-path on freya.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cb8-upscale-cache
+  namespace: cb8
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: { requests: { storage: 50Gi } }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cb8
+  namespace: cb8
+  labels: { app: cb8 }
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: { app: cb8 }
+  template:
+    metadata:
+      labels: { app: cb8 }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      # The comics/ebooks hostPaths and the Postgres local-path PVC all live on
+      # the freya node, so the pod is pinned there. mars is a worker in the same
+      # cluster but only provides spare capacity for other workloads.
+      nodeSelector:
+        kubernetes.io/hostname: freya
+      imagePullSecrets:
+        - name: registry-s8njee-pull
+      containers:
+        - name: cb8
+          image: registry.s8njee.com/cb8:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8008
+              protocol: TCP
+          env:
+            - name: CB8_DATA_DIR
+              value: /var/lib/cb8
+            - name: CB8_PORT
+              value: "8008"
+            - name: CB8_HOST
+              value: 0.0.0.0
+            - name: BETTER_AUTH_TRUSTED_ORIGINS
+              value: "http://192.168.1.248:4218,http://192.168.1.248:31456,http://freya.local:4218,http://freya.local:31456,http://freya:4218,http://freya:31456"
+            - name: BETTER_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: cb8-secrets
+                  key: better-auth-secret
+                  optional: true
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: cb8-db
+                  key: url
+            # Ebook search: the in-cluster GPU embedding service (TEI on mars).
+            - name: EMBED_URL
+              value: http://cb8-embeddings:8000/v1/embeddings
+            - name: EMBED_MODEL
+              value: BAAI/bge-large-en-v1.5
+            # Comic HD upscaling: the in-cluster GPU service (Real-ESRGAN on mars).
+            - name: UPSCALE_URL
+              value: http://cb8-upscale:8000/upscale
+            - name: CB8_UPSCALE_CACHE_DIR
+              value: /var/lib/cb8-upscale-cache
+            # NOTE: background work (search backfill, folder auto-rescan, bulk
+            # ingest) now runs in the cb8-worker Deployment via pg-boss. The API
+            # only enqueues jobs — see worker.yaml.
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits:   { cpu: "2000m", memory: "2Gi" }
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/cb8
+            - name: web-uploads
+              mountPath: /var/lib/cb8/web-uploads
+            - name: comics
+              mountPath: /comics
+            - name: ebooks
+              mountPath: /ebooks
+            - name: upscale-cache
+              mountPath: /var/lib/cb8-upscale-cache
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: web-uploads
+          nfs:
+            server: 192.168.1.156
+            path: /mnt/raid6/CB8
+        - name: comics
+          nfs:
+            server: 192.168.1.156
+            path: /mnt/raid6/comics
+            readOnly: true
+        - name: ebooks
+          nfs:
+            server: 192.168.1.156
+            path: /mnt/raid6/ebooks
+            readOnly: true
+        - name: upscale-cache
+          persistentVolumeClaim: { claimName: cb8-upscale-cache }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cb8
+  namespace: cb8
+  labels: { app: cb8 }
+spec:
+  type: LoadBalancer
+  selector: { app: cb8 }
+  ports:
+    - name: http
+      port: 4218
+      targetPort: http
+      protocol: TCP

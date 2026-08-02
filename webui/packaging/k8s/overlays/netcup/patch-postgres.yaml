@@ -1,0 +1,9 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cb8-postgres
+  namespace: cb8
+spec:
+  template:
+    spec:
+      nodeSelector: null

@@ -1,0 +1,240 @@
+/* CB8 — Hearth Noir design tokens.
+   Ported from the Flutter client (lib/core/theme/app_theme.dart).
+   App chrome is dark-only; accent swaps via [data-accent] on <html>.
+   Reading page themes (dark/sepia/light) live in epubTheme.ts, not here. */
+
+:root {
+  /* Fixed surfaces */
+  --bg: #0d0b0a;
+  --surface: #161211;
+  --surface2: #1f1913;
+  --fg: #eae4d8;
+  --muted: #948a7c;
+  --line: #262019;
+  --danger: #e0574a;
+
+  /* Extended surfaces */
+  --header-rule: #211c17;
+  --reading-text: #ddd4c3;
+  --section-label: #847a6c;
+  --faint: #685f52;
+  --placeholder: #776d5f;
+  --hero-surface: #141110;
+  --drawer-bg: #0a0808;
+  --popover: #151110;
+  --popover-border: #2b241c;
+  --accent-tint: #241412;
+  --avatar-bg: #2e1c17;
+  --progress-track: #282219;
+
+  /* Signature accent (overridden by [data-accent]) */
+  --accent: #e15b47;
+  /* Ink on an accent fill. Dark, not white: the six accents were retuned to
+     lower chroma for a warm black, and white on them lands at 2.7–3.6:1 —
+     orange, teal and green fail even the 3:1 floor for UI text. The near-black
+     clears 5.4:1 on all six. (Flutter uses onPrimary: white, but it only ever
+     fills with the signature red.) */
+  --on-accent: #0d0b0a;
+
+  /* Shape */
+  --radius: 8px;
+  --radius-card: 12px;
+  --radius-cover: 5px;
+  --radius-hero-cover: 4px;
+
+  /* Type */
+  --font-serif: Newsreader, Georgia, "Times New Roman", serif;
+  --font-sans: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    system-ui, sans-serif;
+
+  /* Motion — keep durations short; depth is borders/surface steps, not bounce.
+     Prefer these tokens over ad-hoc `0.18s ease` so cleanup stays consistent. */
+  --duration-instant: 0.08s;
+  --duration-fast: 0.15s;
+  --duration-med: 0.22s;
+  --duration-slow: 0.32s;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-standard: ease;
+
+  color-scheme: dark;
+}
+
+/* Accent axis — only --accent changes; surfaces stay fixed. */
+[data-accent="red"] {
+  --accent: #e15b47;
+}
+[data-accent="blue"] {
+  --accent: #5b93c7;
+}
+[data-accent="green"] {
+  --accent: #6fa368;
+}
+[data-accent="purple"] {
+  --accent: #9b7bc0;
+}
+[data-accent="orange"] {
+  --accent: #ffbf00;
+}
+[data-accent="teal"] {
+  --accent: #5ba79c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+  padding: 0;
+}
+
+input,
+textarea {
+  font-family: inherit;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  opacity: 0.82;
+}
+
+/* Range sliders */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  width: 100%;
+  height: 16px;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 3px;
+  background: var(--progress-track);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-top: -6px;
+}
+input[type="range"]::-moz-range-track {
+  height: 3px;
+  border-radius: 3px;
+  background: var(--progress-track);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 15px;
+  height: 15px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes rIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes rUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes rPanel {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes rChrome {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Honor OS reduced-motion: no entrance motion, no infinite spinners' spin
+   (opacity pulse instead is handled per-component where needed). */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-instant: 0.01ms;
+    --duration-fast: 0.01ms;
+    --duration-med: 0.01ms;
+    --duration-slow: 0.01ms;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Section label — Instrument Sans, 11.5px / 0.14em / weight 500 / uppercase */
+.eyebrow {
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--section-label);
+  line-height: 1;
+}
+
+.serif {
+  font-family: var(--font-serif);
+}

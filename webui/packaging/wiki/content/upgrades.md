@@ -1,0 +1,214 @@
+---
+title: Upgrades and Rollback
+description: Safely update CB8 images, run migrations, and roll back when needed
+published: true
+date: 2026-06-30T00:00:00.000Z
+tags: cb8, upgrade, rollback, operations
+editor: markdown
+dateCreated: 2026-06-30T00:00:00.000Z
+---
+
+# Upgrades and Rollback
+
+This page is for moving CB8 to a newer version, and for going back if the new one
+misbehaves. Don't worry — upgrading is usually painless. Your library files and your
+data (kept in the database, run by Postgres; see [Glossary](/glossary)) stay put.
+An upgrade normally just swaps in the new program and leaves everything else alone.
+CB8 even updates its own database layout automatically when it starts.
+
+"Going back" is called a rollback, and there's a section for it below. The golden
+rule that makes both safe: **take a database backup before you upgrade.** With that in
+hand, there's always a way back.
+
+## Before upgrading
+
+A short checklist that makes everything afterward low-stress:
+
+1. Back up the database. See [Backup and restore](/backup-restore). This is the one
+   that matters most.
+2. Note the version you're on now, so you can return to it if needed.
+3. Leave `BETTER_AUTH_SECRET` unchanged, or everyone gets logged out.
+4. Upgrade the website and the worker together to the same new version.
+5. Skim the release notes for any mention of a Postgres version change or database
+   changes — those are the only upgrades that need extra care.
+
+## Docker Compose upgrade
+
+Pick the one that matches how you run CB8: build it yourself from the code, or pull a
+ready-made version. Either way you finish by recreating the containers so the new
+version takes effect.
+
+If building from source:
+
+```bash
+cd packaging/docker
+docker compose build
+docker compose up -d --force-recreate
+```
+
+If using a prebuilt image:
+
+```bash
+cd packaging/docker
+docker compose pull
+docker compose up -d --force-recreate
+```
+
+`--force-recreate` matters when a mutable tag such as `cb8:latest` points at a
+new image but the tag name did not change.
+
+Verify:
+
+```bash
+docker compose ps
+docker compose logs --tail=100 cb8
+docker compose logs --tail=100 cb8-worker
+curl -fsS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:${CB8_PUBLISH_PORT:-4218}/
+```
+
+What you should see: the containers running/healthy, the logs free of repeating
+errors, and the last command printing `200` (the web "all good" reply). Then open the
+site in your browser to confirm. If anything looks wrong, the rollback below puts the
+old version back.
+
+## Docker rollback
+
+Rollback means returning to the previous version. The trick is to label a copy of
+the old version *before* you upgrade, so it's still on hand. (A "tag" is just a
+nickname for a specific version.)
+
+Before upgrading, label the current version:
+
+```bash
+docker tag cb8:latest cb8:prev
+```
+
+If the new version turns out to be bad, point CB8 back at the saved one and recreate:
+
+```bash
+docker tag cb8:prev cb8:latest
+docker compose up -d --force-recreate
+```
+
+Note: this only puts the old *program* back; it does not undo changes to your data.
+If the new version already reorganized the database in a way the old one can't read,
+also restore the database backup you took before upgrading — see
+[Backup and restore](/backup-restore).
+
+## Kubernetes upgrade
+
+For Kubernetes, you point CB8 at the new version by editing one line (the version
+tag) in a setup file, then telling Kubernetes to apply it.
+
+Update the image tag in `packaging/k8s/kustomization.yaml`:
+
+```yaml
+images:
+  - name: registry.example.com/cb8
+    newTag: <new-tag>
+```
+
+Then apply:
+
+```bash
+kubectl apply -k packaging/k8s
+kubectl -n cb8 rollout status deploy/cb8
+kubectl -n cb8 rollout status deploy/cb8-worker
+```
+
+Verify:
+
+```bash
+kubectl -n cb8 get pods,svc
+kubectl -n cb8 logs deploy/cb8 --tail=100
+kubectl -n cb8 logs deploy/cb8-worker --tail=100
+```
+
+## Kubernetes rollback
+
+Kubernetes remembers your previous versions, so going back is a single command per
+component.
+
+If using Deployment rollout history:
+
+```bash
+kubectl -n cb8 rollout undo deploy/cb8
+kubectl -n cb8 rollout undo deploy/cb8-worker
+```
+
+If using GitOps, revert the image tag in git and let Argo CD / Flux reconcile.
+
+As with Docker, this rolls back code only. Restore the database backup if the
+upgrade changed database state in a way the previous image cannot read.
+
+## Bare-metal upgrade
+
+For installs that run directly on the machine (no containers). The flow is the same
+common-sense order: stop it, back up, swap in the new files, start it.
+
+1. Stop both services.
+2. Back up the database.
+3. Replace the program files with the new release.
+4. Install any new supporting tools the release needs.
+5. Start the website and worker.
+
+Example:
+
+```bash
+sudo systemctl stop cb8-api cb8-worker
+pg_dump -U cb8 -d cb8 > cb8-before-upgrade.sql
+# deploy new /opt/cb8 contents here
+sudo systemctl start cb8-api cb8-worker
+sudo systemctl status cb8-api cb8-worker
+```
+
+Rollback by restoring the previous release directory and restarting services.
+Restore the database if required.
+
+## Postgres major versions
+
+This section is the one upgrade that needs real care, so read it before changing
+anything about Postgres itself (the database engine). A "major version" is a big jump
+like Postgres 17 to 18. The catch: a newer Postgres refuses to open data that an
+older one created — it won't risk damaging it. So you can't upgrade Postgres just by
+swapping in a newer image; the data has to be moved across properly first.
+
+The setup uses `pgvector/pgvector:pg18`. Unless you're deliberately doing a Postgres
+upgrade, leave the Postgres version alone — upgrading CB8 itself does not require it.
+
+Safe paths (for when you do want to move to a new Postgres):
+
+- Use `pg_dump` / `psql` into a fresh Postgres major.
+- Use `pg_upgrade` if you manage Postgres directly and know that workflow.
+- Keep the same Postgres major unless you are intentionally doing a database
+  major upgrade.
+
+The CB8 app image can usually be upgraded independently of the Postgres major.
+
+## Schema migrations
+
+A "schema migration" just means CB8 updating the database's internal layout to match
+a new version. The reassuring part: CB8 does this for you automatically when it
+starts — you don't run anything by hand. The only rule is to run the website and the
+worker on the *same* version, so they expect the same layout.
+
+In the rare case startup reports a migration failure:
+
+1. Stop API and worker.
+2. Save logs.
+3. Restore the pre-upgrade database backup.
+4. Roll back the image.
+5. Reproduce on a staging copy before trying again.
+
+## After upgrading
+
+A quick once-over to confirm the new version is healthy. If all of these are fine,
+you're done:
+
+- The website loads.
+- You can sign in (as admin and as a regular user).
+- The worker is running.
+- Your existing library still shows up.
+- A new scan can be started and finishes.
+- A comic page and a book both open.
+- If you use the optional GPU features, they still respond.

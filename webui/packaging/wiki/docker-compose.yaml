@@ -1,0 +1,51 @@
+# Wiki.js — hosts the CB8 documentation wiki.
+#
+# Two services: a dedicated Postgres for Wiki.js's own data, and Wiki.js itself.
+# This is independent of the CB8 server stack (packaging/docker) — run it wherever
+# you want the docs to live.
+#
+# Quick start:
+#   cp .env.example .env        # set WIKI_DB_PASSWORD
+#   docker compose up -d
+#   open http://<host>:3000/    # complete the first-run admin setup wizard
+#
+# Then load the CB8 wiki pages (content/) via Storage → Git — see README.md.
+
+services:
+  wiki-db:
+    image: postgres:16
+    container_name: wiki-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: wiki
+      POSTGRES_USER: wiki
+      POSTGRES_PASSWORD: ${WIKI_DB_PASSWORD:?set WIKI_DB_PASSWORD in .env}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - wiki-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "wiki", "-d", "wiki"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+
+  wiki:
+    image: ghcr.io/requarks/wiki:2
+    container_name: wiki
+    restart: unless-stopped
+    depends_on:
+      wiki-db:
+        condition: service_healthy
+    environment:
+      DB_TYPE: postgres
+      DB_HOST: wiki-db
+      DB_PORT: "5432"
+      DB_USER: wiki
+      DB_PASS: ${WIKI_DB_PASSWORD:?set WIKI_DB_PASSWORD in .env}
+      DB_NAME: wiki
+    ports:
+      - "${WIKI_PUBLISH_PORT:-3000}:3000"
+
+volumes:
+  wiki-db-data:

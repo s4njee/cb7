@@ -1,0 +1,37 @@
+# Reading
+
+Tap a cover to open it. CB8 picks the right reader from the file type — you don't choose. Your place is saved automatically, per item, and restored next time.
+
+## Comic reader (CBZ / CBT)
+
+![Comic reader](/img/app/reader-comic.png)
+
+A full-screen page view with three layouts, remembered across the whole app:
+
+- **Continuous scroll** — pages flow vertically.
+- **Single page** — one page at a time.
+- **Two-page spread** — facing pages, with an optional **first-page-as-cover** offset so spreads line up the way the book was drawn.
+
+Navigate by **tap zones** (left/right edges), **swipe**, or **pinch to zoom**. For manga, switch paging to **right-to-left**. On mobile the reader goes **immersive fullscreen**, and page turns give a subtle haptic tap.
+
+## EPUB reader
+
+![EPUB reader](/img/app/reader-epub.png)
+
+Reflowable text that adapts to your screen. The **Tᴛ** button in the bar opens the reading controls:
+
+- **Theme** — dark, light, or sepia.
+- **Font** — sans-serif, serif, or monospace, with an adjustable text size.
+- **Dictionary lookup** — select a word to look up its definition.
+
+![EPUB reading controls](/img/app/reader-epub-options.png)
+
+Your position is saved as a precise EPUB location (a CFI), so you resume on the exact line, not just the chapter.
+
+## PDF reader
+
+PDFs render page-by-page (via pdfium). Progress is saved as a page number.
+
+## Keeping your place
+
+Reading position is tracked for every item — page numbers for comics and PDFs, exact locations for EPUB. The **Continue Reading** shelf on the home view reflects this live, and in [server mode](/app/server) a signed-in account syncs your place across every device pointed at that server.

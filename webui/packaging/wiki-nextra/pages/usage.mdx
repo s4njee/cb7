@@ -1,0 +1,304 @@
+# Usage
+
+The everyday guide to *using* CB8 once it's set up: signing in the first time,
+pointing it at your comics and books, reading them, pairing the app, and keeping
+a backup. It's written for someone running CB8 at home — you don't need to be
+technical, though a few steps involve pasting a command. **Skip the optional
+sections** (search, HD upscaling) unless they sound useful.
+
+A few words you'll see throughout (all are in the [Glossary](/glossary)):
+
+- **Admin** — the single main account that can add libraries and change settings.
+  CB8 creates it on first run.
+- **Library path** — a folder where your comics or books already live. You point
+  CB8 at it; it reads from there and never moves anything.
+- **Worker** — the background helper that does the slow work (scanning folders,
+  building the catalog), running alongside the main server.
+- **Guest** — someone browsing without signing in. Guests can read, but their
+  progress isn't saved.
+
+If CB8 isn't running yet, start with [Install with Docker](/installation/docker)
+(or the Kubernetes / bare-metal pages). Every environment variable below is
+documented on the [Configuration](/configuration) page.
+
+## First run and the admin account
+
+The very first time CB8 starts, it creates one account for you — the **admin**
+(the main account that controls everything) — and makes up a random password for
+it. That password is printed to the server's log output (its "stdout", the text
+it prints as it runs) the moment it starts up. You'll see a boxed banner that
+looks like this:
+
+```
+============================================================
+[CB8] Initial admin account created.
+      username: admin
+      password: <random 24-char string>
+      Sign in and change this password immediately.
+============================================================
+```
+
+You should see your username (`admin`) and the password on the lines inside that
+box. Copy the password somewhere safe — you'll need it to sign in.
+
+The same password is also stored in the database (under `app_meta`) and stays
+visible in **Settings → Account** until you change it — at which point CB8 wipes
+the stored copy. So even if you miss it in the logs, you can read it from the UI
+once you're in.
+
+### Retrieving the password
+
+**Docker Compose** — read the main server's logs:
+
+```bash
+docker compose logs cb8
+```
+
+You should see the boxed banner above somewhere in the output, with the admin
+password inside it. (From outside the `packaging/docker` directory, add
+`-f packaging/docker/docker-compose.yaml`, or use `docker logs cb8` against the
+container name directly.)
+
+**Kubernetes** — read the server's logs in the `cb8` namespace:
+
+```bash
+kubectl -n cb8 logs deploy/cb8
+```
+
+Again, look for the boxed banner with the password. If it has scrolled out of
+view, don't worry — the password is also waiting for you in **Settings →
+Account** after you sign in.
+
+> **Change it immediately.** The generated password is fine for a first sign-in,
+> but rotate it the moment you're in. As soon as you set a new password, CB8
+> clears the stored copy — see [Resetting the admin password](#resetting-the-admin-password)
+> below for what to do if you lose it after that point.
+
+Sign in at `http://<host>:4218/` (the default published Docker port; the
+container itself listens on `8008` — see [Configuration](/configuration) for the
+`CB8_PORT` / `CB8_PUBLISH_PORT` distinction).
+
+## Adding libraries
+
+This is how you get your collection into CB8. The reassuring part first: **CB8
+never moves, renames, or rewrites your files** — it only reads them. You tell the
+server which folders your comics and books already live in (your **library
+paths**), register those folders in the web UI, and CB8 builds a catalog over
+them in place. Your originals stay exactly where they are.
+
+### 1. Mount your folders into the server
+
+The Docker Compose stack mounts two host directories **read-only** into both the
+API and the worker containers, as `/comics` and `/ebooks`:
+
+```bash
+# in packaging/docker/.env
+CB8_COMICS_PATH=/mnt/raid6/comics
+CB8_EBOOKS_PATH=/mnt/raid6/ebooks
+```
+
+Mounting read-only is the safe default — CB8 only ever reads from these paths.
+(On Kubernetes the equivalent paths come from the volume mounts in the
+manifests.)
+
+### 2. Register the paths in the UI
+
+Sign in as the **admin**, then add `/comics` and `/ebooks` (the paths as the
+server sees them inside its container, not the original host paths) as library
+folders from the web UI. Adding a folder kicks off a scan of everything under it.
+Folders are scanned including all their sub-folders ("recursively"), and the
+first sub-folder under each library root becomes the series name — so a layout
+like `/comics/Saga/Saga v01.cbz` groups into a "Saga" series automatically.
+
+You should see covers begin appearing in the library grid as the scan progresses;
+a large collection can take a while the first time, which is normal.
+
+### 3. Scans run in the worker
+
+The main server only adds scan jobs to a to-do list ("enqueues" them); the
+separate **worker** process (`dist/worker.mjs`, the `cb8-worker` container /
+Deployment) is what actually works through that list and does the scanning.
+**The worker must be running for libraries to scan** — if you start only the main
+server, your folders get registered but nothing gets added to the catalog. The
+to-do list lives in the database (Postgres), so an interrupted scan picks back up
+after a restart, and re-running a scan never creates duplicate entries.
+
+Auto-rescan keeps the catalog fresh: the worker re-enqueues a scan per folder on
+an interval, so newly added files get picked up without manual intervention.
+
+### Supported formats
+
+The single source of truth for what CB8 ingests is the server's media-type
+definition. The scanner, the drag-and-drop validator, and the file picker all
+read from it:
+
+| Type | Extensions | Reader |
+| --- | --- | --- |
+| **Comics** (page-image archives) | `.cbz`, `.cbr` | Comic reader |
+| **E-books** (documents) | `.epub`, `.pdf`, `.mobi` | EPUB / PDF reader |
+
+CBZ/CBR archives are read through a native 7-Zip binary (`node-7z`). Docker
+images bundle it; bare-metal installs need `7z` on `PATH` or `CB8_SEVENZIP_PATH`
+set (see [Configuration](/configuration)).
+
+> **A note on MOBI:** `.mobi` files are recognized and ingested as books (CB8
+> extracts a cover and catalogs them), but the built-in browser readers cover
+> comics, **EPUB**, and **PDF**. Keep e-books you want to read in the browser as
+> EPUB or PDF.
+
+## Reading in the web UI
+
+The web UI is the same React app on the desktop window, the Docker server, and
+any browser on your LAN — they all serve the identical experience.
+
+**Browsing.** The library is a cover grid with format badges, search, series and
+collection groupings, tags, a Recent view, and a **Continue Reading** shelf that
+surfaces whatever you have in progress. Removing an item from the library only
+drops its catalog row; the file on disk is untouched.
+
+**Opening an item.** Click a cover to open it. CB8 picks the reader from the
+file's type:
+
+- **Comic reader** (CBZ/CBR) — a full-screen page view. It supports
+  **single-page or two-page spreads** and **left-to-right or right-to-left**
+  paging (for manga). Pages decode on demand and are cached, so nothing is
+  unpacked to disk ahead of time. On touch you get pinch / pan / swipe; on
+  desktop, keyboard navigation. Image entries inside an archive are sorted with
+  natural filename ordering (`page2.jpg` before `page10.jpg`).
+- **EPUB reader** — reflowable text rendered with epub.js, with a light / dark
+  theme toggle, adjustable font size, and font choices. Your position is saved as
+  an EPUB location so you resume exactly where you left off.
+- **PDF reader** — rendered with pdf.js; progress is saved as a page index.
+
+Reading position is tracked **per user**, so the Continue Reading shelf and
+resume-from-last-page work across the desktop app and any browser pointed at the
+same server.
+
+## The Flutter app (server mode)
+
+CB8's native app (iOS, Android, macOS) can read your server's library and sync
+your place back. Switch its source from *This device* to a server, enter the same
+`host:port` you use for the web UI (default `4218`), and you're browsing the
+remote library. Guests can read; signing in saves progress across devices. Full
+walkthrough: [The app → Connecting to a server](/app/server).
+
+One server-side gotcha worth repeating here:
+
+> **Trusted origins are required for login.** Better-Auth rejects sign-ins from
+> any origin not in `BETTER_AUTH_TRUSTED_ORIGINS`. Include **every** `host:port`
+> you reach the server by — LAN IP, hostname, `.local` name. A missing entry is
+> the usual cause of a rejected, "cross-site" login. See
+> [Configuration](/configuration) for the exact format.
+
+```bash
+# example, in packaging/docker/.env
+BETTER_AUTH_TRUSTED_ORIGINS=http://192.168.1.248:4218,http://freya.local:4218
+```
+
+## E-book semantic search (optional)
+
+CB8 can do semantic ("search by meaning") search across the **text inside your
+e-books**, on top of plain catalog search. This is **optional** and only works
+when an embeddings service is configured:
+
+- The API and worker read `EMBED_URL` and `EMBED_MODEL` (pointing at an
+  OpenAI-compatible embeddings endpoint — the `cb8-embeddings` sidecar serves
+  `BAAI/bge-large-en-v1.5` via Hugging Face TEI).
+- The **worker** extracts and embeds your e-books' text into a `pgvector` index.
+  Setting `SEARCH_BACKFILL_ON_START=1` (the default in the Compose worker) makes
+  the worker enqueue a one-time index backfill on start so existing books get
+  indexed.
+
+Without these set, CB8 still runs and ordinary catalog search still works — you
+just don't get semantic search inside book text. See [Configuration](/configuration)
+for the variables.
+
+## Comic HD upscaling (optional)
+
+CB8 can serve GPU-upscaled comic pages (Real-ESRGAN, 2× sharper) for sharper
+reading on large screens. This is **optional** and requires an upscale service:
+
+- The API reads `UPSCALE_URL` (the `cb8-upscale` sidecar). For each page it POSTs
+  the image and serves back the upscaled version.
+- Upscaled pages are cached on disk under `CB8_UPSCALE_CACHE_DIR` (a persistent
+  volume in production), because they're GPU-expensive to regenerate.
+
+Without `UPSCALE_URL`, pages are served normally. Toggle HD in the reader when
+the service is available.
+
+## Metadata
+
+On ingest, CB8 reads what it can from the files themselves: it extracts and
+caches a **cover thumbnail**, counts pages, and infers **series** from the folder
+structure (the top-level sub-folder under each library root). For EPUBs it reads
+the OPF manifest to find the cover and page count.
+
+Optionally, an admin can enrich an item from **external sources**. ComicVine is
+one of the supported scrapers and requires an API key — set `COMICVINE_API_KEY`
+and the admin search can pull candidate matches (title, year, summary, cover) to
+apply. Without the key, external scraping for that source is skipped; ingest and
+the rest of the app are unaffected.
+
+## Backups and maintenance
+
+Don't worry — backing up CB8 is simpler than it sounds, because there's really
+only one thing to save. The most important thing to back up is the **database**
+(Postgres). The catalog, covers, accounts, your reading progress, the e-book
+search index, and the job to-do list all live there. (Your actual comic and book
+files are separate, on disk, and CB8 never changes them — so they're their own
+backup.)
+
+- `CB8_DATA_DIR` (default `/var/lib/cb8`) holds only the **regenerable** image
+  cache and uploaded archives. It is *not* durable state; you don't need to back
+  it up to recover your catalog.
+- Your **library files on disk are the source** and are never modified by CB8. If
+  the catalog is ever lost or corrupted, you can rebuild it simply by re-adding
+  the library paths and rescanning — the files reconstruct it.
+
+### Backing up Postgres
+
+**Docker Compose** — `pg_dump` (the standard Postgres backup tool) from inside
+the database container:
+
+```bash
+docker compose exec -T cb8-postgres pg_dump -U cb8 -d cb8 > cb8-backup.sql
+```
+
+You should end up with a `cb8-backup.sql` file in your current folder; keep it
+somewhere safe (ideally off the machine).
+
+**Kubernetes** — exec into the Postgres Deployment in the `cb8` namespace:
+
+```bash
+kubectl -n cb8 exec deploy/cb8-postgres -- pg_dump -U cb8 -d cb8 > cb8-backup.sql
+```
+
+Restore by piping a dump back into `psql` against an empty `cb8` database. (Keep
+`BETTER_AUTH_SECRET` stable across restores — rotating it invalidates existing
+sessions and logs everyone out.)
+
+### Rebuilding the catalog
+
+Because the on-disk library is authoritative and CB8 never touches it, recovery
+is low-stakes: point a fresh server at an empty database (the schema is created
+on first connect), sign in as the new admin, re-add your library paths, and let
+the worker rescan. Covers, page counts, and series grouping all regenerate.
+
+## Resetting the admin password
+
+While you're **signed in**, you can change the admin password from **Settings →
+Account** at any time. That's also where the initial generated password lives
+until you first change it.
+
+Recovery once that stored copy is cleared is **non-trivial** — there's no
+self-service "forgot password" flow. If you've lost the admin password after
+changing it and can't sign in, the practical paths are:
+
+1. Reset the admin row directly against the catalog database (Postgres for the
+   server, the SQLite file for the desktop app), or
+2. Recreate the database — CB8 then creates a fresh `admin` with a new generated
+   password on next launch. Your **library files are untouched**, so you simply
+   re-add the paths and rescan to rebuild the catalog (see above).
+
+Because of this, **change the initial password to something you'll remember (or
+store in a password manager) immediately after first sign-in.**

@@ -1,0 +1,69 @@
+# cb8-upscale — Real-ESRGAN comic-page upscaler on the mars 3090. The CB8 API
+# POSTs a page image and gets a 2x WebP back (http://cb8-upscale.cb8.svc:8000).
+# Mirrors the embeddings (TEI) deployment: single GPU pod pinned to mars. Model
+# weights are baked into the image, so no model-cache PVC is needed.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cb8-upscale
+  namespace: cb8
+  labels: { app: cb8-upscale }
+spec:
+  replicas: 1
+  strategy: { type: Recreate } # single GPU — never two pods at once
+  selector:
+    matchLabels: { app: cb8-upscale }
+  template:
+    metadata:
+      labels: { app: cb8-upscale }
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector:
+        kubernetes.io/hostname: mars
+      imagePullSecrets:
+        - name: registry-s8njee-pull
+      tolerations:
+        - key: csearch.org/opportunistic
+          operator: Exists
+          effect: NoSchedule
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: upscale
+          image: registry.s8njee.com/cb8-upscale:anime6b-v2
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+            requests:
+              cpu: "2"
+              memory: 4Gi
+          startupProbe: # CUDA/torch init on first start
+            httpGet: { path: /health, port: 8000 }
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            periodSeconds: 15
+          # A GPU CUDA-context fault leaves the process unrecoverable in place;
+          # restart on sustained /health failure (the TEI-zombie lesson).
+          livenessProbe:
+            httpGet: { path: /health, port: 8000 }
+            periodSeconds: 30
+            failureThreshold: 4
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cb8-upscale
+  namespace: cb8
+spec:
+  selector: { app: cb8-upscale }
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000

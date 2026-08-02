@@ -1,0 +1,12 @@
+{
+  "name": "CB8",
+  "short_name": "CB8",
+  "description": "Browse and read your comic and ebook library from any device.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

@@ -1,0 +1,240 @@
+---
+title: Install on bare metal
+description: Run CB8 as a standalone Node server with your own Postgres — no containers.
+published: true
+date: 2026-06-30T00:00:00.000Z
+tags: cb8, install
+editor: markdown
+dateCreated: 2026-06-30T00:00:00.000Z
+---
+
+# Install on bare metal
+
+> **This is an advanced path.** It means installing and running CB8 by hand —
+> setting up the database yourself, building the app, and keeping two processes
+> running. If you'd rather not do all that, you don't have to:
+> [Install with Docker](/installation/docker) is the easy, recommended way and
+> handles every one of these steps for you. Choose bare metal only if you
+> specifically want CB8 running directly on a machine without Docker.
+
+This is the containerless path: CB8 runs as plain **Node** programs (Node is the
+JavaScript runtime CB8 is built on — see [Glossary](/glossary)) talking to a
+**Postgres** database you set up yourself. It is more hands-on than
+[Docker](/installation/docker) — use it when you want CB8 directly on a host or
+VPS without Docker.
+
+The standalone server **requires Postgres**; it reads its connection details from
+the `DATABASE_URL` setting and refuses to start without it. You run **two
+programs** from the same build: the API (`dist/standalone.mjs`, which serves the
+website) and a background worker (`dist/worker.mjs`, which does the slow jobs like
+scanning your library).
+
+## Prerequisites
+
+- **Node 20+** (the official image uses Node 22; build with the same major if you
+  can).
+- **Postgres 16+** with the **pgvector** extension available (the ebook
+  semantic-search index needs the `vector` type).
+- A **7-Zip binary on `PATH`** (used for CBZ/CBR archive handling). CB8 looks
+  for `7z` by default; override with `CB8_SEVENZIP_PATH` pointing at a working
+  `7z`, `7zz`, or `7za`. On Debian/Ubuntu, install `p7zip-full` (and `p7zip-rar`
+  / `unrar` for RAR-based `.cbr`).
+
+## Step 1 — Get the build
+
+You can build from source or use a released tarball.
+
+### Option A — Build from source
+
+```bash
+pnpm install
+pnpm build:renderer       # builds the React SPA into dist/web
+pnpm build:standalone     # builds dist/standalone.mjs AND dist/worker.mjs
+```
+
+Both server entry points come from `scripts/build-standalone.mjs`, so a single
+`pnpm build:standalone` produces **both** `dist/standalone.mjs` (API) and
+`dist/worker.mjs` (worker). (`build:standalone` also runs `build:renderer`
+automatically via its `prebuild` hook, but running it explicitly first does no
+harm.)
+
+### Option B — Released tarball
+
+If you have the `cb8-standalone` release tarball, unpack it and install only the
+runtime dependencies:
+
+```bash
+npm install --omit=dev
+```
+
+The tarball already contains the built `dist/standalone.mjs`, `dist/worker.mjs`,
+and the web assets.
+
+## Step 2 — Provision Postgres
+
+Create the role and database, then make pgvector available:
+
+```bash
+sudo -u postgres psql <<'SQL'
+CREATE ROLE cb8 WITH LOGIN PASSWORD 'change-me';
+CREATE DATABASE cb8 OWNER cb8;
+SQL
+```
+
+You do **not** need to run `CREATE EXTENSION vector` by hand — CB8 issues
+`CREATE EXTENSION IF NOT EXISTS vector;` itself when it initializes the schema on
+first connect. You only need the pgvector extension **installed and available** on
+the server (e.g. the `postgresql-NN-pgvector` package, or use a
+`pgvector/pgvector` build). Point CB8 at the empty `cb8` database and it creates
+every table on first run.
+
+## Step 3 — Run the two processes
+
+Both programs read their settings from **environment variables** (named settings
+passed in from the shell or your service manager — see [Glossary](/glossary)). The
+only one you must set is `DATABASE_URL`; see [/configuration](/configuration) for
+the rest.
+
+**API** (serves the web UI on `CB8_PORT`, default 8008, bound to `CB8_HOST`,
+default `0.0.0.0`):
+
+```bash
+DATABASE_URL=postgres://cb8:change-me@localhost:5432/cb8 node dist/standalone.mjs
+```
+
+**Worker** (separate process — drains scan/backfill queues and runs the
+auto-rescan scheduler):
+
+```bash
+DATABASE_URL=postgres://cb8:change-me@localhost:5432/cb8 node dist/worker.mjs
+```
+
+> Without the worker, the API still serves the UI but **scans and background jobs
+> never run** — your library won't ingest. Run both.
+
+For logins to work reliably, also set two more values (details in
+[/configuration](/configuration)):
+
+- **`BETTER_AUTH_SECRET`** — a long random key that secures your sessions.
+  Generate one with `openssl rand -hex 32`, set it once, and don't change it later
+  (changing it logs everyone out).
+- **`BETTER_AUTH_TRUSTED_ORIGINS`** — every web address you'll use to reach CB8
+  (each `scheme://host:port`), comma-separated. Logins from an address that isn't
+  listed are rejected for safety.
+
+Your comic and e-book folders are only ever read by CB8 — it never writes to or
+deletes from them.
+
+## Step 4 — systemd (recommended for a real server)
+
+The repository ships `packaging/systemd/cb8.service`, but note: **that unit is
+for the headless Electron desktop build** (`/opt/CB8/cb8 --headless`, which uses
+the embedded **SQLite** database), **not** the Postgres standalone server
+described here. Don't use it for this deployment.
+
+Instead, create your own pair of units for the two Node processes. Adapt the
+paths, user, and `DATABASE_URL` to your install — these are **examples**:
+
+`/etc/systemd/system/cb8-api.service`:
+
+```ini
+[Unit]
+Description=CB8 API (standalone Node server)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cb8
+WorkingDirectory=/opt/cb8
+ExecStart=/usr/bin/node /opt/cb8/dist/standalone.mjs
+Environment=DATABASE_URL=postgres://cb8:change-me@localhost:5432/cb8
+Environment=CB8_DATA_DIR=/var/lib/cb8
+Environment=CB8_HOST=0.0.0.0
+Environment=CB8_PORT=8008
+Environment=BETTER_AUTH_SECRET=<openssl rand -hex 32>
+Environment=BETTER_AUTH_TRUSTED_ORIGINS=http://192.168.1.10:8008
+# Environment=CB8_SEVENZIP_PATH=/usr/bin/7z   # if 7z isn't on PATH
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`/etc/systemd/system/cb8-worker.service`:
+
+```ini
+[Unit]
+Description=CB8 background worker
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cb8
+WorkingDirectory=/opt/cb8
+ExecStart=/usr/bin/node /opt/cb8/dist/worker.mjs
+Environment=DATABASE_URL=postgres://cb8:change-me@localhost:5432/cb8
+Environment=CB8_DATA_DIR=/var/lib/cb8
+Environment=SEARCH_BACKFILL_ON_START=1
+# Environment=CB8_SEVENZIP_PATH=/usr/bin/7z
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then enable and start both:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now cb8-api cb8-worker
+```
+
+## Verify
+
+Confirm the API answers on its **port** (the number after the address; default
+8008 — see [Glossary](/glossary)):
+
+```bash
+curl -fsS http://127.0.0.1:8008/
+```
+
+**What you should see:** a page of HTML printed to the terminal rather than an
+error. That means the web app is up. If you get "connection refused", the API
+isn't running yet — check that you started it (and, under systemd, that the
+service is active).
+
+### First-run admin password
+
+On a fresh database CB8 creates an `admin` user and prints the generated password
+to stdout. If you ran the API in a terminal, it's right there in the startup
+output. Under systemd, read it from the journal:
+
+```bash
+journalctl -u cb8-api -e | grep -i password
+```
+
+Sign in as `admin` with that password.
+
+## First steps after install
+
+Sign in as admin and add your comic and e-book directories as library paths from
+the web UI to trigger the first scan. See [/usage](/usage) for the walkthrough and
+[/configuration](/configuration) for the full environment-variable reference.
+
+## Backups
+
+The durable state lives in Postgres (catalog, covers, users/sessions, search
+vectors, job queue). `CB8_DATA_DIR` holds only the regenerable image cache and
+uploaded archives. Back up the database with `pg_dump`:
+
+```bash
+pg_dump -U cb8 -d cb8 > cb8-$(date +%F).sql
+```

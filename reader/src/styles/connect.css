@@ -1,0 +1,129 @@
+/* Connect-screen onboarding surfaces: the "ON YOUR NETWORK" discovery section
+   and the "Scan code" button. The base connect screen (.connect, .pill-input,
+   .btn-accent, .btn-ghost, .field-label, .error-text) lives in app.css — this
+   file only adds the two optional blocks that sit above the manual field.
+
+   Both blocks render nothing when unavailable, so on desktop/browser dev the
+   screen keeps app.css's original geometry exactly (QR-5). */
+
+/* ------------------------------------------------------- on your network */
+
+.disc {
+  margin-bottom: 22px;
+  animation: rUp var(--duration-med) var(--ease-standard);
+}
+.disc-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.disc-label {
+  /* .field-label owns the type; the row owns the spacing. */
+  margin-bottom: 10px;
+}
+.disc-scanning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.disc-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: discPulse 1.4s ease-in-out infinite;
+}
+@keyframes discPulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.disc-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.disc-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 11px 15px;
+  color: var(--fg);
+  transition: border-color 0.15s ease, background 0.15s ease;
+  animation: rUp var(--duration-med) var(--ease-standard);
+}
+.disc-card:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.disc-card:active:not(:disabled) {
+  background: var(--surface2);
+}
+.disc-card:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.disc-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.disc-name {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.disc-addr {
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.disc-ver {
+  flex: none;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: var(--surface2);
+  border-radius: 7px;
+  padding: 3px 7px;
+}
+
+/* ------------------------------------------------------------- scan code */
+
+.scan-btn {
+  /* Overrides .btn-ghost's stacked-button margin: here it is a sibling of the
+     manual form, not a button under another button. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 0 22px;
+}
+.scan-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.scan-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}

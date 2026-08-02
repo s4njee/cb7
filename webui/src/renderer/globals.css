@@ -1,0 +1,390 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* "Hearth Noir" typefaces, self-hosted (offline-safe on a LAN). Newsreader is a
+   serif variable font (book titles, reading text, wordmark); Instrument Sans is
+   the UI face. Weight ranges let the browser interpolate the variable axis. */
+@font-face {
+  font-family: 'Newsreader';
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url('/fonts/Newsreader.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Newsreader';
+  font-style: italic;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url('/fonts/Newsreader-Italic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Instrument Sans';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/InstrumentSans.woff2') format('woff2');
+}
+
+@layer base {
+  :root {
+    /* --- Hearth Noir (Folio) palette --- */
+    --background: 20 13% 4.5%;    /* #0d0b0a */
+    --foreground: 40 30% 88%;     /* #eae4d8 */
+
+    --card: 18 13% 7.5%;          /* #161211 */
+    --card-foreground: 40 30% 88%;
+
+    --popover: 18 13% 7%;         /* #151110 */
+    --popover-foreground: 40 30% 88%;
+
+    --primary: 8 72% 58%;         /* #e15b47 (warm red by default) */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 29 24% 10%;      /* #1f1913 */
+    --secondary-foreground: 40 30% 88%;
+
+    --muted: 29 24% 10%;          /* #1f1913 */
+    --muted-foreground: 35 10% 53%;/* #948a7c */
+
+    --accent: 29 24% 10%;
+    --accent-foreground: 40 30% 88%;
+
+    --destructive: 5 71% 58%;     /* #e0574a */
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 32 21% 12%;         /* #262019 */
+    --input: 32 21% 12%;          /* #262019 */
+    --ring: 8 72% 58%;            /* Same as primary */
+
+    --radius: 0.5rem;             /* 8px */
+
+    /* --- Extended Folio tokens (mapped to Tailwind colors) --- */
+    --header-rule: 31 18% 11%;    /* #211c17 */
+    --reading-text: 39 28% 82%;   /* #ddd4c3 */
+    --section-label: 35 12% 47%;  /* #847a6c */
+    --faint: 35 14% 36%;          /* #685f52 */
+    --placeholder: 35 13% 42%;    /* #776d5f */
+    --hero: 16 12% 7%;            /* #141110 */
+    --drawer: 20 10% 3.5%;        /* #0a0808 */
+    --popover-border: 32 21% 14%; /* #2b241c */
+    --accent-tint: 8 33% 11%;     /* #241412 */
+    --avatar: 13 33% 13%;         /* #2e1c17 */
+    --progress-track: 36 23% 13%; /* #282219 */
+  }
+
+  /* Accent overrides — retuned warm to sit on the true-black surfaces. */
+  [data-theme="red"] {
+    --primary: 8 72% 58%;         /* #e15b47 */
+    --ring: 8 72% 58%;
+  }
+  [data-theme="blue"] {
+    --primary: 209 49% 57%;       /* #5b93c7 */
+    --ring: 209 49% 57%;
+  }
+  [data-theme="green"] {
+    --primary: 113 24% 52%;       /* #6fa368 */
+    --ring: 113 24% 52%;
+  }
+  [data-theme="purple"] {
+    --primary: 268 35% 62%;       /* #9b7bc0 */
+    --ring: 268 35% 62%;
+  }
+  [data-theme="orange"] {
+    --primary: 27 65% 57%;        /* #d98a4b */
+    --ring: 27 65% 57%;
+  }
+  [data-theme="teal"] {
+    --primary: 171 30% 51%;       /* #5ba79c */
+    --ring: 171 30% 51%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Dynamic viewport height
+   100vh on iOS Safari includes the browser chrome (address bar), making
+   h-screen containers slightly taller than the visible area. 100dvh is the
+   actual visible height and is supported in Safari 15.4+ / iPadOS 15.4+.
+   Overriding here means every h-screen / min-h-screen class in the app gets
+   the correct value without changing individual components.
+   --------------------------------------------------------------------------- */
+@supports (height: 100dvh) {
+  .h-screen   { height: 100dvh; }
+  .min-h-screen { min-height: 100dvh; }
+  .max-h-screen { max-height: 100dvh; }
+}
+
+/* ---------------------------------------------------------------------------
+   iOS safe-area utilities
+   Requires viewport-fit=cover in the <meta name="viewport"> tag.
+   --------------------------------------------------------------------------- */
+@layer utilities {
+  /* Pad only the safe-area inset (used inside the TabBar nav itself) */
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  /* Full tab-bar height: icon area (3.5rem / 56px) + safe-area bottom */
+  .h-tab-bar {
+    height: calc(3.5rem + env(safe-area-inset-bottom, 0px));
+  }
+  /* Bottom padding that clears the tab-bar including safe area */
+  .pb-tab-bar {
+    padding-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* Comic reader custom canvas styles (verbatim from style.css line 816+) */
+.comic-reader {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  background: #000;
+  cursor: pointer;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  min-height: 0;
+  height: 100%;
+  overscroll-behavior: none;
+}
+.comic-reader.is-zoomed { touch-action: none; overflow: hidden; }
+
+/* Stage wraps the page images and receives pinch-zoom transforms */
+.comic-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  transform-origin: center center;
+  transition: transform 0.18s ease;
+  will-change: transform;
+}
+.comic-reader.is-zoomed .comic-stage { transition: none; }
+
+.comic-page-img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s;
+}
+.comic-page-img.loading { opacity: 0.2; }
+.comic-page-img-secondary { display: none; }
+.comic-reader[data-spread="double"] .comic-page-img-secondary { display: block; }
+.comic-reader[data-spread="double"][data-direction="rtl"] .comic-stage { flex-direction: row-reverse; }
+.comic-reader[data-spread="double"] .comic-page-img {
+  flex: 0 0 50%;
+  width: 50%;
+  height: 100%;
+  max-width: 50%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  object-fit: contain;
+}
+
+/* Slide transitions when navigating pages */
+.comic-stage.slide-from-right { animation: slideFromRight 0.22s ease; }
+.comic-stage.slide-from-left  { animation: slideFromLeft 0.22s ease; }
+@keyframes slideFromRight {
+  from { transform: translateX(8%); opacity: 0.4; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+@keyframes slideFromLeft {
+  from { transform: translateX(-8%); opacity: 0.4; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+
+/* Zoom modes */
+.comic-reader[data-zoom="fit-width"] {
+  overflow-y: auto;
+  overscroll-behavior-y: none;
+  align-items: flex-start;
+}
+.comic-page-img[data-zoom="fit-width"] {
+  width: 100%;
+  max-width: 100%;
+  max-height: none;
+  height: auto;
+}
+.comic-reader[data-zoom="fit-height"] .comic-page-img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+}
+.comic-reader[data-zoom="original"] {
+  overflow: auto;
+  overscroll-behavior: none;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+.comic-page-img[data-zoom="original"] {
+  max-width: none;
+  max-height: none;
+  width: auto;
+  height: auto;
+}
+
+/* Pull-to-refresh */
+.ptr-indicator {
+  position: sticky;
+  top: 0;
+  height: 0;
+  display: flex;
+  justify-content: center;
+  z-index: 80;
+  pointer-events: none;
+  transition: transform 0.2s ease;
+}
+.ptr-spinner {
+  width: 28px;
+  height: 28px;
+  border: 2px solid rgba(255,255,255,0.2);
+  border-top-color: hsl(var(--primary));
+  border-radius: 50%;
+  margin-top: 12px;
+  background: hsl(var(--card));
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+.ptr-indicator.ready .ptr-spinner { border-top-color: hsl(var(--primary)); transform: rotate(180deg); transition: transform 0.2s; }
+.ptr-indicator.refreshing .ptr-spinner { animation: ptr-spin 0.7s linear infinite; }
+@keyframes ptr-spin { to { transform: rotate(360deg); } }
+
+/* Extra reader toolbar controls */
+.reader-extra-controls {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-left: 4px;
+}
+.reader-tool-btn {
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.reader-tool-btn:hover {
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--popover-border));
+}
+.reader-tool-btn.active {
+  background: hsl(var(--primary));
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--primary));
+}
+
+.reader-tap-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 33%;
+  z-index: 5;
+}
+.tap-prev { left: 0; }
+.tap-next { right: 0; }
+
+.page-hint {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.7);
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+  padding: 4px 12px;
+  border-radius: var(--radius);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+  transition: opacity 0.5s;
+}
+.page-hint.fade { opacity: 0; }
+
+/* Book reader (EPUB / PDF) */
+.book-reader {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+.epub-container {
+  flex: 1;
+  background: #0d0b0a;
+  overflow: hidden;
+}
+.epub-page-turn-cue {
+  position: absolute;
+  top: 3.25rem;
+  bottom: 0;
+  width: min(46vw, 420px);
+  z-index: 30;
+  pointer-events: none;
+  opacity: 0;
+}
+.epub-page-turn-cue.next {
+  right: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.08) 28%, rgba(255,255,255,0.26) 100%);
+  box-shadow: -16px 0 32px rgba(0,0,0,0.28);
+  animation: epubPageCueNext 0.34s ease-out;
+}
+.epub-page-turn-cue.prev {
+  left: 0;
+  background: linear-gradient(270deg, transparent 0%, rgba(255,255,255,0.08) 28%, rgba(255,255,255,0.26) 100%);
+  box-shadow: 16px 0 32px rgba(0,0,0,0.28);
+  animation: epubPageCuePrev 0.34s ease-out;
+}
+@keyframes epubPageCueNext {
+  0% { opacity: 0; transform: translateX(100%); }
+  18% { opacity: 0.9; }
+  100% { opacity: 0; transform: translateX(-28%); }
+}
+@keyframes epubPageCuePrev {
+  0% { opacity: 0; transform: translateX(-100%); }
+  18% { opacity: 0.9; }
+  100% { opacity: 0; transform: translateX(28%); }
+}
+.pdf-canvas-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  background: #0d0b0a;
+}
+#pdf-canvas { display: block; max-width: 100%; }

@@ -1,0 +1,28 @@
+[Unit]
+Description=CB8 headless library server
+Documentation=https://github.com/s4njee/cbzreader
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# Path to the installed CB8 binary. The Electron Forge .deb / .rpm makers
+# install it at /opt/CB8/cb8. If you built from source, point this at the
+# packaged output (e.g. out/CB8-linux-x64/cb8).
+ExecStart=/opt/CB8/cb8 --headless --no-sandbox
+
+# Library DB and uploads live under the user data dir. Override with
+# Environment=XDG_CONFIG_HOME=... if you want a non-default location.
+Environment=CB8_HEADLESS=1
+
+Restart=on-failure
+RestartSec=5s
+
+# Stdout/stderr go to the journal. The first-boot admin password is printed
+# there — view with:  journalctl --user -u cb8 -e
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0d0b0a" />
+  <meta name="description" content="CB8 — browse and read your comic and ebook library from any device on your local network." />
+  <!-- iOS / Android standalone (chrome-free) PWA support. On iOS Safari the
+       Fullscreen API does not work for non-video elements, so the only way to
+       hide the browser bars is to install via Share -> Add to Home Screen and
+       launch from the home-screen icon. These tags make that experience work. -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="CB8" />
+  <title>CB8</title>
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <!-- Apply persisted theme before the stylesheet loads to avoid a flash of
+       the default red palette. Mirrors the allowed ids in app/theme.js. -->
+  <script>
+    (function () {
+      var allowed = ['red', 'blue', 'green', 'purple', 'orange', 'teal'];
+      var t = 'red';
+      try {
+        var stored = localStorage.getItem('cb8.theme');
+        if (stored && allowed.indexOf(stored) !== -1) t = stored;
+      } catch (e) { /* localStorage unavailable */ }
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <style>
+    html, body {
+      margin: 0;
+      background-color: #0d0b0a;
+      color: #eae4d8;
+    }
+  </style>
+</head>
+<body class="bg-background text-foreground antialiased min-h-screen">
+  <div id="root"></div>
+  <script type="module" src="/main.tsx"></script>
+</body>
+</html>

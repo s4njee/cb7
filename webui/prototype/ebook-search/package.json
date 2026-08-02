@@ -1,0 +1,15 @@
+{
+  "name": "cb8-ebook-search-prototype",
+  "private": true,
+  "type": "module",
+  "description": "Phase-1 prototype for the CB8 'search by what's inside it' idea: EPUB text -> local embeddings -> pgvector hybrid (keyword + semantic) search. Standalone; does not touch the CB8 server.",
+  "scripts": {
+    "ingest": "node ingest.mjs",
+    "query": "node query.mjs"
+  },
+  "dependencies": {
+    "@xenova/transformers": "^2.17.2",
+    "pg": "^8.13.0",
+    "yauzl": "^3.2.0"
+  }
+}

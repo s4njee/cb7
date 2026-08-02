@@ -1,0 +1,158 @@
+---
+title: Optional GPU Services
+description: Configure semantic e-book search and HD comic upscaling sidecars
+published: true
+date: 2026-06-30T00:00:00.000Z
+tags: cb8, gpu, embeddings, upscaling
+editor: markdown
+dateCreated: 2026-06-30T00:00:00.000Z
+---
+
+# Optional GPU Services
+
+> **Entirely optional and advanced.** CB8 reads comics and e-books perfectly well without any of this. Skip this page unless you specifically want one of the two bonus features below and you have a spare graphics card (GPU) to power it.
+
+A **GPU** is a graphics processor — the chip in many computers that's great at the heavy math behind AI features. CB8 can use one to unlock two extra conveniences:
+
+- **Smarter e-book search** — find passages by *meaning*, not just exact words. (This is "semantic search," powered by "embeddings," numeric fingerprints of text — see the [Glossary](/glossary).)
+- **HD comic upscaling** — enlarge and sharpen comic pages for crisper viewing on big screens.
+
+Both run as separate helper services. If you don't set them up — or you leave their addresses blank — CB8 simply runs on your regular CPU and quietly skips these two features. **What you get by adding them:** meaning-based book search and sharper comic pages. **What you lose by skipping them:** nothing essential.
+
+## Semantic e-book search
+
+Here's the idea in plain terms: in the background, CB8 reads each e-book, breaks
+it into small chunks, and turns every chunk into an **embedding** (a numeric
+fingerprint of its meaning), storing those in the database. When you search, CB8
+turns your query into an embedding too and finds passages with similar meaning —
+then blends that with ordinary keyword matching for the best of both. This needs
+an **embeddings service**: a small program (reachable at a web address you
+configure) that produces those fingerprints.
+
+The settings that point CB8 at that service:
+
+| Variable | Used by | Meaning |
+| --- | --- | --- |
+| `EMBED_URL` | API and worker | The web address of the embeddings service (OpenAI-compatible). |
+| `EMBED_MODEL` | API and worker | Which model the service should use. |
+| `EMBED_KEY` | API and worker | An optional access token, if the service needs one. |
+| `SEARCH_BACKFILL_ON_START` | Worker | Set to `1` to (re)build the search index when the worker starts. Safe to leave on — it won't duplicate work. |
+
+The bundled Kubernetes setup runs Hugging Face's TEI embeddings server with the
+`BAAI/bge-large-en-v1.5` model at:
+
+```text
+http://cb8-embeddings:8000/v1/embeddings
+```
+
+**Important if you pick your own model:** it must produce fingerprints of at least
+1024 dimensions (think: at least 1024 numbers each), because CB8 stores them at a
+fixed size of 1024. A model that emits fewer won't work.
+
+### Verify embeddings
+
+To check the service is reachable and responding, run this from inside the same
+network as the API or worker. A successful run returns a blob of numbers (the
+embedding); an error means CB8 won't be able to use it either.
+
+```bash
+curl -fsS http://cb8-embeddings:8000/v1/embeddings \
+  -H 'content-type: application/json' \
+  -d '{"model":"BAAI/bge-large-en-v1.5","input":"test search"}'
+```
+
+If the endpoint requires an API key, set `EMBED_KEY` and include the same bearer
+token in manual tests.
+
+## HD comic upscaling
+
+**Upscaling** means enlarging an image while keeping it sharp. The upscaler is a
+small service that takes a comic page and sends back a higher-resolution version.
+CB8 calls it only when you turn on HD mode for a page, then saves the result so it
+doesn't have to redo the work next time.
+
+The settings that point CB8 at the upscaler:
+
+| Variable | Used by | Meaning |
+| --- | --- | --- |
+| `UPSCALE_URL` | API | The web address of the upscaler (a Real-ESRGAN service), usually ending in `/upscale`. |
+| `CB8_UPSCALE_CACHE_DIR` | API | A folder to save upscaled pages so they aren't recomputed. |
+
+A typical address looks like:
+
+```text
+http://cb8-upscale:8000/upscale
+```
+
+Don't worry about reliability: if the upscaler is down or errors out, CB8 just
+shows the normal page — nothing breaks.
+
+### Verify upscaling
+
+To check the upscaler works, send it a small page image from inside the same
+network as CB8. A successful run saves a sharpened image; an error means CB8 will
+fall back to the normal page.
+
+```bash
+curl -fsS -X POST http://cb8-upscale:8000/upscale \
+  --data-binary @page.jpg \
+  -H 'content-type: image/jpeg' \
+  -o upscaled.webp
+```
+
+The response should be WebP bytes.
+
+## Kubernetes GPU requirements
+
+This section is only for Kubernetes users (a system for running containers across
+machines — see [Install on Kubernetes](/installation/kubernetes)). The provided
+manifests assume:
+
+- A machine with an NVIDIA GPU is available.
+- The NVIDIA device plugin is installed (so the cluster knows about the GPU).
+- `runtimeClassName: nvidia` — this tells Kubernetes to use the GPU-aware runtime for the pod.
+- The pods request `nvidia.com/gpu` (i.e. they ask for a GPU).
+- GPU work can be steered onto the right machine with `nodeSelector` / tolerations.
+
+No GPU in your cluster? Just remove `embeddings.yaml` and `upscale.yaml` from
+`packaging/k8s/kustomization.yaml` and leave `EMBED_URL` / `UPSCALE_URL` unset.
+
+## Docker Compose
+
+If you run CB8 with Docker Compose, the main stack covers the core API, worker,
+and Postgres. You can add the two GPU helper services onto the same Docker network
+— provided your host has the NVIDIA Container Toolkit installed so containers can
+reach the GPU.
+
+In short:
+
+- Add an embeddings container exposing `:8000/v1/embeddings`.
+- Add an upscaler container exposing `:8000/upscale`.
+- Set `EMBED_URL`, `EMBED_MODEL`, and `UPSCALE_URL` in both API/worker where
+  relevant.
+- Mount a persistent `CB8_UPSCALE_CACHE_DIR` for the API.
+
+## Resource and storage notes
+
+A few practical things to expect:
+
+- Building the e-book search index for the first time can take a while. That's
+  normal — just leave the worker running. Its progress is saved in the database
+  and resumes after any restart.
+- On a small machine, if the interface feels sluggish while indexing or
+  upscaling, lower the concurrency (how many jobs run at once).
+- The folder of upscaled pages (`CB8_UPSCALE_CACHE_DIR`) grows over time. Put it
+  on storage with room to spare and keep an eye on it.
+- If you switch to a different embeddings model, rebuild the search index so all
+  the stored fingerprints match the new model.
+
+## Failure behavior
+
+Both features are designed to **fail gracefully**, so adding them later carries no
+risk:
+
+- No embeddings service: ordinary search still works fine.
+- No upscaler: comic pages still load at their normal quality.
+
+So you can add either one whenever you like, after your basic CB8 setup is up and
+running.

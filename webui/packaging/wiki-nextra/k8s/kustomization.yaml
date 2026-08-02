@@ -1,0 +1,16 @@
+# CB8 Nextra docs deployment.
+#
+# Deploy:  kubectl apply -k packaging/wiki-nextra/k8s
+# Update:  push a new image tag, bump `newTag` below, re-apply.
+#
+# Prereq: the registry-s8njee-pull image-pull secret must exist in the
+# wiki-nextra namespace (see the header of nextra.yaml for the copy command).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - nextra.yaml
+
+images:
+  - name: registry.s8njee.com/cb8-wiki-nextra
+    newTag: "202606301056"

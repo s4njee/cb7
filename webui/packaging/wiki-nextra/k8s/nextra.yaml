@@ -1,0 +1,65 @@
+# CB8 docs (Nextra static export) served by nginx, in its own `wiki-nextra`
+# namespace. Stateless — the whole site is baked into the image, so there is no
+# database or PVC. Deploy with:
+#   kubectl apply -k packaging/wiki-nextra/k8s
+#
+# The image lives in the same private registry as cb8, so the pull secret
+# `registry-s8njee-pull` must exist in this namespace. Copy it from cb8 once:
+#   kubectl get secret registry-s8njee-pull -n cb8 -o yaml \
+#     | sed 's/namespace: cb8/namespace: wiki-nextra/' \
+#     | kubectl apply -n wiki-nextra -f -
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: wiki-nextra
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cb8-wiki-nextra
+  namespace: wiki-nextra
+  labels: { app: cb8-wiki-nextra }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: cb8-wiki-nextra }
+  template:
+    metadata:
+      labels: { app: cb8-wiki-nextra }
+    spec:
+      imagePullSecrets:
+        - name: registry-s8njee-pull
+      containers:
+        - name: nginx
+          image: registry.s8njee.com/cb8-wiki-nextra:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http, containerPort: 80 }
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests: { cpu: "10m", memory: "32Mi" }
+            limits: { cpu: "500m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cb8-wiki-nextra
+  namespace: wiki-nextra
+  labels: { app: cb8-wiki-nextra }
+spec:
+  type: LoadBalancer
+  selector: { app: cb8-wiki-nextra }
+  ports:
+    # 4218 = cb8, 4219 = Wiki.js, 4220 = these Nextra docs (free LB host port).
+    - name: http
+      port: 4220
+      targetPort: http
+      protocol: TCP

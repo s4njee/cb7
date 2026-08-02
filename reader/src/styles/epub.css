@@ -1,0 +1,207 @@
+/* EPUB reading surface: the margin box around the epub.js host, the popovers
+   layered over the sandboxed iframe, and the highlights drawer list.
+
+   Nothing here reaches inside the frame — section documents are styled by
+   lib/epubTheme.ts, injected per section, because the frame cannot see this
+   stylesheet. */
+
+/* The box that carries the reader's margin / measure prefs. It wraps the render
+   host rather than being it: epub.js is told the host's clientWidth, which
+   includes padding, so padding the host itself overflows the column by exactly
+   the margin. */
+.epub-measure {
+  height: 100%;
+  width: 100%;
+  margin: 0 auto;
+  transition: padding 0.18s ease, max-width 0.18s ease;
+}
+
+/* A fixed-layout book brings its own page geometry and wants every pixel. The
+   640px measure app.css sets is a decision about reflowable text, so unset it
+   rather than scaling the artwork down to fit a text column it was never laid
+   out for. */
+.epub-wrap.fixed .epub-viewport {
+  max-width: none;
+}
+
+/* ------------------------------------------------------------- popovers */
+
+.epub-pop-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.epub-pop {
+  position: fixed;
+  z-index: 61;
+  max-width: min(340px, calc(100vw - 20px));
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  border: 1px solid var(--popover-border);
+  padding: 12px 14px;
+  animation: rUp var(--duration-med) var(--ease-standard);
+  color: var(--fg);
+}
+
+.epub-pop-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.epub-pop-label,
+.epub-pop-word {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.epub-pop-label {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.epub-pop-phon {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Pushes the close affordance to the far edge whatever precedes it. */
+.epub-pop-x {
+  margin-left: auto;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--muted);
+  padding: 0 2px;
+}
+
+.epub-pop-body {
+  font-size: 13.5px;
+  line-height: 1.55;
+  max-height: 40vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.epub-pop-muted {
+  font-size: 13px;
+  color: var(--muted);
+  padding: 2px 0 4px;
+}
+
+.epub-pop-action {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.epub-pop-note .epub-pop-body {
+  font-family: var(--font-serif);
+}
+
+/* --------------------------------------------------------- dictionary */
+
+.dict-sense + .dict-sense {
+  margin-top: 10px;
+}
+
+.dict-pos {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 3px;
+}
+
+.dict-defs {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.dict-defs li + li {
+  margin-top: 3px;
+}
+
+/* --------------------------------------------------------- highlights */
+
+.epub-pop-hl {
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hl-swatches {
+  display: flex;
+  gap: 8px;
+}
+
+.hl-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  /* The ring sits outside the border so the swatch color stays a full circle. */
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.hl-swatch.active {
+  border-color: var(--fg);
+}
+
+.hl-remove {
+  font-size: 12px;
+  color: var(--muted);
+  padding-left: 8px;
+  border-left: 1px solid var(--line);
+}
+
+/* Highlights list in the TOC drawer. */
+.hl-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 4px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  cursor: pointer;
+}
+
+.hl-row:hover {
+  background: var(--surface2);
+}
+
+.hl-chip {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  margin-top: 5px;
+}
+
+.hl-text {
+  flex: 1;
+  font-family: var(--font-serif);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg);
+  /* Long passages are common; keep every row the same height in the list. */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.hl-row-x {
+  flex: 0 0 auto;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--muted);
+  padding: 2px 4px;
+}

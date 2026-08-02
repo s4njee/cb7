@@ -1,0 +1,112 @@
+# Dedicated Postgres for CB8, namespaced to `cb8`.
+#
+# A single-replica Postgres (Recreate strategy, one RWO PVC from the cluster's
+# default storageClass). The official image self-initializes the `cb8` role +
+# database from POSTGRES_* on first boot, so no manual provisioning is needed.
+# CB8 connects via the in-namespace Service name `cb8-postgres`.
+#
+# The password comes from the `cb8-db` secret (key `password`); the same secret's
+# `url` key (postgres://cb8:<pw>@cb8-postgres:5432/cb8) is what the app reads as
+# DATABASE_URL. Create that secret before applying (see the deploy steps).
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  # Renamed (was cb8-postgres-data, 5Gi) so Argo provisions a fresh 50Gi volume
+  # and prunes the old one — k3s local-path can't resize in place. 5Gi was too
+  # small for 40k (BYTEA covers + indexes + WAL + ebook vectors).
+  name: cb8-postgres-data-50g
+  namespace: cb8
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: { requests: { storage: 50Gi } }
+  # Uses the cluster's default storageClass (k3s local-path).
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cb8-postgres
+  namespace: cb8
+  labels: { app: cb8-postgres }
+spec:
+  selector: { app: cb8-postgres }
+  ports:
+    - { name: postgres, port: 5432, targetPort: 5432 }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cb8-postgres
+  namespace: cb8
+  labels: { app: cb8-postgres }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: cb8-postgres }
+  template:
+    metadata:
+      labels: { app: cb8-postgres }
+    spec:
+      # Pinned to freya: the local-path PVC is node-bound there. mars (worker)
+      # has no copy of this volume.
+      nodeSelector:
+        kubernetes.io/hostname: freya
+      containers:
+        - name: postgres
+          # pgvector image = stock postgres:18 + the `vector` extension (current
+          # pgvector 0.8.x). Backs the ebook semantic-search index. PG18 brings
+          # async I/O (io_method=worker by default) and data checksums on by
+          # default. NOTE: a PG18 server will NOT start on a PG16 data directory —
+          # bumping this tag requires wiping the cb8-postgres-data PVC so the
+          # cluster re-initializes fresh (the catalog re-ingests from disk).
+          image: pgvector/pgvector:pg18
+          # Runs as root by default; the entrypoint chowns PGDATA and drops to
+          # the postgres user — the simplest setup that's robust on any PVC.
+          # Tuning for the 40k bulk ingest, sized to the 8Gi limit below: larger
+          # shared_buffers + maintenance_work_mem (index maintenance) and a higher
+          # WAL ceiling to cut checkpoint churn during mass inserts. (Args that
+          # start with '-' make the official entrypoint run `postgres -c ...`.)
+          args:
+            - "-c"
+            - "shared_buffers=2GB"
+            - "-c"
+            - "maintenance_work_mem=1GB"
+            # 50Gi PVC now, so a bigger WAL ceiling is safe — fewer checkpoints
+            # during the 40k bulk insert.
+            - "-c"
+            - "max_wal_size=4GB"
+            - "-c"
+            - "work_mem=64MB"
+          ports:
+            - { name: postgres, containerPort: 5432 }
+          env:
+            - name: POSTGRES_USER
+              value: cb8
+            - name: POSTGRES_DB
+              value: cb8
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: cb8-db, key: password }
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "cb8", "-d", "cb8"] }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            exec: { command: ["pg_isready", "-U", "cb8", "-d", "cb8"] }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests: { cpu: "500m", memory: "1Gi" }
+            limits: { cpu: "4", memory: "8Gi" }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: cb8-postgres-data-50g }

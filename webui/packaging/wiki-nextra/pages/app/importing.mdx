@@ -1,0 +1,43 @@
+# Importing & watched folders
+
+There are two ways to get files into the app, and they behave differently:
+
+| Method | What happens to the file |
+| --- | --- |
+| **Import** | Copied into the app, which then owns it. |
+| **Watched folder** | Referenced where it sits — never copied or moved. |
+
+## Importing files
+
+From **Settings → Import files** (or, on desktop, **drag and drop** onto the window), pick one or more **CBZ, CBT, PDF, or EPUB** files. CB8 copies them in, extracts a cover, counts pages, and parses series and [metadata](/app/metadata) on the way.
+
+![Settings, with the library tools](/img/app/settings.png)
+
+Settings is also where you'll find watched folders, duplicate detection, and the accent color for the app.
+
+## Watched folders
+
+A watched folder keeps the app in sync with a folder of files you manage elsewhere — files stay put and are referenced in place, so nothing is duplicated.
+
+![Watched folders](/img/app/watched-folders.png)
+
+From **Settings → Watched folders**:
+
+- **Add folder** — pick a folder; CB8 scans it immediately and imports anything supported.
+- **Rescan** — tap a folder (or *Rescan all*) to pull in newly added files.
+- **Stop watching** — removes the folder. Already-imported items stay in your library.
+
+**On desktop** (macOS/Windows/Linux) watched folders are rescanned on launch and watched **live** while the app runs — drop a file in and it appears shortly after. **On mobile**, use the manual **Rescan** action, since background file-watching isn't available there.
+
+> Because watched-folder files are referenced in place, deleting such an item from your library removes the catalog entry but **leaves the original file alone**.
+
+## Metadata read from the file
+
+On import, CB8 reads bibliographic details from inside the file itself:
+
+- **Comics** — the `ComicInfo.xml` sidecar (the ComicRack standard) bundled in many CBZ/CBT files: title, series, volume/issue number, writer, artist, genre, year, summary.
+- **EPUB** — the OPF package document's Dublin Core fields: title, author, subject, date, description.
+
+These are merged over the series info guessed from the filename, so a well-tagged file lands in your library already filled in. You can always adjust the result — see [Metadata & duplicates](/app/metadata).
+
+See [Format support](/formats) for the full list of what each format can hold.
