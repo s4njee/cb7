@@ -15,9 +15,8 @@ import { scrubPreview } from "../lib/scrubPreview";
 import { startSession, type ReadingSession } from "../lib/stats";
 import { usePrefs } from "../store/prefs";
 import { useSession } from "../store/session";
-// Lazy so the heavy reader engines — epub.js, pdf.js, and pdf.js's ~1 MB
-// inlined worker (see lib/pdf.ts) — stay out of the initial bundle and only
-// load when a book of that kind is actually opened.
+// Lazy so heavy engines (Readium EPUB, pdf.js, comic pages) stay out of the
+// initial bundle. EPUB uses Readium TS Toolkit; PDF stays on pdf.js.
 const ComicReader = lazy(() => import("./ComicReader"));
 const PdfReader = lazy(() => import("./PdfReader"));
 const TextReader = lazy(() => import("./TextReader"));
@@ -469,6 +468,7 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
               ) : format === "pdf" ? (
                 <PdfReader ref={apiRef} record={record} onState={report} />
               ) : (
+                // EPUB via Readium TS Toolkit (see lib/readiumZip.ts).
                 <TextReader ref={apiRef} record={record} onState={report} />
               )}
             </Suspense>

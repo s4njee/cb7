@@ -1,12 +1,10 @@
-/* EPUB reading surface: the margin box around the epub.js host, the popovers
+/* EPUB reading surface: the margin box around the Readium host, the popovers
    layered over the sandboxed iframe, and the highlights drawer list.
 
-   Nothing here reaches inside the frame — section documents are styled by
-   lib/epubTheme.ts, injected per section, because the frame cannot see this
-   stylesheet. */
+   Section documents are themed via EpubNavigator preferences (Readium CSS). */
 
 /* The box that carries the reader's margin / measure prefs. It wraps the render
-   host rather than being it: epub.js is told the host's clientWidth, which
+   host rather than being it: the engine measures the host's clientWidth, which
    includes padding, so padding the host itself overflows the column by exactly
    the margin. */
 .epub-measure {
@@ -14,6 +12,70 @@
   width: 100%;
   margin: 0 auto;
   transition: padding 0.18s ease, max-width 0.18s ease;
+}
+
+/*
+ * Reading surface vs app chrome:
+ * App tokens force `color-scheme: dark` globally. In light/sepia reading mode
+ * that makes WebKit paint grey iframe chrome around the page — the “grey
+ * border around the text container”. Match color-scheme to the reading theme
+ * and keep the host full-bleed so Readium’s inline width shrink doesn’t frame
+ * the page.
+ */
+.epub-wrap[data-reading-theme="light"],
+.epub-wrap[data-reading-theme="sepia"] {
+  color-scheme: light;
+}
+.epub-wrap[data-reading-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* Readium EpubNavigator mounts frames inside this host. */
+.epub-host.readium-host {
+  /* Readium sets an inline width (optimal line length). Force full host so the
+     page isn’t a floating box with a rim. */
+  width: 100% !important;
+  max-width: none !important;
+  height: 100% !important;
+  min-height: 0;
+  position: relative;
+  background: inherit;
+  overflow: hidden;
+  border: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.epub-host.readium-host > * {
+  width: 100% !important;
+  max-width: none !important;
+  height: 100% !important;
+  background: inherit !important;
+  border: 0 !important;
+  outline: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box;
+  box-shadow: none !important;
+}
+
+/* Kill WebKit’s default grey iframe border / dark-scheme chrome. */
+.epub-host.readium-host iframe,
+.epub-host.readium-host iframe.readium-navigator-iframe {
+  background: inherit !important;
+  border: 0 !important;
+  outline: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+  color-scheme: inherit;
+}
+
+.epub-viewport,
+.epub-measure {
+  background: inherit;
+  border: 0;
+  box-shadow: none;
 }
 
 /* A fixed-layout book brings its own page geometry and wants every pixel. The

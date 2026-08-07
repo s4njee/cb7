@@ -268,13 +268,15 @@ A bookmark is anchored by **exactly one** of `page` (fixed-layout: comics/PDFs) 
 
 ## EPUB rendering (frontend)
 
-Match the first-party SPA: **epub.js (`epubjs@^0.3.93`)** fed the whole file as an
-`ArrayBuffer` (fetched via the `cb8` proxy `/file` URL). Pagination = epub.js
-`flow: 'paginated'`; TOC from `book.loaded.navigation`; position = CFI from the
-`relocated` event; restore via `rendition.display(record.lastLocation)`; percent
-via `book.locations.generate(1024)` + `percentageFromCfi` (omit `percent` until
-locations are built). Theming via `rendition.themes` (colors/font-size %/line-height/font-family)
-driven by the app's design tokens.
+**Experimental (`readium` branch):** the Tauri client uses **Readium TS Toolkit**
+(`@readium/navigator` + `@readium/shared`). Bytes still arrive as an
+`ArrayBuffer` (proxy `/file` or local download). The client unpacks the EPUB
+(`lib/readiumZip.ts`) into a WebPub manifest + ZipFetcher (relative assets
+rewritten to `blob:` URLs), then loads `EpubNavigator`. Position = serialized
+**Locator JSON** in `lastLocation`; percent from `locations.totalProgression`.
+Theming via `EpubPreferences` / Readium CSS. PDF remains pdf.js.
+
+The first-party web SPA may still use epub.js until ported.
 
 ## Design (frontend must recreate faithfully)
 

@@ -1,5 +1,5 @@
-/** Concrete color values per app theme for the EPUB iframe (epub.js needs real
- *  colors, not CSS vars), plus the CSS injected into each rendered section.
+/** Concrete color values per app theme for the EPUB section document (engines
+ *  need real colors, not CSS vars), plus the CSS injected via setStyles.
  *
  *  Page margins and text measure are deliberately NOT set here: under column
  *  pagination `body` padding applies once across the whole column set rather

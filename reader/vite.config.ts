@@ -8,14 +8,21 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react()],
 
+  optimizeDeps: {
+    // Readium packages are ESM-only; let Vite prebundle for dev.
+    include: [
+      "@readium/shared",
+      "@readium/navigator",
+      "@readium/navigator-html-injectables",
+      "@readium/decorator",
+      "@readium/helpers",
+      "@zip.js/zip.js",
+    ],
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
-  //
-  // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
-  // 2. tauri expects a fixed port, fail if that port is not available
   server: {
-    // 1430 (not Tauri's usual 1420) — other Tauri projects on this machine
-    // already fight over 1420.
     port: 1430,
     strictPort: true,
     host: host || false,
@@ -27,12 +34,8 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
     },
-    // 4. Browser dev mode: proxy JSON + media to a local CB8 server so the app
-    //    can run against `vite dev` without Tauri (see src/lib/transport.ts).
-    //    Override with CB8_SERVER (e.g. the docker compose port 4218).
     proxy: {
       // @ts-expect-error process is a nodejs global
       "/api": process.env.CB8_SERVER || "http://localhost:8008",

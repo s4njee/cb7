@@ -2,10 +2,9 @@
  * Pure EPUB section-DOM helpers used by TextReader.
  *
  * Footnote detection, note extraction, caret word lookup, and href resolution
- * live here so TextReader owns rendition lifecycle without burying policy
+ * live here so TextReader owns view lifecycle without burying policy
  * inside a thousand-line component.
  */
-import type { EpubContents } from "./epub";
 import { anchorFromFrame } from "../components/EpubPopover";
 
 /** Longer notes are endnotes-in-disguise; previewing them in a popover is worse
@@ -109,7 +108,11 @@ export function wordAtPoint(doc: Document, x: number, y: number): string | null 
 
 /** Middle of the top edge of a rect, in host viewport space — where a popover
  *  wants to point. */
-export function anchorForRect(contents: EpubContents, rect: DOMRect | undefined) {
-  if (!rect) return anchorFromFrame(contents.window, 0, 0);
-  return anchorFromFrame(contents.window, rect.left + rect.width / 2, rect.top);
+export function anchorForRect(
+  win: (Window & { frameElement?: Element | null }) | undefined | null,
+  rect: DOMRect | undefined,
+) {
+  const w = win ?? undefined;
+  if (!rect) return anchorFromFrame(w, 0, 0);
+  return anchorFromFrame(w, rect.left + rect.width / 2, rect.top);
 }

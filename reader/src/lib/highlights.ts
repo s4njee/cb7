@@ -33,20 +33,18 @@ export function swatchById(id: string | undefined | null): Swatch {
   return BY_ID.get(id as SwatchId) ?? BY_ID.get(DEFAULT_SWATCH)!;
 }
 
-/** SVG presentation attributes for epub.js's annotation pane. These are set
- *  with setAttribute on the mark's `<g>`, so they must be SVG attribute names
- *  (`fill`, `fill-opacity`) — CSS property names are dropped silently.
- *
- *  The blend mode has to flip with the theme. `multiply` over a dark page
- *  darkens toward black and the highlight disappears; `screen` lightens, which
- *  reads as a colored glow behind still-legible light text. */
+/** Highlight paint color (drawer chips + future Readium Decorator styles). */
+export function swatchColor(id: string, theme: ThemeName): string {
+  const chip = swatchById(id).chip;
+  const alpha = theme === "dark" ? 0.45 : 0.4;
+  const r = parseInt(chip.slice(1, 3), 16);
+  const g = parseInt(chip.slice(3, 5), 16);
+  const b = parseInt(chip.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 export function swatchStyles(id: string, theme: ThemeName): Record<string, string> {
-  const dark = theme === "dark";
-  return {
-    fill: swatchById(id).chip,
-    "fill-opacity": dark ? "0.34" : "0.42",
-    "mix-blend-mode": dark ? "screen" : "multiply",
-  };
+  return { fill: swatchColor(id, theme) };
 }
 
 export interface StoredHighlight {
