@@ -127,7 +127,13 @@ export default function PdfReader({
 
       canvas.width = viewport.width;
       canvas.height = viewport.height;
+      // Fit the page inside both container dimensions. The frame wrapper below is
+      // `h-full`, so max-height:100% resolves to the viewport height — without it
+      // a page taller than the reader overflows the overflow-hidden container and
+      // gets its top clipped (the canvas sits vertically centered).
       canvas.style.maxWidth = '100%';
+      canvas.style.maxHeight = '100%';
+      canvas.style.width = 'auto';
       canvas.style.height = 'auto';
 
       renderTaskRef.current = page.render({
@@ -244,7 +250,7 @@ export default function PdfReader({
       onClick={handleCanvasClick}
       className="w-full h-full relative overflow-hidden flex items-center justify-center bg-zinc-950/40 p-4"
     >
-      <div className="relative max-h-full max-w-full flex items-center justify-center shadow-2xl rounded overflow-hidden select-none border border-zinc-800 bg-[#141414]">
+      <div className="relative h-full max-w-full flex items-center justify-center shadow-2xl rounded overflow-hidden select-none border border-zinc-800 bg-[#141414]">
         <canvas
           ref={canvasRef}
           id="pdf-canvas"
