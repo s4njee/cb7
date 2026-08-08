@@ -108,7 +108,16 @@ async function dispatchApi(
   betterAuthHandler: (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void>,
 ): Promise<void> {
   const parsed = url.parse(req.url ?? '/', true);
-  const pathname = decodeURIComponent(parsed.pathname ?? '/');
+  // decodeURIComponent throws URIError on malformed percent-encoding (e.g.
+  // `GET /api/%`). Since the reply is hijacked, an uncaught throw would surface
+  // as a 500; answer 400 for garbage input instead, mirroring the static handler.
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(parsed.pathname ?? '/');
+  } catch {
+    sendError(res, 400, 'Bad request');
+    return;
+  }
   const query = parsed.query as Record<string, string>;
   const method = req.method ?? 'GET';
 

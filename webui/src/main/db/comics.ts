@@ -380,7 +380,11 @@ export async function queryComicsForUser(
   userId: number | null,
   options: UserComicQueryOptions,
 ): Promise<{ records: (MediaRecord & { favorited?: boolean })[]; totalCount: number }> {
-  const { conditions, params } = buildComicFilters(options, { includeSharedReadStatus: false });
+  // Per-user queries (userId set) apply the read-status filter against the
+  // joined user_progress table; anonymous/shared queries (userId null) filter on
+  // the comic's own columns — the same shared position a guest reads and writes.
+  // The shared branch also matches the folder/hierarchy list paths.
+  const { conditions, params } = buildComicFilters(options, { includeSharedReadStatus: userId == null });
   const userOverlay = buildUserComicOverlaySql(userId);
 
   if (options.readStatus && userId != null) {
@@ -419,12 +423,17 @@ export async function queryComicsForUser(
   const baseRecords = await withBatchedTags(db, rows.map(rowToListRecord));
   const records = baseRecords.map((base, index) => {
     const row = rows[index];
+    // Match overlayUserState (webServer/mapping.ts): a user's own progress row
+    // wins; without one, keep the comic's shared columns so the grid and the
+    // detail view agree. up_last_read is non-null exactly when a progress row
+    // exists (upsertUserProgress always stamps last_read).
+    const hasUserProgress = userId != null && row.up_last_read != null;
     return {
       ...base,
-      lastPage: userId != null ? row.up_last_page : base.lastPage,
-      lastLocation: userId != null ? row.up_last_location : base.lastLocation,
-      lastPercent: userId != null ? row.up_last_percent : base.lastPercent,
-      lastRead: userId != null ? row.up_last_read : base.lastRead,
+      lastPage: hasUserProgress ? row.up_last_page : base.lastPage,
+      lastLocation: hasUserProgress ? row.up_last_location : base.lastLocation,
+      lastPercent: hasUserProgress ? row.up_last_percent : base.lastPercent,
+      lastRead: hasUserProgress ? row.up_last_read : base.lastRead,
       favorited: Boolean(row.is_fav),
     };
   });

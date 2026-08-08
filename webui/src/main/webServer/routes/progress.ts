@@ -214,7 +214,7 @@ export const handle: RouteHandler = async (ctx) => {
   }
   const seriesComicsMatch = pathname.match(/^\/api\/series\/([^/]+)\/comics$/);
   if (method === 'GET' && seriesComicsMatch) {
-    const name = decodeURIComponent(seriesComicsMatch[1]);
+    const name = seriesComicsMatch[1];
     const records = await db.getSeriesComics(name);
     const uid = currentUser?.id ?? null;
     sendJson(res, 200, await overlayUserStateMany(records.map((r) => toWebRecord(r)!), db, uid));

@@ -31,8 +31,9 @@ export async function addSingleFile(
   db: LibraryDatabase,
   filePath: string,
   folderId?: number,
+  jobId?: number | string | null,
 ): Promise<{ added: boolean; error?: string }> {
-  return new IngestService(db).addFile(filePath, folderId);
+  return new IngestService(db).addFile(filePath, folderId, jobId);
 }
 
 /** Number of per-file failure examples emitted at the end of a scan. The full
@@ -53,6 +54,8 @@ export interface IngestPathOptions {
   since?: number;
   /** Cooperative cancellation — discovery + workers bail when this aborts. */
   signal?: AbortSignal;
+  /** pg-boss job id to attach to per-file ingest failures recorded during this ingest. */
+  jobId?: number | string | null;
 }
 
 /**
@@ -73,7 +76,7 @@ export async function ingestPathStreaming(
   emit: (event: IngestEvent) => void,
   options: IngestPathOptions = {},
 ): Promise<void> {
-  const { folderId, useFolderNamesAsSeries = false, since, signal } = options;
+  const { folderId, useFolderNamesAsSeries = false, since, signal, jobId } = options;
   let stat: fs.Stats;
   try {
     stat = fs.statSync(targetPath);
@@ -87,7 +90,7 @@ export async function ingestPathStreaming(
     const scanner = new FileScannerImpl(db);
     let added = 0;
     const allFailures: IngestFailure[] = [];
-    const scanOpts = { useFolderNamesAsSeries };
+    const scanOpts = { useFolderNamesAsSeries, jobId };
     try {
       const r = since != null
         ? await scanner.scanIncremental(targetPath, since, (p) => {
@@ -121,7 +124,7 @@ export async function ingestPathStreaming(
 
   if (stat.isFile()) {
     emit({ type: 'progress', phase: 'file', discovered: 1, processed: 0, currentFile: path.basename(targetPath) });
-    const result = await addSingleFile(db, targetPath, folderId);
+    const result = await addSingleFile(db, targetPath, folderId, jobId);
     emit({ type: 'progress', phase: 'file', discovered: 1, processed: 1, currentFile: path.basename(targetPath) });
     if (result.error) emit({ type: 'error', message: `${targetPath}: ${result.error}` });
     emit({ type: 'done', added: result.added ? 1 : 0 });

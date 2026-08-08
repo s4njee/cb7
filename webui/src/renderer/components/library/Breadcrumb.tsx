@@ -45,7 +45,7 @@ export default function Breadcrumb() {
   } else if (path.startsWith('/folder/')) {
     const folderId = Number(params.id);
     const folder = folders.find((f) => f.id === folderId);
-    segments.push({ label: 'Folders', to: '/' });
+    segments.push({ label: 'Folders', to: '/folders' });
     
     const folderLabel = folder?.name || 'Folder';
     const hasMoreSegments = !!params.k;
@@ -83,7 +83,9 @@ export default function Breadcrumb() {
       }
     }
   } else if (path.startsWith('/browse/')) {
-    segments.push({ label: 'Browse', to: '/' });
+    // No `/browse` landing route exists, so this crumb is a label, not a link —
+    // pointing it at '/' would silently dump the user back on the Library root.
+    segments.push({ label: 'Browse' });
 
     if (params.k) {
       const seriesKey = params.k;

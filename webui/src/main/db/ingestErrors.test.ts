@@ -42,4 +42,21 @@ describePg('ingest_errors DAO', () => {
     expect(await db.countIngestErrors()).toBe(0);
     expect(await db.getRecentIngestErrors()).toEqual([]);
   });
+
+  it('associates failures with a scan job and fetches them newest-first', async () => {
+    await db.recordIngestError({ path: 'job1-a.cbz', ext: '.cbz', errorClass: 'archive_open', message: 'bad zip', jobId: 'job-1' });
+    await db.recordIngestError({ path: 'job1-b.cbz', ext: '.cbz', errorClass: 'timeout', message: 'timed out', jobId: 'job-1' });
+    await db.recordIngestError({ path: 'no-job.cbz', ext: '.cbz', errorClass: 'unknown', message: 'unassociated' });
+
+    const jobFailures = await db.getIngestErrorsForJob('job-1');
+    expect(jobFailures.map((f) => f.path)).toEqual(['job1-b.cbz', 'job1-a.cbz']);
+    expect(jobFailures[0]).toMatchObject({
+      path: 'job1-b.cbz', ext: '.cbz', errorClass: 'timeout', message: 'timed out',
+    });
+    expect(jobFailures[0].ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*Z$/);
+
+    // Failures recorded without a job (API uploads) stay out of the job's list,
+    // and an unknown job id returns empty.
+    expect(await db.getIngestErrorsForJob('missing')).toEqual([]);
+  });
 });

@@ -60,6 +60,8 @@ export interface FileScanner {
 
 export interface FileScanOptions {
   useFolderNamesAsSeries?: boolean;
+  /** Attach per-file ingest failures to this pg-boss scan job id. */
+  jobId?: number | string | null;
 }
 
 export class FileScannerImpl implements FileScanner {
@@ -99,6 +101,7 @@ export class FileScannerImpl implements FileScanner {
   ): Promise<{ added: number; failures: IngestFailure[] }> {
     return this.ingestService.scanDirectoryIncremental(directoryPath, 'comic', onProgress, since, signal, folderId, {
       useFolderNamesAsSeries: options.useFolderNamesAsSeries === true,
+      jobId: options.jobId ?? null,
     });
   }
 
@@ -112,6 +115,7 @@ export class FileScannerImpl implements FileScanner {
   ): Promise<{ added: number; failures: IngestFailure[] }> {
     return this.ingestService.scanDirectoryIncremental(directoryPath, 'book', onProgress, since, signal, folderId, {
       useFolderNamesAsSeries: options.useFolderNamesAsSeries === true,
+      jobId: options.jobId ?? null,
     });
   }
 
@@ -126,6 +130,7 @@ export class FileScannerImpl implements FileScanner {
   ): Promise<{ added: number; failures: IngestFailure[] }> {
     return this.ingestService.scanDirectory(directoryPath, mediaType, onProgress, signal, folderId, {
       useFolderNamesAsSeries: options.useFolderNamesAsSeries === true,
+      jobId: options.jobId ?? null,
     });
   }
 

@@ -72,10 +72,10 @@ export function diffTags(currentTags: string[], nextTags: string[]): TagDiff {
 }
 
 /**
- * Decode a tag name from a URL path segment.
- * @param value The raw (URL-encoded) path segment.
- * @returns The decoded, trimmed tag name.
+ * Parse a tag name from a URL path segment.
+ * @param value The path segment (already percent-decoded by the dispatcher).
+ * @returns The trimmed tag name.
  */
 export function parseTagNameFromPath(value: string): string {
-  return decodeURIComponent(value).trim();
+  return value.trim();
 }

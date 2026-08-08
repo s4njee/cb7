@@ -44,6 +44,17 @@ export default function UploadPanel({ initialFiles, onSuccess, onBack }: UploadP
       addFiles(initialFiles);
     }
   }, [initialFiles]);
+
+  // Abort any in-flight upload when the dialog closes. The admin modal unmounts
+  // this panel on every close path (back / close / success / X), so the cleanup
+  // is the single hook that stops the transfer.
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+    };
+  }, []);
+
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [overallPhase, setOverallPhase] = useState('');
@@ -52,6 +63,9 @@ export default function UploadPanel({ initialFiles, onSuccess, onBack }: UploadP
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  // The controller for the in-progress upload, aborted by the unmount cleanup
+  // above when the dialog is dismissed mid-transfer.
+  const abortRef = useRef<AbortController | null>(null);
 
   const addFiles = (items: { file: File; relPath: string }[]) => {
     setErrorMsg(null);
@@ -104,6 +118,9 @@ export default function UploadPanel({ initialFiles, onSuccess, onBack }: UploadP
     setUploading(true);
     setErrorMsg(null);
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     let addedCount = 0;
     let skippedCount = 0;
     let failedCount = 0;
@@ -144,7 +161,7 @@ export default function UploadPanel({ initialFiles, onSuccess, onBack }: UploadP
           } else {
             setOverallPhase(`Uploading ${i + 1} of ${currentQueue.length} — ${item.relPath}`);
           }
-        });
+        }, controller.signal);
 
         // Set status to done or skipped
         const finalStatus = (result.skipped || !result.added) ? 'skipped' : 'done';
@@ -159,6 +176,13 @@ export default function UploadPanel({ initialFiles, onSuccess, onBack }: UploadP
         });
         setOverallProgress(overallUploadProgressPercent(completedBytes, 0, totalBytes));
       } catch (err) {
+        // The dialog closed mid-transfer — stop the queue and skip the success
+        // summary so a cancelled upload isn't reported as done.
+        if (controller.signal.aborted) {
+          setUploading(false);
+          abortRef.current = null;
+          return;
+        }
         failedCount++;
         // Count failed bytes as done for overall progress so the bar still moves.
         completedBytes += item.file.size;
@@ -171,6 +195,7 @@ export default function UploadPanel({ initialFiles, onSuccess, onBack }: UploadP
       }
     }
 
+    abortRef.current = null;
     setOverallProgress(100);
     setOverallPhase(`Done — ${addedCount} added, ${skippedCount} skipped, ${failedCount} failed`);
     setUploading(false);

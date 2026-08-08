@@ -52,10 +52,14 @@ pub struct AppState {
     pub pinned_dir: PathBuf,
     /// In-flight pins, keyed by comic id, so `cancel_download` can reach them.
     pub downloads: Mutex<HashMap<i64, DownloadHandle>>,
-    /// Lazily-built, comic-id-keyed view of the pinned manifests, so the proxy
-    /// never re-reads every manifest per request. `None` = needs a rebuild;
-    /// invalidated whenever a pin is written or removed.
-    pub pinned_index: Mutex<Option<HashMap<i64, PinnedManifest>>>,
+    /// Lazily-built, pin-key-keyed view of the pinned manifests, so the proxy
+    /// never re-reads every manifest per request. The key is
+    /// `pin_key(server_url, comic_id)` — the same hash that names the pin
+    /// directory — so pins for the *same* comic id on *different* servers stay
+    /// distinct (a stale pin from a previous server must never serve the
+    /// current server's request). `None` = needs a rebuild; invalidated
+    /// whenever a pin is written or removed.
+    pub pinned_index: Mutex<Option<HashMap<String, PinnedManifest>>>,
     /// Root of the local library (`<app_data>/library`). **Data dir, not
     /// cache**: iOS evicts caches under pressure, and a library that can
     /// evaporate is not a library.

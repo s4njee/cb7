@@ -29,11 +29,11 @@ import {
   createAndLoadNavigator,
   locatorToProgressString,
   progressStringToLocator,
-  syncColumnGap,
   themeToPreferences,
   totalProgressionOf,
   type EpubNavigator,
 } from "../lib/readiumView";
+import { installScrollChapterBridge } from "../lib/scrollChapterBridge";
 import { Locator } from "@readium/shared";
 import { epubColors, hostMetrics } from "../lib/epubTheme";
 import { clearLegacyBookmarks, loadLegacyBookmarks } from "../lib/localBookmarks";
@@ -69,16 +69,23 @@ import type {
 interface TextReaderProps {
   record: api.WebComicRecord;
   onState: (state: ReaderReportedState) => void;
+  /**
+   * Scroll mode has no host tap-zones (they would block the iframe scroll).
+   * Readium middle-third taps call `miscPointer` — use that to toggle chrome.
+   */
+  onToggleChrome?: () => void;
 }
 
 const TextReader = forwardRef<ReaderApi, TextReaderProps>(function TextReader(
-  { record, onState },
+  { record, onState, onToggleChrome },
   ref,
 ) {
   const qc = useQueryClient();
   const prefs = usePrefs();
   const prefsRef = useRef(prefs);
   prefsRef.current = prefs;
+  const onToggleChromeRef = useRef(onToggleChrome);
+  onToggleChromeRef.current = onToggleChrome;
   const serverUrl = useSession((s) => s.serverUrl) ?? "";
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -132,9 +139,6 @@ const TextReader = forwardRef<ReaderApi, TextReaderProps>(function TextReader(
           }),
         ),
       );
-      // submitPreferences rebuilds CSS props but never sets colGap (Readium
-      // defaults it to 0). Re-apply the inter-column gutter for two-page mode.
-      syncColumnGap(nav, columns);
     } catch {
       /* mid-teardown */
     }
@@ -179,8 +183,26 @@ const TextReader = forwardRef<ReaderApi, TextReaderProps>(function TextReader(
     let cancelled = false;
     let opened: OpenedReadiumEpub | null = null;
     let nav: EpubNavigator | null = null;
+    /** Detach continuous-scroll chapter bridge from the active iframe. */
+    let detachScrollBridge: (() => void) | null = null;
+    /** frameLoaded can fire during load() before navRef is assigned. */
+    let pendingScrollWindow: Window | null = null;
+
+    const attachScrollBridge = (wnd: Window) => {
+      detachScrollBridge?.();
+      detachScrollBridge = installScrollChapterBridge(wnd, {
+        isScrollMode: () =>
+          prefsRef.current.flow === "scrolled" &&
+          !(openedRef.current?.isFixedLayout),
+        goNext: () => navRef.current?.goForward(false, () => {}),
+        goPrev: () => navRef.current?.goBackward(false, () => {}),
+      });
+    };
 
     const teardown = async () => {
+      detachScrollBridge?.();
+      detachScrollBridge = null;
+      pendingScrollWindow = null;
       try {
         await nav?.destroy();
       } catch {
@@ -264,6 +286,16 @@ const TextReader = forwardRef<ReaderApi, TextReaderProps>(function TextReader(
           initialLocator: initial,
           preferences,
           listeners: {
+            // Re-attach overscroll → next/prev chapter when the active frame changes.
+            frameLoaded: (wnd) => {
+              if (cancelled) return;
+              if (navRef.current) attachScrollBridge(wnd);
+              else pendingScrollWindow = wnd;
+            },
+            // Middle-third tap inside the iframe (scroll mode has no host tap-zones).
+            miscPointer: () => {
+              onToggleChromeRef.current?.();
+            },
             positionChanged: (locator) => {
               if (closingRef.current) return;
               locatorRef.current = locator;
@@ -335,6 +367,22 @@ const TextReader = forwardRef<ReaderApi, TextReaderProps>(function TextReader(
         });
         if (cancelled) return teardown();
         navRef.current = nav;
+        // Initial frameLoaded ran during load() before navRef was set.
+        if (pendingScrollWindow) {
+          attachScrollBridge(pendingScrollWindow);
+          pendingScrollWindow = null;
+        } else {
+          try {
+            const wnd = (
+              nav as unknown as {
+                _cframes?: { iframe?: HTMLIFrameElement }[];
+              }
+            )._cframes?.[0]?.iframe?.contentWindow;
+            if (wnd) attachScrollBridge(wnd);
+          } catch {
+            /* frame not ready */
+          }
+        }
 
         setCanSeek(true);
         setLoad(readyState());
@@ -638,7 +686,11 @@ const TextReader = forwardRef<ReaderApi, TextReaderProps>(function TextReader(
       data-reading-theme={prefs.theme}
       style={{ background: pageBg, colorScheme: prefs.theme === "dark" ? "dark" : "light" }}
     >
-      {chapterLabel && !fixed && !scrolled && <div className="chapter-label">{chapterLabel}</div>}
+      {chapterLabel && !fixed && (
+        <div className={`chapter-label${scrolled ? " over-content" : ""}`}>
+          {chapterLabel}
+        </div>
+      )}
       <div className="epub-viewport" style={{ background: pageBg }}>
         <div
           className="epub-measure"

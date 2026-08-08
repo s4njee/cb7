@@ -65,6 +65,7 @@ export async function handleIngestScan(db: LibraryDatabase, job: Job<IngestScanJ
       useFolderNamesAsSeries: data.useFolderNamesAsSeries,
       since: data.since,
       signal: job.signal,
+      jobId: job.id,
     });
     clearInterval(flush);
 
@@ -105,11 +106,16 @@ export async function handleIngestScan(db: LibraryDatabase, job: Job<IngestScanJ
   }
 }
 
-/** Handle one search-backfill job: (re)index un-indexed ebooks. Idempotent. */
+/** Handle one search-backfill job: (re)index ebooks. Idempotent. A `full` job
+ * wipes the whole index first (admin force-reindex); an incremental job only
+ * indexes books with no chunks. */
 export async function handleSearchBackfill(db: LibraryDatabase, job: Job<SearchBackfillJob>): Promise<void> {
   await db.createScanJob({ id: job.id, kind: QUEUE.searchBackfill });
   await db.updateScanProgress(job.id, { status: 'active' });
   try {
+    if (job.data.full === true) {
+      await db.clearEbookIndex();
+    }
     const r = await db.backfillBooks();
     await db.updateScanProgress(job.id, { status: 'done', added: r.indexed });
     log.info(`search-backfill ${job.id} done: indexed ${r.indexed} books, ${r.chunks} chunks`);

@@ -49,6 +49,10 @@ export default function ComicReader({
   const readerBodyRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const prevPageRef = useRef<number>(initialPage);
+  // The page this reader opened on, captured once. ReaderPage forwards the live
+  // store page as `initialPage`, which moves on every turn — the history effect
+  // must not re-log 'opened' for each of those.
+  const initialPageRef = useRef(initialPage);
 
   // States for images
   const [imgSrc, setImgSrc] = useState<string>('');
@@ -273,7 +277,7 @@ export default function ComicReader({
 
   // 6. Log history & cleanups
   useEffect(() => {
-    const pageIndex = initialPage - 1;
+    const pageIndex = initialPageRef.current - 1;
     api.logHistory(record.id, 'opened', pageIndex).catch(() => {});
 
     return () => {
@@ -281,7 +285,7 @@ export default function ComicReader({
       const currentPageNum = useReaderStore.getState().currentPage;
       api.logHistory(record.id, 'closed', currentPageNum - 1).catch(() => {});
     };
-  }, [record.id, initialPage]);
+  }, [record.id]);
 
   // 7. Page Change Effect (Preload, transitions, progress save)
   useEffect(() => {

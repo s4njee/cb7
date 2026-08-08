@@ -169,8 +169,17 @@ export function parseQueryOptions(query: Record<string, string>): QueryOptions {
   if (query.tag) options.tag = query.tag;
   if (query.sortBy) options.sortBy = query.sortBy as QueryOptions['sortBy'];
   if (query.sortOrder) options.sortOrder = query.sortOrder as 'asc' | 'desc';
-  if (query.offset) options.offset = parseInt(query.offset, 10);
-  if (query.limit) options.limit = Math.min(parseInt(query.limit, 10), 200);
+  // Guard against non-numeric / negative paging values. A malformed `offset`
+  // used to flow through as NaN and hit Postgres (`OFFSET NaN` → 500), and a
+  // negative `limit` made Postgres treat LIMIT as unlimited, bypassing the cap.
+  if (query.offset) {
+    const offset = parseInt(query.offset, 10);
+    if (Number.isFinite(offset)) options.offset = Math.max(0, offset);
+  }
+  if (query.limit) {
+    const limit = parseInt(query.limit, 10);
+    if (Number.isFinite(limit) && limit > 0) options.limit = Math.min(limit, 200);
+  }
   if (query.mediaType) options.mediaType = query.mediaType as 'comic' | 'book';
   if (query.excludeFoldered) options.excludeFoldered = query.excludeFoldered === 'true';
   if (query.fileExt) options.fileExt = String(query.fileExt).toLowerCase().replace(/^\./, '');

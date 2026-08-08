@@ -85,21 +85,21 @@ async function handleHierarchy(ctx: RequestContext, folderId: number | null, sub
 
   const volumesMatch = sub.match(/^\/series\/([^/]+)\/volumes$/);
   if (volumesMatch) {
-    sendGroups(res, await volumeGroups(decodeURIComponent(volumesMatch[1])));
+    sendGroups(res, await volumeGroups(volumesMatch[1]));
     return true;
   }
 
   const chaptersMatch = sub.match(/^\/series\/([^/]+)\/volumes\/([^/]+)\/chapters$/);
   if (chaptersMatch) {
-    sendGroups(res, await chapterGroups(decodeURIComponent(chaptersMatch[1]), decodeURIComponent(chaptersMatch[2])));
+    sendGroups(res, await chapterGroups(chaptersMatch[1], chaptersMatch[2]));
     return true;
   }
 
   const volumeComicsMatch = sub.match(/^\/series\/([^/]+)\/volumes\/([^/]+)\/comics$/);
   if (volumeComicsMatch) {
     sendComics(res, await volumeComics(
-      decodeURIComponent(volumeComicsMatch[1]),
-      decodeURIComponent(volumeComicsMatch[2]),
+      volumeComicsMatch[1],
+      volumeComicsMatch[2],
       null,
     ));
     return true;
@@ -108,9 +108,9 @@ async function handleHierarchy(ctx: RequestContext, folderId: number | null, sub
   const chapterComicsMatch = sub.match(/^\/series\/([^/]+)\/volumes\/([^/]+)\/chapters\/([^/]+)\/comics$/);
   if (chapterComicsMatch) {
     sendComics(res, await volumeComics(
-      decodeURIComponent(chapterComicsMatch[1]),
-      decodeURIComponent(chapterComicsMatch[2]),
-      decodeURIComponent(chapterComicsMatch[3]),
+      chapterComicsMatch[1],
+      chapterComicsMatch[2],
+      chapterComicsMatch[3],
     ));
     return true;
   }

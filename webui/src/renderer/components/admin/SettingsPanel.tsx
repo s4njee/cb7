@@ -64,6 +64,10 @@ export default function SettingsPanel({ onBack, onClose }: SettingsPanelProps) {
   const [pairRevealed, setPairRevealed] = useState(false);
   const pairRequestId = useRef(0);
   const pairMounted = useRef(true);
+  // Regaining tab focus fires both a window `focus` and a `visibilitychange`
+  // event; each triggers refreshPairCode and would mint a fresh single-use token.
+  // Dedupe near-simultaneous calls so a refocus mints exactly one.
+  const lastPairRefreshAt = useRef(0);
 
   useEffect(() => {
     pairMounted.current = true;
@@ -89,6 +93,9 @@ export default function SettingsPanel({ onBack, onClose }: SettingsPanelProps) {
 
   const refreshPairCode = useCallback(async () => {
     if (!selectedPairOrigin) return;
+    const now = Date.now();
+    if (now - lastPairRefreshAt.current < 1000) return;
+    lastPairRefreshAt.current = now;
     const requestId = ++pairRequestId.current;
     try {
       const { token } = await api.createPairToken();

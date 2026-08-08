@@ -135,7 +135,7 @@ export async function queryComicsByLibrary(
     `SELECT c.id, c.file_path, c.title, c.page_count, c.file_size,
             CASE WHEN c.cover_thumbnail IS NULL THEN 0 ELSE 1 END as has_thumbnail,
             COALESCE(length(c.cover_thumbnail), 0) as thumbnail_version,
-            c.date_added, c.last_page, c.last_location, c.last_read, c.media_type
+            c.date_added, c.last_page, c.last_location, c.last_percent, c.last_read, c.media_type
      FROM comics c ${where}
      ORDER BY ${sortCol} ${sortDir}
      LIMIT ? OFFSET ?`,

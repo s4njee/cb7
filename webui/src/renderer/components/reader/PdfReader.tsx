@@ -44,6 +44,11 @@ export default function PdfReader({
   const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
   const touchStartXRef = useRef<number>(0);
   const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
+  const renderIdRef = useRef(0);
+  // The page to restore on load, captured once at mount. ReaderPage passes
+  // `initialPage` as the live store page, which moves on every navigation — the
+  // load effect must not re-run (re-downloading the document) when that changes.
+  const initialPageRef = useRef(initialPage);
 
   // Load the PDF document. We hand pdf.js the URL (not a pre-fetched
   // ArrayBuffer) so it streams via HTTP Range requests — the server advertises
@@ -69,8 +74,9 @@ export default function PdfReader({
 
         pdfDocRef.current = pdf;
 
-        // Restore page progress
-        const startPage = clampPdfPage(initialPage, pdf.numPages);
+        // Restore page progress from the page captured at mount, so later
+        // `initialPage` prop changes (toolbar scrubs) can't reload the document.
+        const startPage = clampPdfPage(initialPageRef.current, pdf.numPages);
         setCurrentPage(startPage);
 
         setPdfLoading(false);
@@ -90,7 +96,9 @@ export default function PdfReader({
       pdfDocRef.current = null;
       void loadingTask.destroy();
     };
-  }, [record.id, initialPage, setCurrentPage]);
+    // Keyed on record.id only: the initial page is captured in initialPageRef so
+    // the document is fetched once per book, not once per page turn.
+  }, [record.id, setCurrentPage]);
 
   // 3. Render page onto Canvas (high-DPI scale matching device pixels)
   const renderPage = useCallback(async (pageNum: number) => {
@@ -98,6 +106,10 @@ export default function PdfReader({
     const canvas = canvasRef.current;
     if (!pdf || !canvas) return;
 
+    // Monotonic render id: a superseded (cancelled) render must not clear the
+    // busy flag — the newer render already set it and is still painting. Only
+    // the most recent render turns the indicator off.
+    const renderId = ++renderIdRef.current;
     try {
       setPageRendering(true);
 
@@ -125,13 +137,17 @@ export default function PdfReader({
       });
 
       await renderTaskRef.current.promise;
-      renderTaskRef.current = null;
-      setPageRendering(false);
+      if (renderIdRef.current === renderId) {
+        renderTaskRef.current = null;
+        setPageRendering(false);
+      }
     } catch (err) {
       if (!isPdfRenderCancellation(err)) {
         console.error('PDF rendering failed:', err);
       }
-      setPageRendering(false);
+      if (renderIdRef.current === renderId) {
+        setPageRendering(false);
+      }
     }
   }, []);
 
@@ -196,12 +212,12 @@ export default function PdfReader({
 
   // 6. Log history opened/closed
   useEffect(() => {
-    api.logHistory(record.id, 'opened', initialPage - 1).catch(() => {});
+    api.logHistory(record.id, 'opened', initialPageRef.current - 1).catch(() => {});
     return () => {
       const pageNum = useReaderStore.getState().currentPage;
       api.logHistory(record.id, 'closed', pageNum - 1).catch(() => {});
     };
-  }, [record.id, initialPage]);
+  }, [record.id]);
 
   if (loadError) {
     return (

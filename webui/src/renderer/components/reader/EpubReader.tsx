@@ -52,6 +52,12 @@ export default function EpubReader({
   const epubPrefsRef = useRef(epubPrefs);
   const currentSectionHrefRef = useRef<string | null>(null);
   const currentLocationCfiRef = useRef<string | null>(initialLocation || record.lastLocation || null);
+  // The location to open on, captured once. ReaderPage forwards the URL `page`
+  // param as `initialLocation`, which moves on every toolbar scrub — the load
+  // effect must not tear down and re-download the book each time that changes.
+  const startLocationRef = useRef<string | undefined>(
+    initialLocation || record.lastLocation || undefined,
+  );
   const linkedIframeDocsRef = useRef(new WeakSet<Document>());
   const bookRef = useRef<EpubBook | null>(null);
   // Tearing the reader down (e.g. the Back button) makes epubjs resize and
@@ -288,7 +294,7 @@ export default function EpubReader({
         rendered._onKey = onKey;
 
         // Display book starting CFI
-        const startCfi = initialLocation || record.lastLocation || undefined;
+        const startCfi = startLocationRef.current;
         try {
           await rendered.display(startCfi);
           if (startCfi) {
@@ -368,7 +374,10 @@ export default function EpubReader({
       localBook?.destroy?.();
       bookRef.current = null;
     };
-  }, [record.id, initialLocation, resolveDisplayTarget]);
+    // Keyed on record.id only: the start location is captured in startLocationRef
+    // so the book is loaded once per record, not re-downloaded on every URL/page
+    // change from the toolbar.
+  }, [record.id, resolveDisplayTarget]);
 
   // 4. Handle resizing
   useEffect(() => {

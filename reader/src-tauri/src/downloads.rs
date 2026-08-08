@@ -59,6 +59,9 @@ pub struct Manifest {
     /// Last failure or cancel message; cleared when a run succeeds a unit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
+    /// Server origin this pin came from (`None` = legacy pre-scoping manifest).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<String>,
     #[serde(default)]
     pub files: HashMap<String, FileEntry>,
 }
@@ -106,7 +109,7 @@ pub struct PinnedManifest {
 }
 
 impl Manifest {
-    fn new(comic_id: i64, title: String, media_type: String, total: i64) -> Self {
+    fn new(comic_id: i64, title: String, media_type: String, total: i64, server: String) -> Self {
         Self {
             comic_id,
             title,
@@ -116,6 +119,7 @@ impl Manifest {
             bytes: 0,
             complete: false,
             last_error: None,
+            server: Some(server),
             files: HashMap::new(),
         }
     }
@@ -239,7 +243,7 @@ async fn run_download(
     let total = if is_comic { page_count.max(0) } else { 1 };
 
     if let Err(err) = std::fs::create_dir_all(&dir) {
-        let mut manifest = Manifest::new(comic_id, title, media_type, total);
+        let mut manifest = Manifest::new(comic_id, title, media_type, total, server.clone());
         manifest.recompute(&HashSet::new());
         let msg = format!("Could not create pin folder: {err}");
         manifest.last_error = Some(msg.clone());
@@ -259,7 +263,7 @@ async fn run_download(
     // Resume from an existing manifest (or start fresh), then reconcile against
     // what is actually on disk before recomputing progress.
     let mut manifest = load_manifest(&dir)
-        .unwrap_or_else(|| Manifest::new(comic_id, title.clone(), media_type.clone(), total));
+        .unwrap_or_else(|| Manifest::new(comic_id, title.clone(), media_type.clone(), total, server.clone()));
     manifest.title = title;
     manifest.media_type = media_type;
     manifest.total = total;
@@ -373,25 +377,32 @@ async fn finish(state: &AppState, comic_id: i64) {
     invalidate_index(state).await;
 }
 
-/// Serve pinned bytes for a proxy request, if any pinned manifest holds the
-/// query-stripped path. Builds the comic-id-keyed index lazily. Does NOT touch
-/// the LRU cache.
-pub async fn lookup_pinned(state: &AppState, path: &str) -> Option<(Vec<u8>, String)> {
+/// Serve pinned bytes for a proxy request, if any pinned manifest for the
+/// *current* server holds the query-stripped path. Builds the pin-key-keyed
+/// index lazily. Does NOT touch the LRU cache.
+///
+/// `server` is the connected server origin; pins are scoped by
+/// `pin_key(server_url, comic_id)` (the pin directory name), so two servers
+/// that both have a comic id can never serve each other's bytes.
+pub async fn lookup_pinned(state: &AppState, server: &str, path: &str) -> Option<(Vec<u8>, String)> {
     let stripped = strip_query(path);
     let comic_id = parse_comic_id(stripped)?;
+    let key = pin_key(server, comic_id);
 
     let mut guard = state.pinned_index.lock().await;
     if guard.is_none() {
         *guard = Some(build_index(&state.pinned_dir));
     }
     let index = guard.as_ref()?;
-    let manifest = index.get(&comic_id)?;
+    let manifest = index.get(&key)?;
     let entry = manifest.files.get(stripped)?;
     let bytes = std::fs::read(manifest.dir.join(&entry.name)).ok()?;
     Some((bytes, entry.content_type.clone()))
 }
 
-fn build_index(root: &Path) -> HashMap<i64, PinnedManifest> {
+/// Key the index by the pin directory name — `pin_key(server_url, comic_id)` —
+/// so a comic id on one server never collides with the same id on another.
+fn build_index(root: &Path) -> HashMap<String, PinnedManifest> {
     let mut index = HashMap::new();
     if let Ok(entries) = std::fs::read_dir(root) {
         for entry in entries.flatten() {
@@ -399,8 +410,11 @@ fn build_index(root: &Path) -> HashMap<i64, PinnedManifest> {
             if !dir.is_dir() {
                 continue;
             }
+            let Some(key) = entry.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
             if let Some(manifest) = load_manifest(&dir) {
-                index.insert(manifest.comic_id, PinnedManifest { dir, files: manifest.files });
+                index.insert(key, PinnedManifest { dir, files: manifest.files });
             }
         }
     }
@@ -453,7 +467,13 @@ pub async fn remove_download(state: State<'_, AppState>, comic_id: i64) -> Resul
     if let Some(handle) = state.downloads.lock().await.get(&comic_id) {
         handle.cancel.store(true, Ordering::SeqCst);
     }
-    let dir = pin_dir(&state, &server, comic_id);
+    // A legacy pin (predates server scoping) from another server lives under a
+    // different hash dir than the current server's, so fall back to scanning
+    // when the current-server dir doesn't exist.
+    let mut dir = pin_dir(&state, &server, comic_id);
+    if !dir.exists() {
+        dir = find_pin_dir(&state.pinned_dir, comic_id).unwrap_or(dir);
+    }
     let freed = dir_size(&dir);
     if dir.exists() {
         std::fs::remove_dir_all(&dir)?;
@@ -462,8 +482,38 @@ pub async fn remove_download(state: State<'_, AppState>, comic_id: i64) -> Resul
     Ok(freed)
 }
 
+/// Find a pin directory whose manifest holds `comic_id`, regardless of which
+/// server it came from. Used to remove legacy pins whose hash dir doesn't match
+/// the current server.
+fn find_pin_dir(root: &Path, comic_id: i64) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(root).ok()?;
+    for entry in entries.flatten() {
+        let dir = entry.path();
+        if !dir.is_dir() {
+            continue;
+        }
+        if let Some(manifest) = load_manifest(&dir) {
+            if manifest.comic_id == comic_id {
+                return Some(dir);
+            }
+        }
+    }
+    None
+}
+
+/// True when `manifest` belongs to `server` for listing purposes: either it
+/// records that server, or it is a legacy pre-scoping manifest (treated as a
+/// current-server pin — still visible and removable).
+fn manifest_belongs_to(manifest: &Manifest, server: &str) -> bool {
+    match manifest.server.as_deref() {
+        Some(origin) => origin == server,
+        None => true,
+    }
+}
+
 #[tauri::command]
 pub async fn list_downloads(state: State<'_, AppState>) -> Result<Vec<DownloadInfo>, ApiError> {
+    let server = state.server_url().await?;
     let active: HashSet<i64> = state.downloads.lock().await.keys().copied().collect();
     let mut out = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&state.pinned_dir) {
@@ -473,6 +523,11 @@ pub async fn list_downloads(state: State<'_, AppState>) -> Result<Vec<DownloadIn
                 continue;
             }
             if let Some(manifest) = load_manifest(&dir) {
+                // Only current-server pins are visible; a pin from a previous
+                // server stays on disk but is hidden from this server's list.
+                if !manifest_belongs_to(&manifest, &server) {
+                    continue;
+                }
                 let is_active = active.contains(&manifest.comic_id);
                 out.push(manifest.info(is_active));
             }
@@ -518,19 +573,42 @@ mod tests {
             done: 1,
             bytes: 2048,
             complete: false,
+            server: Some("http://host:8008".into()),
             files,
         };
 
         let json = serde_json::to_string(&manifest).unwrap();
         assert!(json.contains("\"comicId\":5"));
         assert!(json.contains("\"mediaType\":\"comic\""));
+        assert!(json.contains("\"server\":\"http://host:8008\""));
         assert!(json.contains("\"contentType\":\"image/jpeg\""));
 
         let back: Manifest = serde_json::from_str(&json).unwrap();
         assert_eq!(back.comic_id, 5);
         assert_eq!(back.total, 12);
+        assert_eq!(back.server.as_deref(), Some("http://host:8008"));
         assert_eq!(back.files["/api/comics/5/pages/0"].content_type, "image/jpeg");
         assert_eq!(back.files["/api/comics/5/pages/0"].size, 2048);
+    }
+
+    #[test]
+    fn legacy_manifest_without_server_deserializes_as_none() {
+        let json = r#"{"comicId":5,"title":"T","mediaType":"comic","total":3,"done":0,"bytes":0,"complete":false,"files":{}}"#;
+        let manifest: Manifest = serde_json::from_str(json).unwrap();
+        assert_eq!(manifest.server, None);
+        assert_eq!(manifest.comic_id, 5);
+        // Re-serializing a legacy manifest omits the absent server field.
+        let json = serde_json::to_string(&manifest).unwrap();
+        assert!(!json.contains("\"server\""));
+    }
+
+    #[test]
+    fn manifest_belongs_to_keeps_current_server_and_legacy() {
+        let mut manifest = Manifest::new(5, "T".into(), "comic".into(), 3, "http://a".into());
+        assert!(manifest_belongs_to(&manifest, "http://a"));
+        assert!(!manifest_belongs_to(&manifest, "http://b"));
+        manifest.server = None; // legacy, pre-scoping
+        assert!(manifest_belongs_to(&manifest, "http://b"));
     }
 
     #[test]
@@ -543,7 +621,7 @@ mod tests {
             .collect();
         assert_eq!(counted.len(), 3); // 3 pages, thumbnail excluded
 
-        let mut manifest = Manifest::new(5, "T".into(), "comic".into(), 3);
+        let mut manifest = Manifest::new(5, "T".into(), "comic".into(), 3, "http://host:8008".into());
         // Thumbnail + one page present.
         manifest.files.insert(
             "/api/comics/5/thumbnail".into(),

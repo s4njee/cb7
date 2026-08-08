@@ -43,6 +43,13 @@ interface FakeTimers {
   advance: (ms: number) => void;
 }
 
+/** Drain the full microtask queue. A macrotask hop runs only after every
+ *  pending microtask, so an in-flight send's continuation (and the dirty-loop
+ *  it triggers) has settled by the time this resolves. */
+function drain(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 function makeFakeTimers(): FakeTimers {
   let now = 0;
   type Entry = { at: number; fn: () => void; id: number };
@@ -167,7 +174,26 @@ export const PROGRESS_WRITE_VECTORS: ProgressVector[] = [
     },
   },
   {
-    name: "non-monotonic schedule is dropped",
+    name: "backward schedule is dropped while a newer value is pending",
+    run: async () => {
+      const sent: ProgressBody[] = [];
+      const timers = makeFakeTimers();
+      const w = new ProgressWriter(async (_r, body) => {
+        sent.push(body);
+      }, { ...timers.opts, delayMs: 100 });
+
+      const rec = fakeRecord(3);
+      w.schedule(rec, { page: 10 });
+      w.schedule(rec, { page: 8 }); // back, but page 10 is still pending
+      timers.advance(100);
+      await Promise.resolve();
+      if (sent.length !== 1 || sent[0].page !== 10) {
+        throw new Error(`expected only page 10, got ${JSON.stringify(sent)}`);
+      }
+    },
+  },
+  {
+    name: "backward schedule after the forward value has flushed is accepted",
     run: async () => {
       const sent: ProgressBody[] = [];
       const timers = makeFakeTimers();
@@ -178,12 +204,38 @@ export const PROGRESS_WRITE_VECTORS: ProgressVector[] = [
       const rec = fakeRecord(3);
       w.schedule(rec, { page: 10 });
       timers.advance(100);
-      await Promise.resolve();
-      w.schedule(rec, { page: 8 }); // back
+      await drain(); // page 10 flushed and its in-flight send settled
+      w.schedule(rec, { page: 8 }); // back, nothing pending anymore
       timers.advance(100);
-      await Promise.resolve();
-      if (sent.length !== 1 || sent[0].page !== 10) {
-        throw new Error(`expected only page 10, got ${JSON.stringify(sent)}`);
+      await drain();
+      if (sent.length !== 2 || sent[0].page !== 10 || sent[1].page !== 8) {
+        throw new Error(`expected page 10 then page 8, got ${JSON.stringify(sent)}`);
+      }
+    },
+  },
+  {
+    name: "slow in-flight send serializes a newer schedule to land last",
+    run: async () => {
+      const sent: ProgressBody[] = [];
+      const releases: Array<() => void> = [];
+      const timers = makeFakeTimers();
+      const w = new ProgressWriter(async (_r, body) => {
+        await new Promise<void>((resolve) => releases.push(resolve));
+        sent.push(body);
+      }, { ...timers.opts, delayMs: 100 });
+
+      const rec = fakeRecord(4);
+      w.schedule(rec, { page: 5 });
+      timers.advance(100); // timer fires → send of page 5 is now in flight
+      w.schedule(rec, { page: 6 }); // newer schedule while page 5 is in flight
+      timers.advance(100); // timer fires → flushKey marks the key dirty
+      releases[0](); // first send completes
+      await drain();
+      // Dirty loop picked up page 6 and started its send after page 5.
+      releases[1]();
+      await drain();
+      if (sent.length !== 2 || sent[0].page !== 5 || sent[1].page !== 6) {
+        throw new Error(`expected page 5 then page 6, got ${JSON.stringify(sent)}`);
       }
     },
   },

@@ -38,8 +38,17 @@ export interface IngestScanJob {
   scanMetaTs?: number;
 }
 
-/** Payload for a {@link QUEUE.searchBackfill} job (no fields needed). */
-export type SearchBackfillJob = Record<string, never>;
+/**
+ * Payload for a {@link QUEUE.searchBackfill} job. `full: true` wipes the whole
+ * index before backfilling (the admin force-reindex); otherwise the incremental
+ * backfill — only books with no chunks — runs. The producer uses a distinct
+ * singletonKey per `full` value so a full rebuild is never deduped against an
+ * incremental backfill already queued/active.
+ */
+export interface SearchBackfillJob {
+  /** True = wipe the ebook index first, then re-embed every book. */
+  full?: boolean;
+}
 
 /**
  * FUTURE — not yet implemented. Payload for an OCR-index job: read a comic's

@@ -51,6 +51,9 @@ export default function AddPathPanel({ onSuccess, onBack }: AddPathPanelProps) {
 
   const fetchSeqRef = useRef(0);
   const suggestionListRef = useRef<HTMLUListElement>(null);
+  // Whether the user has typed or picked a path themselves — the async
+  // host-info lookup must not clobber that with the server's home directory.
+  const pathEditedRef = useRef(false);
 
   // Fetch initial home path & folder suggestions
   useEffect(() => {
@@ -60,7 +63,7 @@ export default function AddPathPanel({ onSuccess, onBack }: AddPathPanelProps) {
 
     api.adminHostInfo()
       .then(({ homePath }) => {
-        if (homePath) {
+        if (homePath && !pathEditedRef.current) {
           setPath(homePath);
           fetchSuggestions(homePath);
         }
@@ -71,6 +74,7 @@ export default function AddPathPanel({ onSuccess, onBack }: AddPathPanelProps) {
   const fetchSuggestions = async (val: string) => {
     if (!val) {
       setSuggestions([]);
+      setHighlightedIndex(-1);
       return;
     }
     const mySeq = ++fetchSeqRef.current;
@@ -78,6 +82,10 @@ export default function AddPathPanel({ onSuccess, onBack }: AddPathPanelProps) {
       const resp = await api.adminListDir(val);
       if (mySeq !== fetchSeqRef.current) return;
       setSuggestions(resp.entries);
+      // Reset the cursor: the highlighted index is relative to the previous,
+      // possibly larger list, and pressing Enter/Tab against a stale index would
+      // index past the new list's end.
+      setHighlightedIndex(-1);
       setShowSuggestions(resp.entries.length > 0);
     } catch {
       if (mySeq === fetchSeqRef.current) {
@@ -88,11 +96,13 @@ export default function AddPathPanel({ onSuccess, onBack }: AddPathPanelProps) {
   };
 
   const handlePathChange = (val: string) => {
+    pathEditedRef.current = true;
     setPath(val);
     fetchSuggestions(val);
   };
 
   const applySuggestion = (item: AddPathSuggestionItem) => {
+    pathEditedRef.current = true;
     setPath(item.path);
     setSuggestions([]);
     setShowSuggestions(false);

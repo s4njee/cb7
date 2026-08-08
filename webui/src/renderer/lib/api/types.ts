@@ -90,6 +90,15 @@ export type Bookmark = BookmarkResponse;
 export type HistoryResponse = SharedHistoryResponse;
 export type IngestErrorLogResponse = SharedIngestErrorLogResponse;
 
+/** A single per-file ingest failure recorded against a scan job. */
+export interface IngestFailureRecord {
+  ts: string;
+  path: string;
+  ext: string;
+  errorClass: string;
+  message: string;
+}
+
 export interface IngestProgressEvent {
   type: 'progress';
   phase: 'discover' | 'process';

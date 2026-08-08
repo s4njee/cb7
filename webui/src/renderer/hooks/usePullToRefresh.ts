@@ -1,4 +1,4 @@
-import { useState, useEffect, RefObject } from 'react';
+import { useState, useEffect, useRef, RefObject } from 'react';
 
 const PULL_THRESHOLD = 70;
 const MAX_PULL = 120;
@@ -11,6 +11,15 @@ export function usePullToRefresh(
 ) {
   const [pullOffset, setPullOffset] = useState(0);
   const [pullState, setPullState] = useState<PullState>('idle');
+
+  // Keep the latest callback in a ref so the touch listeners (and their
+  // in-gesture `pulling` flag) don't get torn down and re-attached on every
+  // render — the parent re-renders as pullOffset changes mid-gesture, which
+  // would otherwise cancel the pull before it can cross the threshold.
+  const onRefreshRef = useRef(onRefresh);
+  useEffect(() => {
+    onRefreshRef.current = onRefresh;
+  }, [onRefresh]);
 
   useEffect(() => {
     const scrollEl = scrollRef.current;
@@ -55,7 +64,7 @@ export function usePullToRefresh(
         setPullState('refreshing');
         setPullOffset(70); // Keep it visible during refresh
         try {
-          await onRefresh();
+          await onRefreshRef.current();
         } catch (err) {
           console.error('Refresh failed:', err);
         }
@@ -82,7 +91,7 @@ export function usePullToRefresh(
       scrollEl.removeEventListener('touchmove', handleTouchMove);
       scrollEl.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [scrollRef, onRefresh]);
+  }, [scrollRef]);
 
   return { pullOffset, pullState };
 }

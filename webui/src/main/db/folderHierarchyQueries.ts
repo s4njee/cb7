@@ -69,12 +69,17 @@ function applyUserState(
   base: MediaRecord,
   userId: number | null,
 ): MediaRecord & { favorited?: boolean } {
+  // Match overlayUserState (webServer/mapping.ts): a user's own progress row
+  // wins; without one, keep the comic's shared columns so the browse grid and
+  // the detail view agree. up_last_read is non-null exactly when a progress row
+  // exists (upsertUserProgress always stamps last_read).
+  const hasUserProgress = userId != null && row.up_last_read != null;
   return {
     ...base,
-    lastPage: userId != null ? row.up_last_page : base.lastPage,
-    lastLocation: userId != null ? row.up_last_location : base.lastLocation,
-    lastPercent: userId != null ? row.up_last_percent : base.lastPercent,
-    lastRead: userId != null ? row.up_last_read : base.lastRead,
+    lastPage: hasUserProgress ? row.up_last_page : base.lastPage,
+    lastLocation: hasUserProgress ? row.up_last_location : base.lastLocation,
+    lastPercent: hasUserProgress ? row.up_last_percent : base.lastPercent,
+    lastRead: hasUserProgress ? row.up_last_read : base.lastRead,
     favorited: Boolean(row.is_fav),
   };
 }

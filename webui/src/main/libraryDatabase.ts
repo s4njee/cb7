@@ -312,6 +312,7 @@ export class LibraryDatabase {
     return ingestErrors.recordIngestError(this.db, record);
   }
   getRecentIngestErrors(limit?: number) { return ingestErrors.getRecentIngestErrors(this.db, limit); }
+  getIngestErrorsForJob(jobId: number | string) { return ingestErrors.getIngestErrorsForJob(this.db, jobId); }
   countIngestErrors() { return ingestErrors.countIngestErrors(this.db); }
   clearIngestErrors() { return ingestErrors.clearIngestErrors(this.db); }
 

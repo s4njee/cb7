@@ -778,6 +778,19 @@
   margin-bottom: 34px;
   text-align: center;
 }
+/* Scroll mode: float over the iframe so it doesn’t steal viewport height.
+   Sits under the reader chrome (z-index 20); visible when chrome is hidden. */
+.chapter-label.over-content {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 0;
+  right: 0;
+  z-index: 5;
+  margin-bottom: 0;
+  pointer-events: none;
+  /* Soft scrim so light themes still read the muted label */
+  text-shadow: 0 1px 2px color-mix(in srgb, var(--bg) 80%, transparent);
+}
 .epub-host {
   width: 100%;
   height: 100%;

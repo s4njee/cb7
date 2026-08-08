@@ -36,6 +36,10 @@ export default function ReaderPage() {
 
   const { currentPage, setCurrentPage, resetReader } = useReaderStore();
   const [extraControls, setExtraControls] = React.useState<React.ReactNode>(null);
+  // The readers key off the store's currentPage, so they must not mount until it
+  // has been initialised to the resume page — otherwise they'd briefly load/save
+  // page 1 (and clobber the saved position) before jumping to the resume page.
+  const [readerReady, setReaderReady] = React.useState(false);
 
   // Immersive chrome: hidden when the book opens, toggled by a center tap,
   // revealed by activity, auto-hidden after a pause. Shared by all readers.
@@ -60,16 +64,25 @@ export default function ReaderPage() {
     gcTime: 0,
   });
 
-  // Sync initial page parameter from URL route or database history on load
+  // Apply the starting page (from the URL route or saved progress) and only then
+  // reveal the reader. Reading progress is keyed off store.currentPage, so if the
+  // reader mounted before this ran it would load and save page 1 first. The reset
+  // is a separate unmount-only effect so slider scrubs (which write the URL via
+  // handlePageChange) don't reset the store mid-read.
   useEffect(() => {
     if (!record) return;
 
     setCurrentPage(initialReaderPage(page, record.lastPage));
+    setReaderReady(true);
+  }, [page, record, setCurrentPage]);
 
+  // Reset the reader store when the overlay unmounts (also covers navigation
+  // between /read/:id and /read/:id/:page route entries).
+  useEffect(() => {
     return () => {
       resetReader();
     };
-  }, [page, record, setCurrentPage, resetReader]);
+  }, [resetReader]);
 
   const handleBack = useCallback(() => {
     // Navigates back to the preceding library location (retains scroll position due to AppShell freezing)
@@ -142,6 +155,17 @@ export default function ReaderPage() {
         >
           Go Back to Library
         </button>
+      </div>
+    );
+  }
+
+  // Hold on the loading screen until the store's currentPage has been set to the
+  // resume point (see the sync effect above), so the reader never mounts on page 1.
+  if (!readerReady) {
+    return (
+      <div className="flex flex-col items-center justify-center w-screen h-screen bg-black text-zinc-400 gap-3 select-none">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <span className="text-sm font-medium">Opening book...</span>
       </div>
     );
   }

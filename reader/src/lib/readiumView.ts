@@ -16,6 +16,19 @@ import { fontById } from "./fonts";
 export type { Publication };
 export { EpubNavigator, Locator };
 
+/**
+ * Horizontal padding inside each column when dual-page is on. Adjacent columns
+ * each contribute this amount, so the visual centre gutter is 2× this value.
+ *
+ * Do NOT use Readium’s `--RS__colGap` for this: CSS multi-column puts the gap
+ * between *every* overflow column, so scrollWidth grows by (spreads−1)×gap and
+ * ColumnSnapper (which advances by `innerWidth`) drifts — last page of a
+ * chapter shifts left and an empty “extra page” appears. Readium defaults
+ * colGap to 0 for that reason. In-column `pageGutter` keeps gap at 0 and only
+ * insets the text, which multicol arithmetic tolerates.
+ */
+const TWO_PAGE_PAGE_GUTTER_PX = 24;
+
 export function themeToPreferences(
   theme: ThemeName,
   opts: {
@@ -28,6 +41,7 @@ export function themeToPreferences(
 ): IEpubPreferences {
   const c = epubColors(theme);
   const font = fontById(opts.fontId);
+  const dual = !opts.scroll && opts.columnCount === 2;
   return {
     backgroundColor: c.bg,
     textColor: c.fg,
@@ -39,10 +53,10 @@ export function themeToPreferences(
     lineHeight: opts.lineHeight,
     scroll: opts.scroll,
     columnCount: opts.scroll ? 1 : opts.columnCount,
-    // Page gutters leave a rim of iframe chrome (reads as a grey border on
-    // light themes under `color-scheme: dark` app chrome). Margins live on
-    // `.epub-measure` instead.
-    pageGutter: 0,
+    // Single-column: outer margins live on `.epub-measure` (padding the host
+    // overflows column width). Dual-page: in-column gutter so the two pages
+    // aren’t flush without breaking multicol scroll math (see above).
+    pageGutter: dual ? TWO_PAGE_PAGE_GUTTER_PX : 0,
     // null = fill the host width. Default max ~80ch shrinks the navigator
     // container and leaves a framed “text box” look.
     maximalLineLength: null,
@@ -59,31 +73,6 @@ export interface CreateNavigatorArgs {
   initialLocator?: Locator;
   preferences: IEpubPreferences;
   listeners: Partial<EpubNavigatorListeners>;
-}
-
-/**
- * Readium CSS defaults `--RS__colGap: 0` and never maps a user preference to
- * it (only `pageGutter` is wired, which is outer padding — not the gap between
- * columns). Without this, two-page mode draws columns flush against each other.
- */
-const TWO_PAGE_COL_GAP_PX = 48;
-
-type NavigatorCssInternals = {
-  _css?: {
-    rsProperties: { colGap: number | null };
-  };
-  compileCSSProperties?: (css: unknown) => Record<string, string>;
-  pool?: { setCSSProperties: (props: Record<string, string>) => void };
-};
-
-/** Apply inter-column gap for dual-page; clear it for single column. */
-export function syncColumnGap(nav: EpubNavigator, columnCount: 1 | 2): void {
-  const n = nav as unknown as NavigatorCssInternals;
-  if (!n._css?.rsProperties || !n.pool || !n.compileCSSProperties) return;
-  const gap = columnCount === 2 ? TWO_PAGE_COL_GAP_PX : 0;
-  n._css.rsProperties.colGap = gap;
-  const props = n.compileCSSProperties(n._css);
-  n.pool.setCSSProperties(props);
 }
 
 export async function createAndLoadNavigator(
@@ -105,8 +94,6 @@ export async function createAndLoadNavigator(
     contextMenu: args.listeners.contextMenu ?? (() => {}),
     peripheral: args.listeners.peripheral ?? (() => {}),
   };
-
-  const columns = (args.preferences.columnCount === 2 ? 2 : 1) as 1 | 2;
 
   const nav = new EpubNavigator(
     args.container,
@@ -131,7 +118,6 @@ export async function createAndLoadNavigator(
     },
   );
   await nav.load();
-  syncColumnGap(nav, columns);
   return nav;
 }
 

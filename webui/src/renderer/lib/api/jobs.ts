@@ -1,5 +1,5 @@
 import { get } from './client';
-import type { IngestProgress, IngestProgressEvent } from './types';
+import type { IngestFailureRecord, IngestProgress, IngestProgressEvent } from './types';
 
 /** Mirror of the server `scan_jobs` row (see src/main/db/jobs.ts). */
 export interface ScanJob {
@@ -13,6 +13,8 @@ export interface ScanJob {
   added: number;
   currentFile: string | null;
   error: string | null;
+  /** Per-file ingest failures captured by the worker (empty while running). */
+  failures: IngestFailureRecord[];
   createdAt: string;
   updatedAt: string;
 }
@@ -61,10 +63,28 @@ export async function pollIngestJob(
       currentFile: job.currentFile ?? '',
     });
     if (job.status === 'done' || job.status === 'failed') {
+      // The worker records per-file failures on the job. Older server builds
+      // omit the field during the rollout, so default to an empty list.
+      const failures = job.failures ?? [];
+      const byClass: Record<string, number> = {};
+      for (const failure of failures) {
+        byClass[failure.errorClass] = (byClass[failure.errorClass] ?? 0) + 1;
+      }
       return {
         added: job.added,
         errors: job.error ? [job.error] : [],
-        failuresSummary: null,
+        failuresSummary: failures.length > 0
+          ? {
+              type: 'failures-summary',
+              total: failures.length,
+              byClass,
+              sample: failures.slice(0, 5).map((failure) => ({
+                path: failure.path,
+                errorClass: failure.errorClass,
+                message: failure.message,
+              })),
+            }
+          : null,
       };
     }
     await delay(pollMs);

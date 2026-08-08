@@ -6,8 +6,10 @@
  * books fire a PUT every turn. A trailing debounce collapses bursts while an
  * explicit flush on unmount / background / pagehide keeps the final position.
  *
- * Monotonic within one session: a later page/percent never yields to an earlier
- * one that was still pending for the same book key.
+ * A value is only dropped while a newer one is still pending (armed, not yet
+ * flushed) for the same book key; once flushed, a backward navigation (scrub
+ * back) is accepted and eventually saved. Sends are serialized per book key so
+ * the server always ends with the last-scheduled position.
  */
 
 import type { ProgressBody, WebComicRecord } from "./api";
@@ -30,8 +32,6 @@ export interface ProgressWriteOptions {
 interface Pending {
   record: WebComicRecord;
   body: ProgressBody;
-  /** Session-local sequence so older debounced values cannot overwrite newer. */
-  seq: number;
 }
 
 const DEFAULT_DELAY = 800;
@@ -66,8 +66,10 @@ export class ProgressWriter {
 
   private pending = new Map<string, Pending>();
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
-  private lastSent = new Map<string, ProgressBody>();
-  private seq = 0;
+  /** Per-key in-flight send, so a slow send can never be overtaken by a newer one. */
+  private inFlight = new Map<string, Promise<void>>();
+  /** Keys whose pending body must be sent once the in-flight send finishes. */
+  private dirty = new Set<string>();
   private unsubVisibility: (() => void) | null = null;
   private unsubPageHide: (() => void) | null = null;
 
@@ -104,16 +106,17 @@ export class ProgressWriter {
   }
 
   /**
-   * Queue a progress write. Coalesces to the latest body for the book; drops
-   * values that would go backwards within the session.
+   * Queue a progress write. Coalesces to the latest body for the book. A value
+   * is dropped only while a NEWER one is still pending (armed, not yet flushed)
+   * for the same book — a backward scrub after the forward value has flushed is
+   * accepted and eventually saved.
    */
   schedule(record: WebComicRecord, body: ProgressBody): void {
     const key = bookKey(record);
-    const prev = this.pending.get(key)?.body ?? this.lastSent.get(key);
+    const prev = this.pending.get(key)?.body;
     if (!isMonotonicProgress(prev, body)) return;
 
-    const seq = ++this.seq;
-    this.pending.set(key, { record, body, seq });
+    this.pending.set(key, { record, body });
 
     const existing = this.timers.get(key);
     if (existing != null) this.clearTimer(existing);
@@ -149,13 +152,44 @@ export class ProgressWriter {
     }
     const entry = this.pending.get(key);
     if (!entry) return;
+
+    // A send for this key is already in flight — mark it dirty so the running
+    // loop picks up the latest pending body, and await it instead of starting a
+    // second concurrent send (completion order must equal schedule order).
+    const inFlight = this.inFlight.get(key);
+    if (inFlight) {
+      this.dirty.add(key);
+      await inFlight;
+      return;
+    }
+
     this.pending.delete(key);
+    await this.sendPending(key, entry);
+    // Keep sending while newer bodies arrived during the in-flight send, so the
+    // server always ends with the last-scheduled position.
+    while (this.dirty.delete(key)) {
+      const latest = this.pending.get(key);
+      if (!latest) break;
+      this.pending.delete(key);
+      await this.sendPending(key, latest);
+    }
+  }
+
+  /** Send one body, recording the in-flight promise so concurrent flushes for
+   *  the same key serialize onto it rather than racing it. */
+  private async sendPending(key: string, pending: Pending): Promise<void> {
+    const promise = this.send(pending.record, pending.body).then(
+      () => undefined,
+      () => {
+        // Same silent-fail contract as fire-and-forget putProgress; the outbox
+        // (when enabled) records offline failures inside the sender.
+      },
+    );
+    this.inFlight.set(key, promise);
     try {
-      await this.send(entry.record, entry.body);
-      this.lastSent.set(key, entry.body);
-    } catch {
-      // Same silent-fail contract as fire-and-forget putProgress; the outbox
-      // (when enabled) records offline failures inside the sender.
+      await promise;
+    } finally {
+      this.inFlight.delete(key);
     }
   }
 }

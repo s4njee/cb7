@@ -262,7 +262,19 @@ export async function createAuth(pool: Pool): Promise<AuthInstance> {
  * HTTP. Production goes through {@link createAuth}, which also resolves the
  * persisted secret.
  */
-export function buildAuth(database: Pool, secret: string) {
+/**
+ * What {@link buildAuth} returns. Narrowed from better-auth's full instance to
+ * the shape this codebase relies on (`AuthInstance` plus the `options` that
+ * tests assert on), because the raw inferred type drags in an unnameable
+ * `zod/v4/core` reference (better-auth re-exports zod) and trips TS2742. The
+ * instance is not structurally assignable to this shape either — its endpoint
+ * types differ — so {@link buildAuth} casts, mirroring {@link createAuth}.
+ */
+export type BuildAuthResult = AuthInstance & {
+  options: Parameters<typeof betterAuth>[0];
+};
+
+export function buildAuth(database: Pool, secret: string): BuildAuthResult {
   return betterAuth({
     database,
     secret,
@@ -403,7 +415,7 @@ export function buildAuth(database: Pool, secret: string) {
       if (problem) log.warn(problem);
       return trusted;
     },
-  });
+  }) as unknown as BuildAuthResult;
 }
 
 export function getAuth(): AuthInstance {

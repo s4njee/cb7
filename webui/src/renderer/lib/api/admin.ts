@@ -60,8 +60,13 @@ export function adminUploadFile(
   file: File,
   relPath: string,
   onProgress?: (progress: AdminUploadProgress) => void,
+  signal?: AbortSignal,
 ): Promise<UploadResponse> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error('Upload aborted'));
+      return;
+    }
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${API}/api/admin/upload`);
     xhr.responseType = 'json';
@@ -83,15 +88,32 @@ export function adminUploadFile(
     xhr.upload.onload = () => {
       report(file.size, file.size, 'processing');
     };
+
+    // Forward an external abort (e.g. the upload dialog closing) to the XHR.
+    // The listener is unregistered in every terminal handler so a completed or
+    // already-aborted transfer leaves nothing dangling.
+    const onAbort = () => {
+      xhr.abort();
+    };
+    const unlisten = () => signal?.removeEventListener('abort', onAbort);
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
+
     xhr.onload = () => {
+      unlisten();
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve((xhr.response || {}) as UploadResponse);
       } else {
         reject(new ApiError(xhr.response?.error || `HTTP ${xhr.status}`, { status: xhr.status }));
       }
     };
-    xhr.onerror = () => reject(new Error('Network error'));
-    xhr.onabort = () => reject(new Error('Upload aborted'));
+    xhr.onerror = () => {
+      unlisten();
+      reject(new Error('Network error'));
+    };
+    xhr.onabort = () => {
+      unlisten();
+      reject(new Error('Upload aborted'));
+    };
     xhr.send(file);
   });
 }

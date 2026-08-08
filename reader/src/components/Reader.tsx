@@ -469,7 +469,12 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
                 <PdfReader ref={apiRef} record={record} onState={report} />
               ) : (
                 // EPUB via Readium TS Toolkit (see lib/readiumZip.ts).
-                <TextReader ref={apiRef} record={record} onState={report} />
+                <TextReader
+                  ref={apiRef}
+                  record={record}
+                  onState={report}
+                  onToggleChrome={toggleChrome}
+                />
               )}
             </Suspense>
           </ErrorBoundary>

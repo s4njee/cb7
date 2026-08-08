@@ -37,6 +37,12 @@ export interface NewIngestError {
   ext: string;
   errorClass: IngestErrorClass;
   message: string;
+  /**
+   * The pg-boss job id this failure belongs to (a scan job; matches
+   * `scan_jobs.id`). NULL for API-side single-file errors. Stored in the TEXT
+   * `job_id` column because pg-boss v12 job ids are UUID strings.
+   */
+  jobId?: number | string | null;
 }
 
 interface IngestErrorRow {
@@ -60,8 +66,8 @@ function mapRow(r: IngestErrorRow): IngestErrorRecord {
 /** Append one failure record. `created_at` defaults to now() in the DB. */
 export async function recordIngestError(db: Db, record: NewIngestError): Promise<void> {
   await db.run(
-    'INSERT INTO ingest_errors (file_path, ext, error_class, message) VALUES (?, ?, ?, ?)',
-    [record.path, record.ext, record.errorClass, record.message],
+    'INSERT INTO ingest_errors (job_id, file_path, ext, error_class, message) VALUES (?, ?, ?, ?, ?)',
+    [record.jobId ?? null, record.path, record.ext, record.errorClass, record.message],
   );
 }
 
@@ -74,6 +80,20 @@ export async function getRecentIngestErrors(db: Db, limit = 50): Promise<IngestE
   const rows = await db.all<IngestErrorRow>(
     'SELECT file_path, ext, error_class, message, created_at FROM ingest_errors ORDER BY id DESC LIMIT ?',
     [limit],
+  );
+  return rows.map(mapRow);
+}
+
+/**
+ * All failures recorded against one scan job, newest first (orders by the
+ * monotonic `id` so ties at the same timestamp keep insertion order). Used by
+ * `GET /api/jobs/:id` so the admin scan UI can list exactly which files a job
+ * failed on.
+ */
+export async function getIngestErrorsForJob(db: Db, jobId: number | string): Promise<IngestErrorRecord[]> {
+  const rows = await db.all<IngestErrorRow>(
+    'SELECT file_path, ext, error_class, message, created_at FROM ingest_errors WHERE job_id = ? ORDER BY id DESC',
+    [jobId],
   );
   return rows.map(mapRow);
 }

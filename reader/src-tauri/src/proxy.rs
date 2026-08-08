@@ -132,7 +132,7 @@ async fn handle(state: &AppState, request: Request<Vec<u8>>, responder: UriSchem
     // crisper-per-byte result and only falls back to the pinned full-res copy
     // when the network errors (handled below). ---
     if cacheable && !has_query {
-        if let Some((body, content_type)) = downloads::lookup_pinned(state, &path).await {
+        if let Some((body, content_type)) = downloads::lookup_pinned(state, &server, &path).await {
             return respond_pinned(responder, &content_type, body);
         }
     }
@@ -218,7 +218,9 @@ async fn handle(state: &AppState, request: Request<Vec<u8>>, responder: UriSchem
             // Transport error → fall back to a pinned copy if we have one (this
             // is the offline path for width-hinted requests too).
             if cacheable {
-                if let Some((body, content_type)) = downloads::lookup_pinned(state, &path).await {
+                if let Some((body, content_type)) =
+                    downloads::lookup_pinned(state, &server, &path).await
+                {
                     return respond_pinned(responder, &content_type, body);
                 }
             }

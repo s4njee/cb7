@@ -308,15 +308,22 @@ CREATE INDEX IF NOT EXISTS idx_scan_jobs_path ON scan_jobs(target_path);
 -- a local emptyDir, so the panel never saw the worker's scan failures (the common
 -- case at 40k comics). \`error_class\` is the classified category (see
 -- classifyIngestError); the raw message is kept for triage. Rows are read newest
--- first via the monotonic \`id\`.
+-- first via the monotonic \`id\`. \`job_id\` links a failure to the pg-boss scan
+-- job that produced it (a UUID string, matching scan_jobs.id); NULL for API-side
+-- single-file errors, so the scan UI can list which files a job failed on.
 CREATE TABLE IF NOT EXISTS ingest_errors (
   id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  job_id      TEXT,
   file_path   TEXT NOT NULL,
   ext         TEXT NOT NULL,
   error_class TEXT NOT NULL,
   message     TEXT NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now()
 );
+-- Backfill the column on databases created before job_id existed. Postgres
+-- supports IF NOT EXISTS, so this is safe to re-run on every startup.
+ALTER TABLE ingest_errors ADD COLUMN IF NOT EXISTS job_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_ingest_errors_job ON ingest_errors(job_id);
 
 -- QR device-pairing tokens (see reader/docs/CONTRACT.md "Pair tokens").
 --

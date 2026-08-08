@@ -273,9 +273,18 @@ export async function flushOutbox(opts: FlushOptions): Promise<OutboxSnapshot> {
     }
   }
 
-  writeStore(store);
-  const remaining = Object.keys(readStore()).length;
-  status = remaining === 0 ? "idle" : Object.values(readStore()).some((e) => e.conflict)
+  // `store` is a snapshot taken before the loop's awaits; writing it back
+  // wholesale would clobber any progress entry enqueued mid-flush (a reader on
+  // the same book can keep turning pages while we send). Merge instead: keep
+  // every key this flush touched (dropped keys are already gone from `store`),
+  // and re-adopt entries that appeared while the sends were in flight.
+  const merged: Store = { ...store };
+  for (const [k, v] of Object.entries(readStore())) {
+    if (!(k in merged)) merged[k] = v;
+  }
+  writeStore(merged);
+  const remaining = Object.keys(merged).length;
+  status = remaining === 0 ? "idle" : Object.values(merged).some((e) => e.conflict)
     ? "conflict"
     : "pending";
   emit();

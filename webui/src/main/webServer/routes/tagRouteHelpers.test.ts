@@ -24,7 +24,7 @@ describe('tagRouteHelpers', () => {
     });
   });
 
-  it('decodes and trims tag path names', () => {
-    expect(parseTagNameFromPath('space%20opera%20')).toBe('space opera');
+  it('trims tag path names (already percent-decoded by the dispatcher)', () => {
+    expect(parseTagNameFromPath('space opera ')).toBe('space opera');
   });
 });

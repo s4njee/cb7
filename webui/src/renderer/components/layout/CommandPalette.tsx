@@ -61,8 +61,16 @@ export default function CommandPalette() {
           target instanceof HTMLElement &&
           (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
         if (isEditable) return;
-        const searchInput = document.getElementById(NAVBAR_SEARCH_INPUT_ID);
-        if (searchInput instanceof HTMLInputElement) {
+        // FolioHeader renders the search field twice (desktop + mobile layouts),
+        // so the id matches two elements. getElementById returns the desktop one,
+        // which is display:none on small screens and can't be focused — pick the
+        // visible instance instead.
+        const searchInputs = document.querySelectorAll<HTMLInputElement>(
+          `#${NAVBAR_SEARCH_INPUT_ID}`,
+        );
+        const searchInput =
+          Array.from(searchInputs).find((el) => el.offsetParent !== null) ?? searchInputs[0];
+        if (searchInput) {
           e.preventDefault();
           searchInput.focus();
         }

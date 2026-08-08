@@ -76,16 +76,29 @@ pub(crate) fn zip_page_names(path: &Path) -> ApiResult<Vec<String>> {
     Ok(names)
 }
 
+/// Soft cap on a single entry read (one page image or a cover). Reading an
+/// entry is inherently a whole-page memory operation, but a corrupt or
+/// malicious CBZ can declare a huge uncompressed size up front — trusting that
+/// claim for a `Vec::with_capacity` would abort on a bogus allocation, and a
+/// zip-bomb entry would OOM the reader. 512 MiB is far beyond any real page
+/// image while still bounding the damage.
+const MAX_ENTRY_BYTES: u64 = 512 * 1024 * 1024;
+
 /// Read one entry out of a zip by name.
 pub(crate) fn zip_entry_bytes(path: &Path, name: &str) -> ApiResult<Vec<u8>> {
     let file = std::fs::File::open(path)?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|err| ApiError::local(format!("Not a readable archive: {err}")))?;
-    let mut entry = archive
+    let entry = archive
         .by_name(name)
         .map_err(|err| ApiError::local(format!("Missing page in archive: {err}")))?;
-    let mut buf = Vec::with_capacity(entry.size() as usize);
-    entry.read_to_end(&mut buf)?;
+    // Don't pre-allocate from `entry.size()` (untrusted archive metadata) and
+    // bound the read so an oversized entry fails loudly instead of crashing.
+    let mut buf = Vec::new();
+    entry.take(MAX_ENTRY_BYTES + 1).read_to_end(&mut buf)?;
+    if buf.len() as u64 > MAX_ENTRY_BYTES {
+        return Err(ApiError::local("Archive entry is too large to read as one page"));
+    }
     Ok(buf)
 }
 

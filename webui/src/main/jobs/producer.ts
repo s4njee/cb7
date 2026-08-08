@@ -26,11 +26,14 @@ export function enqueueScan(job: IngestScanJob, opts: { lane?: Lane } = {}): Pro
 
 /**
  * Enqueue an ebook search backfill. Resolves to the job id, or `null` if one is
- * already queued/active.
+ * already queued/active. `full` requests a wipe-the-index-first rebuild (admin
+ * force-reindex) and uses a distinct singletonKey so it isn't deduped against an
+ * incremental backfill that might already be queued/active.
  */
-export function enqueueBackfill(opts: { lane?: Lane } = {}): Promise<string | null> {
-  return getBoss().send(QUEUE.searchBackfill, {}, {
+export function enqueueBackfill(opts: { lane?: Lane; full?: boolean } = {}): Promise<string | null> {
+  const full = opts.full ?? false;
+  return getBoss().send(QUEUE.searchBackfill, { full }, {
     priority: PRIORITY[opts.lane ?? 'low'],
-    singletonKey: QUEUE.searchBackfill,
+    singletonKey: full ? `${QUEUE.searchBackfill}:full` : QUEUE.searchBackfill,
   });
 }

@@ -61,6 +61,8 @@ export interface IngestResult {
 
 export interface ScanDirectoryOptions {
   useFolderNamesAsSeries?: boolean;
+  /** Attach per-file ingest failures to this pg-boss scan job id. */
+  jobId?: number | string | null;
 }
 
 interface PreparedInsert {
@@ -84,7 +86,7 @@ export class IngestService {
    * Pure async work — does not write to the DB. The caller is responsible
    * for batching the resulting payloads through `flushBatch`.
    */
-  async prepareInsert(filePath: string, scanRoot?: string): Promise<PreparedInsert | null> {
+  async prepareInsert(filePath: string, scanRoot?: string, jobId?: number | string | null): Promise<PreparedInsert | null> {
     const mediaType = detectMediaType(filePath);
     if (!mediaType) return null;
     if (await this.db.isDismissed(filePath)) return null;
@@ -135,7 +137,7 @@ export class IngestService {
         const message = (err instanceof Error ? err.message : String(err)).trim();
         const errorClass = classifyIngestError(err, filePath);
         // Best-effort: a logging failure must never break the ingest.
-        await this.db.recordIngestError({ path: filePath, ext, errorClass, message }).catch(() => {});
+        await this.db.recordIngestError({ path: filePath, ext, errorClass, message, jobId: jobId ?? null }).catch(() => {});
         console.warn(`Failed to extract cover from ${filePath} [${errorClass}]; using placeholder thumbnail.`, err);
       }
       const coverThumbnail = await generateThumbnail(coverImage);
@@ -173,9 +175,9 @@ export class IngestService {
    * Single-file ingest used by the upload route. Wraps prepare + flush
    * for one file; returns added/comicId/error in the original shape.
    */
-  async addFile(filePath: string, folderId?: number): Promise<IngestResult> {
+  async addFile(filePath: string, folderId?: number, jobId?: number | string | null): Promise<IngestResult> {
     try {
-      const prepared = await this.prepareInsert(filePath);
+      const prepared = await this.prepareInsert(filePath, undefined, jobId);
       if (!prepared) {
         if (!detectMediaType(filePath)) return { added: false, error: 'Unsupported file type' };
         return { added: false };
@@ -204,11 +206,12 @@ export class IngestService {
     signal?: AbortSignal,
     folderId?: number,
     scanRoot?: string,
+    jobId?: number | string | null,
   ): Promise<{ added: number; failures: IngestFailure[] }> {
     const queue = new IngestQueue();
     queue.pushMany(filePaths);
     queue.complete();
-    return this.runWorkers(queue, onProgress, signal, folderId, scanRoot);
+    return this.runWorkers(queue, onProgress, signal, folderId, scanRoot, jobId);
   }
 
   private async runWorkers(
@@ -217,6 +220,7 @@ export class IngestService {
     signal: AbortSignal | undefined,
     folderId: number | undefined,
     scanRoot: string | undefined,
+    jobId?: number | string | null,
   ): Promise<{ added: number; failures: IngestFailure[] }> {
     const progress: ScanProgress = { discovered: 0, processed: 0, currentFile: '' };
     const pending: PreparedInsert[] = [];
@@ -272,7 +276,7 @@ export class IngestService {
               }
             }
           } else {
-            const prep = await this.prepareInsert(filePath, scanRoot);
+            const prep = await this.prepareInsert(filePath, scanRoot, jobId);
             if (prep) pending.push(prep);
           }
           await flushIfFull();
@@ -286,7 +290,7 @@ export class IngestService {
           const failure: IngestFailure = { path: filePath, errorClass, message };
           failures.push(failure);
           // Best-effort: a logging failure must never break the ingest.
-          await this.db.recordIngestError({ path: filePath, ext, errorClass, message }).catch(() => {});
+          await this.db.recordIngestError({ path: filePath, ext, errorClass, message, jobId: jobId ?? null }).catch(() => {});
           console.error(`Failed to process ${filePath} [${errorClass}]:`, err);
         }
         progress.processed++;
@@ -324,7 +328,7 @@ export class IngestService {
     await discoverFiles(dirPath, files, extensions, signal);
     if (signal?.aborted) return { added: 0, failures: [] };
     const metadataRoot = options.useFolderNamesAsSeries === true ? dirPath : undefined;
-    return this.ingestParallel(files, onProgress, signal, folderId, metadataRoot);
+    return this.ingestParallel(files, onProgress, signal, folderId, metadataRoot, options.jobId);
   }
 
   /**
@@ -348,6 +352,6 @@ export class IngestService {
     await discoverFilesChangedSince(dirPath, files, extensions, since, signal);
     if (signal?.aborted) return { added: 0, failures: [] };
     const metadataRoot = options.useFolderNamesAsSeries === true ? dirPath : undefined;
-    return this.ingestParallel(files, onProgress, signal, folderId, metadataRoot);
+    return this.ingestParallel(files, onProgress, signal, folderId, metadataRoot, options.jobId);
   }
 }
