@@ -102,6 +102,7 @@ pub fn run() {
             commands::set_server,
             commands::login,
             commands::logout,
+            commands::open_log_dir,
             commands::api_get,
             commands::api_send,
             commands::clear_media_cache,

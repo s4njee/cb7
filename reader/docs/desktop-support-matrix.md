@@ -96,6 +96,21 @@ release.
    `pnpm-workspace.yaml` / config; the build still works (esbuild postinstall
    already ran). Cosmetic warning; fix alongside Phase 6 package-script work.
 
+## Data, upgrade, and uninstall behavior
+
+- **App data** lives under the bundle-id data directory: local library
+  (`library/`), catalog, cookies, prefs, and window state. It is never inside
+  the app bundle.
+- **Upgrades** replace the app bundle; the data directory is untouched, so the
+  library, catalog, cookies, prefs, progress, downloads, and window state all
+  survive.
+- **Uninstall** removes the app bundle (and on macOS, optionally the data
+  directory via the system). Imported books are **copies** in app-owned
+  storage — the original files you picked or opened are never modified or
+  deleted by the app, and uninstalling never touches them.
+- Logs are written to the OS log directory (`tauri-plugin-log` default) and can
+  be opened from the app via **Help > Open Logs…**.
+
 ## Notes for the next phases
 
 - The `.dmg` and `.app` are **ad-hoc / linker-signed**, not Developer ID — the

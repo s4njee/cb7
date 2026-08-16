@@ -927,6 +927,62 @@ mod tests {
         assert_eq!(catalog.next_id, 1);
     }
 
+    /// Replacing an *existing* catalog (not just writing a fresh one) must
+    /// leave the new content on disk with no `.tmp` leftover — the crash-safe
+    /// contract on every platform, Windows included.
+    #[tokio::test]
+    async fn catalog_replacement_overwrites_cleanly() {
+        let path = std::env::temp_dir().join("shelf-replace-catalog.json");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&path.with_extension("tmp"));
+
+        let mut first = Catalog::default();
+        first.next_id = 2;
+        first.books.push(LocalBook {
+            id: 1,
+            title: "first".into(),
+            file: "books/a.epub".into(),
+            cover: None,
+            ext: "epub".into(),
+            media_type: "book".into(),
+            page_count: 0,
+            bytes: 10,
+            added_at: 0,
+            origin: None,
+            progress: Progress::default(),
+            favorited: false,
+        });
+        write_catalog_snapshot(&path, &first).await.unwrap();
+
+        // Second write over the existing file.
+        let mut second = Catalog::default();
+        second.next_id = 3;
+        second.books.push(LocalBook {
+            id: 2,
+            title: "second".into(),
+            file: "books/b.cbz".into(),
+            cover: None,
+            ext: "cbz".into(),
+            media_type: "comic".into(),
+            page_count: 5,
+            bytes: 20,
+            added_at: 1,
+            origin: None,
+            progress: Progress::default(),
+            favorited: false,
+        });
+        write_catalog_snapshot(&path, &second).await.unwrap();
+
+        let loaded = Catalog::load(&path);
+        assert_eq!(loaded.books.len(), 1);
+        assert_eq!(loaded.books[0].title, "second");
+        assert_eq!(loaded.next_id, 3);
+        // The atomic-write temp file must be gone, not stranded.
+        assert!(!path.with_extension("tmp").exists(), "stale .tmp left behind");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
     #[test]
     fn import_source_path_accepts_file_urls_and_plain_paths() {
         let plain = import_source_path("/tmp/book.epub");

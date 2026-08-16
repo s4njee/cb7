@@ -231,6 +231,9 @@ export default function App() {
             case "toggle-fullscreen":
               void api.toggleFullscreen();
               break;
+            case "open-logs":
+              void api.openLogs();
+              break;
           }
         });
       } catch {

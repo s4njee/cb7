@@ -190,6 +190,7 @@ pub(crate) fn entry_bytes(path: &Path, ext: &str, name: &str) -> ApiResult<Vec<u
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
 
     /// Resolve a file under `src-tauri/tests/data/`.
     fn data(name: &str) -> std::path::PathBuf {
@@ -269,5 +270,80 @@ mod tests {
         // A .cbr mislabeled as zip should fail as an unreadable zip.
         let err = page_names(&data("fixture.cbr"), "cbz").expect_err("mislabeled");
         assert!(err.message.contains("readable"));
+    }
+
+    // ---- CBZ (zip) hardening — archives built in-memory, no fixture needed ---
+
+    /// Write a tiny zip to a unique temp file with the given entry names (each
+    /// a small PNG-like blob) and return the path. Unique per call so parallel
+    /// tests can't clobber each other's archive.
+    fn write_cbz(names: &[&str]) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static N: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!("cb8-zip-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("book-{}.cbz", N.fetch_add(1, Ordering::Relaxed)));
+        let file = std::fs::File::create(&path).unwrap();
+        let mut archive = zip::ZipWriter::new(std::io::BufWriter::new(file));
+        let options =
+            zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        for name in names {
+            let blob = format!("{name}-content").into_bytes();
+            archive.start_file(*name, options).unwrap();
+            archive.write_all(&blob).unwrap();
+        }
+        archive.finish().unwrap();
+        path
+    }
+
+    #[test]
+    fn cbz_traversal_names_are_rejected_as_pages() {
+        let path = write_cbz(&["../evil.png", "sub/../../evil.jpg", "ok.png"]);
+        let names = zip_page_names(&path).expect("list cbz");
+        assert_eq!(names, vec!["ok.png".to_string()], "traversal names leaked: {names:?}");
+    }
+
+    #[test]
+    fn cbz_natural_sort_matches_cbr() {
+        let path = write_cbz(&["page10.png", "page2.png", "page1.png", "cover.png"]);
+        let names = zip_page_names(&path).expect("list cbz");
+        assert_eq!(names[0], "cover.png");
+        assert_eq!(&names[1..], &["page1.png", "page2.png", "page10.png"]);
+    }
+
+    #[test]
+    fn cbz_decompression_bomb_is_capped() {
+        // A zip whose single entry *decompresses* far beyond the 512 MiB cap:
+        // the reader must fail loudly, not allocate a multi-gigabyte buffer.
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static N: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!("cb8-bomb-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("bomb-{}.cbz", N.fetch_add(1, Ordering::Relaxed)));
+        let file = std::fs::File::create(&path).unwrap();
+        let mut archive = zip::ZipWriter::new(std::io::BufWriter::new(file));
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .compression_level(Some(1));
+        archive.start_file("page.png", options).unwrap();
+        // 600 MiB of zeros compresses to almost nothing, then explodes on read.
+        let zeros = vec![0u8; 600 * 1024 * 1024];
+        archive.write_all(&zeros).unwrap();
+        archive.finish().unwrap();
+        drop(zeros);
+
+        let err = zip_entry_bytes(&path, "page.png").expect_err("bomb should be rejected");
+        assert!(
+            err.message.contains("too large"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn cbz_missing_entry_is_a_clean_error() {
+        let path = write_cbz(&["page1.png"]);
+        let err = zip_entry_bytes(&path, "nope.png").unwrap_err();
+        assert!(err.message.contains("Missing page"));
     }
 }

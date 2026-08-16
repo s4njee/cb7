@@ -182,6 +182,7 @@ export {
   onLocalDownloadProgress,
   onMenuCommand,
   onOpenedFiles,
+  openLogs,
   pickAndImportBooks,
   saveLocalCover,
   setMenuEnabled,

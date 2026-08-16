@@ -21,6 +21,7 @@ pub const BACK_TO_LIBRARY: &str = "back-library";
 pub const TOGGLE_FULLSCREEN: &str = "toggle-fullscreen";
 pub const READER_SETTINGS: &str = "reader-settings";
 pub const LIBRARY_SEARCH: &str = "library-search";
+pub const OPEN_LOGS: &str = "open-logs";
 
 /// Register the native menu and wire its actions to the frontend.
 pub fn setup<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
@@ -98,7 +99,8 @@ pub fn setup<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
     )?;
 
     let about = PredefinedMenuItem::about(app, None, None)?;
-    let help = Submenu::with_items(app, "Help", true, &[&about])?;
+    let open_logs = MenuItem::with_id(app, OPEN_LOGS, "Open Logs…", true, None::<&str>)?;
+    let help = Submenu::with_items(app, "Help", true, &[&about, &open_logs])?;
 
     // macOS convention: the first menu is the app menu (About/Quit etc.).
     #[cfg(target_os = "macos")]
@@ -134,6 +136,7 @@ pub fn setup<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
                 | TOGGLE_FULLSCREEN
                 | READER_SETTINGS
                 | LIBRARY_SEARCH
+                | OPEN_LOGS
         ) {
             let _ = app.emit(MENU_COMMAND_EVENT, id);
         }

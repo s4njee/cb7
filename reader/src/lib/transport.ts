@@ -446,6 +446,13 @@ export async function toggleFullscreen(): Promise<void> {
   }
 }
 
+/** Reveal the app's log directory in the OS file manager (Help > Open Logs).
+ *  Best-effort: no-op where there's no file manager to hand the path to. */
+export function openLogs(): Promise<void> {
+  if (!isTauri) return Promise.resolve();
+  return invoke<void>("open_log_dir").catch(() => {});
+}
+
 /* ------------------------------------------------------------- drag/drop */
 
 /** Subscribe to OS file drag-and-drop on the main window (desktop only).

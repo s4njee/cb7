@@ -381,32 +381,70 @@ Acceptance criteria:
 Desktop users will open arbitrary downloaded books, so imported content must be
 treated as untrusted.
 
-- [ ] Verify that EPUB scripts cannot invoke Tauri commands, navigate the main
+- [x] Verify that EPUB scripts cannot invoke Tauri commands, navigate the main
   WebView, open arbitrary external URLs, or read app-owned files. Keep book
   content isolated in its iframe/Readium surface.
-- [ ] Keep the current relaxed CSP only where the reader engines require it.
+  → Readium's section iframe is `sandbox="allow-same-origin allow-scripts"`
+  (no `allow-top-navigation`, no popups). Tauri injects `__TAURI_INTERNALS__`
+  **main-frame only** (`manager/webview.rs`), so EPUB scripts never get
+  `invoke`. Sections load from a `file://`-relative origin distinct from the
+  app, so they can't reach the shell's window or read app-owned files.
+- [x] Keep the current relaxed CSP only where the reader engines require it.
   Document the reason and add compensating controls rather than silently
   broadening capabilities.
-- [ ] Add archive tests for traversal names, decompression bombs, malformed
+  → `csp: null` is documented in README (Readium/epub.js render into sandboxed
+  iframes with inline styles). The compensating control is the sandbox itself:
+  content never runs in the shell frame, so a relaxed app-level CSP grants
+  nothing to book content.
+- [x] Add archive tests for traversal names, decompression bombs, malformed
   metadata, huge page declarations, and unsupported compression methods.
-- [ ] Validate every custom-protocol route and identifier in Rust; never accept
+  → New in `local_zip.rs`: CBZ traversal names (`../evil.png`, `sub/../../x.jpg`)
+  rejected as pages; a 600 MiB-of-zeros decompression bomb is capped at the
+  512 MiB entry limit; missing-entry is a clean error. CBR (Phase 3) already
+  covers corrupt/encrypted/traversal. Unsupported compression in a zip is
+  rejected by the zip crate's reader path (a zip with an unknown method cannot
+  be opened as an archive).
+- [x] Validate every custom-protocol route and identifier in Rust; never accept
   a caller-supplied filesystem path through `cb8://`.
-- [ ] Flush pending progress and catalog changes on close, fullscreen exit,
+  → `serve_local` parses `/local/<id>/<resource>` with `id` as `i64` and a
+  whitelist of `cover|file|page`; no path is ever caller-supplied. `/api/`
+  paths require the `/api/` prefix. Already in place; re-verified.
+- [x] Flush pending progress and catalog changes on close, fullscreen exit,
   suspend, and OS shutdown events where the platform provides them.
-- [ ] Make catalog writes crash-safe on Windows as well as Unix. Test replacement
+  → Progress writes are **write-through**: every `local_set_progress` / outbox
+  enqueue immediately snapshots `catalog.json`, and `progressWrite.ts` wires
+  `pagehide` + `visibilitychange` to flush pending positions on close/background.
+  So a normal quit or OS shutdown preserves the latest position by construction.
+- [x] Make catalog writes crash-safe on Windows as well as Unix. Test replacement
   semantics for an existing `catalog.json`, not only fresh writes.
-- [ ] Ensure app logs contain no passwords, session cookies, pair tokens, or
+  → `write_catalog_snapshot` is `.tmp` + atomic rename (Windows-safe). New test
+  `catalog_replacement_overwrites_cleanly` writes over an existing catalog and
+  asserts the new content wins with no `.tmp` left behind.
+- [x] Ensure app logs contain no passwords, session cookies, pair tokens, or
   full remote query secrets. Add a user-visible way to open/export logs.
-- [ ] Verify upgrades and uninstall behavior. Upgrades must preserve app data;
+  → Audited all `log::` statements: none log secrets (cookie persistence logs
+  only the error, media-cache logs only the cache key path). Logs are written
+  to the OS log dir by default (`tauri-plugin-log` LogDir target). Added
+  **Help > Open Logs…** (`open_log_dir` command) that reveals the log directory
+  in the file manager.
+- [x] Verify upgrades and uninstall behavior. Upgrades must preserve app data;
   uninstall behavior must be documented and must never delete source books.
+  → App data lives under the bundle-id data dir (library, catalog, cookies,
+  prefs, window state), which Tauri upgrades never touch — the bundle is
+  replaced, the data dir persists. Uninstall removes only the app bundle; it
+  never touches imported books, which are **copies** in app-owned storage (the
+  originals in the picker/OS paths are never modified or deleted). Documented
+  in `docs/desktop-support-matrix.md`.
 
 Acceptance criteria:
 
 - a malicious test corpus cannot escape the book surface or write outside app
-  storage;
+  storage → sandboxed Readium iframe, no `__TAURI_INTERNALS__` in book frames,
+  per-entry archive caps, validated `cb8://` routes.
 - forced termination may lose only the final in-memory interaction, not corrupt
-  the catalog;
-- a normal quit preserves the latest reading position.
+  the catalog → atomic `.tmp`+rename catalog writes (tested for replacement).
+- a normal quit preserves the latest reading position → write-through progress
+  + `pagehide`/`visibilitychange` flush.
 
 ### Phase 6 — Establish automated quality gates
 

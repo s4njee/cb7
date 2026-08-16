@@ -1,5 +1,5 @@
 use serde_json::Value;
-use tauri::State;
+use tauri::{Manager, State};
 
 use crate::error::{ApiError, ApiResult};
 use crate::proxy;
@@ -290,3 +290,39 @@ mod tests {
         assert!(join_api_path("http://host:8008", "../etc").is_err());
     }
 }
+
+/// Reveal the app's log directory in the OS file manager (Help > Open Logs).
+/// Best-effort: a platform without a usable reveal command is a no-op, never an
+/// error the UI has to surface.
+#[tauri::command]
+pub fn open_log_dir(app: tauri::AppHandle) -> Result<(), ApiError> {
+    let dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|err| ApiError::local(format!("Could not find the log directory: {err}")))?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|err| ApiError::local(format!("Could not create the log directory: {err}")))?;
+    open_in_file_manager(&dir);
+    Ok(())
+}
+
+/// Open a directory in the OS file manager, without a shell. Each platform has
+/// exactly one explicit command; failure is swallowed (some window managers /
+/// sandboxes have no file manager to hand the path to).
+#[cfg(target_os = "macos")]
+fn open_in_file_manager(dir: &std::path::Path) {
+    let _ = std::process::Command::new("open").arg(dir).spawn();
+}
+
+#[cfg(target_os = "windows")]
+fn open_in_file_manager(dir: &std::path::Path) {
+    let _ = std::process::Command::new("explorer").arg(dir).spawn();
+}
+
+#[cfg(target_os = "linux")]
+fn open_in_file_manager(dir: &std::path::Path) {
+    let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+fn open_in_file_manager(_dir: &std::path::Path) {}
