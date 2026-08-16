@@ -68,6 +68,9 @@ export default function Library() {
   const [readStatus, setReadStatus] = useState<api.ReadStatus | null>(null);
   const [favorites, setFavorites] = useState(false);
   const [scope, setScope] = useState<Scope>({ type: "all" });
+  /** Local-only filters by tag / collection (server scopes handle their own). */
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [collectionFilter, setCollectionFilter] = useState<string | null>(null);
   // Null until the first local listing settles, so the initial shelf can be
   // chosen from what actually exists rather than flickering between the two.
   const [shelfChoice, setShelfChoice] = useState<Shelf | null>(null);
@@ -229,8 +232,10 @@ export default function Library() {
       favorites: effFav,
       sortBy: sort.sortBy,
       sortOrder: sort.sortOrder,
+      tag: tagFilter,
+      collection: collectionFilter,
     }),
-    [search, mediaType, effStatus, effFav, sort.sortBy, sort.sortOrder],
+    [search, mediaType, effStatus, effFav, sort.sortBy, sort.sortOrder, tagFilter, collectionFilter],
   );
 
   const records = useMemo(() => {
@@ -616,6 +621,24 @@ export default function Library() {
         </div>
       )}
 
+      {!onServer && (tagFilter || collectionFilter) && (
+        <div className="filters-sub meta-filter">
+          <span className="meta-filter-label">
+            {tagFilter ? `Tag: ${tagFilter}` : `Collection: ${collectionFilter}`}
+          </span>
+          <button
+            type="button"
+            className="filter-pill"
+            onClick={() => {
+              setTagFilter(null);
+              setCollectionFilter(null);
+            }}
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       <div className="lib-scroll" ref={scrollRef}>
         {ptrEnabled && (pull > 0 || refreshing) && (
           <div className="lib-ptr" style={{ transform: `translateY(${pull - 24}px)`, opacity: Math.min(1, pull / 70) }}>
@@ -791,6 +814,17 @@ export default function Library() {
             showRemoveLocalCopy={canRemoveLocalCopy(r)}
             // Legacy offline-pin cleanup only — new downloads use Save to device.
             showRemoveDownload={!!pin}
+            onMetadataSaved={() => void localQuery.refetch()}
+            onFilterTag={(tag) => {
+              setTagFilter(tag);
+              setCollectionFilter(null);
+              setSheet(null);
+            }}
+            onFilterCollection={(collection) => {
+              setCollectionFilter(collection);
+              setTagFilter(null);
+              setSheet(null);
+            }}
             onClose={() => setSheet(null)}
             actions={{
               onOpen: open,

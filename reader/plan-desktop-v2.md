@@ -102,11 +102,23 @@ with a 500-book folder.
   re-scan metadata are deliberately not in the bar yet — they depend on the
   local tags/metadata model (areas 1.5 / 2); the bar slots are trivial to add
   once those land. Verified: `pnpm typecheck` + `pnpm build` pass.
-- [ ] **Local collections, series, and tags — L.** The scope-chip browsing UI
+- [x] **Local collections, series, and tags — L.** The scope-chip browsing UI
   exists for server libraries; give local books the same model: a
   series/volume field on the catalog record, user-defined collections, and
   free-form tags, all stored in `catalog.json` (or its successor, see area 8).
   "Up next in series" should work offline.
+  → Implemented 2026-08-16 (v2 commit `…`). `LocalBook` gained
+  `series`/`volume`/`tags`/`collections` (serde-default, so legacy catalogs
+  round-trip). Rust commands: `local_set_metadata` (series/volume/tags),
+  `local_toggle_collection` (add/remove, returns updated list),
+  `local_rename_collection`. Frontend: `toRecord` maps the fields onto
+  `WebComicRecord`; a `LocalMetadataEditor` on the book detail sheet edits
+  series/volume/tags and manages collections; the local shelf filters by tag or
+  collection via client params + a filter chip with a Clear control. "Up next
+  in series" is served by filtering the local shelf on `series` (the sort/filter
+  already reads it); a dedicated series grouping surface is still area 2 work.
+  Tests: metadata defaults empty on legacy catalogs (63 Rust tests). Verified:
+  clippy clean, iOS target compiles, `pnpm typecheck` + `pnpm build` pass.
 
 ### 2. Local metadata and covers
 

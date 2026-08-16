@@ -89,6 +89,18 @@ pub struct LocalBook {
     /// detection). Null for legacy records until re-hashed.
     #[serde(default)]
     pub content_hash: Option<String>,
+    /// User/import-set series name, e.g. "Kaiju Diaries". Null when unknown.
+    #[serde(default)]
+    pub series: Option<String>,
+    /// Volume within the series, e.g. "1" or "01". Null when unknown.
+    #[serde(default)]
+    pub volume: Option<String>,
+    /// Free-form user tags (local books; server books use the server's tags).
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// User-defined collections this book belongs to.
+    #[serde(default)]
+    pub collections: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -532,6 +544,10 @@ pub async fn local_import<R: Runtime>(
             progress: Progress::default(),
             favorited: false,
             content_hash: Some(hash),
+            series: None,
+            volume: None,
+            tags: Vec::new(),
+            collections: Vec::new(),
         };
 
         // A CBZ/CBR carries its own cover and page count; extract both now so
@@ -764,6 +780,10 @@ pub async fn local_download<R: Runtime>(
         progress: Progress::default(),
         favorited: false,
         content_hash: None, // filled below once the file is finalized
+        series: None,
+        volume: None,
+        tags: Vec::new(),
+        collections: Vec::new(),
     };
 
     // Hash the finalized file so a download dedupes against a locally-imported
@@ -994,6 +1014,80 @@ pub async fn local_set_favorite(state: State<'_, AppState>, id: i64, favorited: 
     .await
 }
 
+/// Set series / volume / tags on a local book. `series`/`volume` null clears
+/// them; `tags` replaces the full set. User edits are overrides that survive a
+/// rescan (nothing here rewrites them from the file).
+#[tauri::command]
+pub async fn local_set_metadata(
+    state: State<'_, AppState>,
+    id: i64,
+    series: Option<String>,
+    volume: Option<String>,
+    tags: Vec<String>,
+) -> Result<(), ApiError> {
+    let cleaned: Vec<String> = tags
+        .into_iter()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .collect();
+    mutate_catalog(&state, |catalog| {
+        if let Some(book) = catalog.books.iter_mut().find(|b| b.id == id) {
+            book.series = series.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+            book.volume = volume.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
+            book.tags = cleaned.clone();
+        }
+    })
+    .await
+}
+
+/// Add or remove a book from a named collection. Returns the book's updated
+/// collection list so the UI can stay in sync without a full re-list.
+#[tauri::command]
+pub async fn local_toggle_collection(
+    state: State<'_, AppState>,
+    id: i64,
+    collection: String,
+    on: bool,
+) -> Result<Vec<String>, ApiError> {
+    let name = collection.trim().to_string();
+    if name.is_empty() {
+        return Ok(Vec::new());
+    }
+    mutate_catalog(&state, |catalog| {
+        let Some(book) = catalog.books.iter_mut().find(|b| b.id == id) else {
+            return Vec::new();
+        };
+        if on {
+            if !book.collections.iter().any(|c| c == &name) {
+                book.collections.push(name.clone());
+            }
+        } else {
+            book.collections.retain(|c| c != &name);
+        }
+        book.collections.clone()
+    })
+    .await
+}
+
+/// Rename a collection everywhere it is used (fixing a typo, or folding one
+/// collection into another). Returns nothing; the shelf re-lists.
+#[tauri::command]
+pub async fn local_rename_collection(state: State<'_, AppState>, from: String, to: String) -> Result<(), ApiError> {
+    let from = from.trim().to_string();
+    let to = to.trim().to_string();
+    if from.is_empty() || to.is_empty() || from == to {
+        return Ok(());
+    }
+    mutate_catalog(&state, |catalog| {
+        for book in catalog.books.iter_mut() {
+            if let Some(idx) = book.collections.iter().position(|c| c == &from) {
+                book.collections[idx] = to.clone();
+            }
+        }
+    })
+    .await
+}
+
 /// Store a cover the client rendered (epub.js cover image, or pdf.js page 1 on
 /// a canvas). Rust never learns to parse EPUB or PDF; the webview already can.
 #[tauri::command]
@@ -1215,6 +1309,10 @@ mod tests {
             progress: Progress::default(),
             favorited: false,
             content_hash: None,
+            series: None,
+            volume: None,
+            tags: Vec::new(),
+            collections: Vec::new(),
         });
         write_catalog_snapshot(&path, &first).await.unwrap();
 
@@ -1237,6 +1335,10 @@ mod tests {
             progress: Progress::default(),
             favorited: false,
             content_hash: None,
+            series: None,
+            volume: None,
+            tags: Vec::new(),
+            collections: Vec::new(),
         });
         write_catalog_snapshot(&path, &second).await.unwrap();
 
@@ -1286,6 +1388,21 @@ mod tests {
         assert_eq!(book.cover, None);
         assert_eq!(book.page_count, 0);
         assert!(!book.favorited);
+        // New metadata fields default to empty rather than missing.
+        assert_eq!(book.series, None);
+        assert_eq!(book.tags, Vec::<String>::new());
+        assert_eq!(book.collections, Vec::<String>::new());
+    }
+
+    /// Legacy catalogs (no metadata fields) deserialize with empty defaults.
+    #[test]
+    fn metadata_fields_default_empty_on_legacy_catalogs() {
+        let json = r#"{"version":1,"books":[{"id":1,"title":"T","file":"books/a.epub",
+            "ext":"epub","mediaType":"book","bytes":10,"addedAt":0}],"nextId":2}"#;
+        let catalog: Catalog = serde_json::from_str(json).unwrap();
+        assert_eq!(catalog.books[0].series, None);
+        assert_eq!(catalog.books[0].tags, Vec::<String>::new());
+        assert_eq!(catalog.books[0].collections, Vec::<String>::new());
     }
 
     /// Concurrent progress + favorite + cover mutations must all land in the
@@ -1316,6 +1433,10 @@ mod tests {
             progress: Progress::default(),
             favorited: false,
             content_hash: None,
+            series: None,
+            volume: None,
+            tags: Vec::new(),
+            collections: Vec::new(),
         });
         initial.next_id = 2;
         write_catalog_snapshot(&path, &initial).await.unwrap();

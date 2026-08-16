@@ -27,7 +27,6 @@ export function toRecord(book: LocalBook): WebComicRecord {
     pageCount: book.pageCount,
     fileSize: book.bytes,
     dateAdded: new Date(book.addedAt).toISOString(),
-    tags: [],
     lastPage: book.progress?.page ?? null,
     lastLocation: book.progress?.location ?? null,
     lastPercent: book.progress?.percent ?? null,
@@ -41,6 +40,10 @@ export function toRecord(book: LocalBook): WebComicRecord {
     favorited: book.favorited,
     hasCover: book.cover != null,
     origin: book.origin ?? null,
+    tags: book.tags ?? [],
+    series: book.series ?? null,
+    volume: book.volume ?? null,
+    collections: book.collections ?? [],
   };
 }
 

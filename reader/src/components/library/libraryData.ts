@@ -48,7 +48,10 @@ export function matchesReadStatus(r: WebComicRecord, status: ReadStatus): boolea
  *  does for `/api/comics` so the two scopes feel identical. */
 export function applyClientParams(
   records: WebComicRecord[],
-  params: Pick<ListParams, "search" | "mediaType" | "readStatus" | "favorites" | "sortBy" | "sortOrder">,
+  params: Pick<
+    ListParams,
+    "search" | "mediaType" | "readStatus" | "favorites" | "sortBy" | "sortOrder"
+  > & { tag?: string | null; collection?: string | null },
 ): WebComicRecord[] {
   let out = records;
   const search = params.search?.trim().toLowerCase();
@@ -56,6 +59,9 @@ export function applyClientParams(
   if (params.mediaType) out = out.filter((r) => r.mediaType === params.mediaType);
   if (params.readStatus) out = out.filter((r) => matchesReadStatus(r, params.readStatus!));
   if (params.favorites) out = out.filter((r) => r.favorited);
+  if (params.tag) out = out.filter((r) => (r.tags ?? []).includes(params.tag!));
+  if (params.collection)
+    out = out.filter((r) => (r.collections ?? []).includes(params.collection!));
   out = sortRecords(out, params.sortBy ?? "title", params.sortOrder ?? "asc");
   return out;
 }

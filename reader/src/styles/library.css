@@ -717,3 +717,88 @@
   background: var(--accent);
   border-color: var(--accent);
 }
+
+/* Local metadata editor in the book detail sheet. */
+.local-meta-editor {
+  margin-top: 14px;
+  border-top: 1px solid var(--header-rule);
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.local-meta-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.local-meta-fields .pill-input {
+  margin-bottom: 4px;
+}
+.local-meta-collections {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.local-collection-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.local-collection-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 12.5px;
+  color: var(--fg);
+}
+.local-collection-chip-name {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.local-collection-chip-name:hover {
+  color: var(--accent);
+}
+.local-collection-chip-x {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+.local-collection-chip-x:hover {
+  color: var(--danger);
+}
+.local-collection-add {
+  display: flex;
+  gap: 8px;
+}
+.local-collection-add .pill-input {
+  margin: 0;
+  flex: 1;
+}
+.local-collection-add .btn-ghost {
+  margin: 0;
+  width: auto;
+  padding: 0 18px;
+}
+
+/* Local tag/collection filter chip in the filters-sub row. */
+.meta-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.meta-filter-label {
+  font-size: 12.5px;
+  color: var(--muted);
+}

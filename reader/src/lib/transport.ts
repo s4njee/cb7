@@ -249,6 +249,14 @@ export interface LocalBook {
   favorited: boolean;
   /** SHA-256 of the file; used to dedupe re-imports. */
   contentHash?: string | null;
+  /** Series name, e.g. "Kaiju Diaries". */
+  series?: string | null;
+  /** Volume within the series, e.g. "1". */
+  volume?: string | null;
+  /** Free-form user tags. */
+  tags?: string[];
+  /** User-defined collections this book belongs to. */
+  collections?: string[];
 }
 
 export interface LocalDownloadProgress {
@@ -441,6 +449,33 @@ export function localSetProgress(
 export function localClearProgress(id: number): Promise<void> {
   if (!isTauri) return Promise.resolve();
   return invoke<void>("local_clear_progress", { id });
+}
+
+/** Set series / volume / tags on a local book (tags replace the whole set). */
+export function localSetMetadata(
+  id: number,
+  series: string | null,
+  volume: string | null,
+  tags: string[],
+): Promise<void> {
+  if (!isTauri) return Promise.resolve();
+  return invoke<void>("local_set_metadata", { id, series, volume, tags });
+}
+
+/** Add or remove a local book from a named collection. */
+export function localToggleCollection(
+  id: number,
+  collection: string,
+  on: boolean,
+): Promise<string[]> {
+  if (!isTauri) return Promise.resolve([]);
+  return invoke<string[]>("local_toggle_collection", { id, collection, on });
+}
+
+/** Rename a collection everywhere it is used. */
+export function localRenameCollection(from: string, to: string): Promise<void> {
+  if (!isTauri) return Promise.resolve();
+  return invoke<void>("local_rename_collection", { from, to });
 }
 
 export function localSetFavorite(id: number, favorited: boolean): Promise<void> {

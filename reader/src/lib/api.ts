@@ -91,6 +91,10 @@ export interface WebComicRecord {
   hasCover?: boolean;
   /** Local records only: server book this file was saved from, when known. */
   origin?: { server: string; comicId: number } | null;
+  /** Local records only: series / volume / collections metadata. */
+  series?: string | null;
+  volume?: string | null;
+  collections?: string[];
 }
 
 /** The one branch that matters. Every call below that could write to the wrong
@@ -178,8 +182,11 @@ export {
   localDownload,
   localImport,
   localPageCount,
+  localRenameCollection,
   localScanFolder,
+  localSetMetadata,
   localSize,
+  localToggleCollection,
   onFileDrop,
   onLocalDownloadProgress,
   onLocalImportProgress,

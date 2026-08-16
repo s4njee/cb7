@@ -25,6 +25,7 @@ import {
   statusLabel,
 } from "../../lib/format";
 import CoverArt from "../CoverArt";
+import LocalMetadataEditor from "./LocalMetadataEditor";
 
 export interface BookDetailActions {
   onOpen: (r: WebComicRecord) => void;
@@ -45,6 +46,9 @@ export default function BookDetailSheet({
   showSaveToDevice,
   showRemoveLocalCopy,
   showRemoveDownload,
+  onMetadataSaved,
+  onFilterTag,
+  onFilterCollection,
   onClose,
 }: {
   record: WebComicRecord;
@@ -53,6 +57,11 @@ export default function BookDetailSheet({
   showSaveToDevice?: boolean;
   showRemoveLocalCopy?: boolean;
   showRemoveDownload?: boolean;
+  /** Called after local metadata edits save, so the shelf can re-read. */
+  onMetadataSaved?: () => void;
+  /** Filter the local shelf to one tag / collection and close the sheet. */
+  onFilterTag?: (tag: string) => void;
+  onFilterCollection?: (collection: string) => void;
   onClose: () => void;
 }) {
   const titleId = useId();
@@ -179,6 +188,15 @@ export default function BookDetailSheet({
               </span>
             ))}
           </div>
+        )}
+
+        {record.source === "local" && (
+          <LocalMetadataEditor
+            record={record}
+            onSaved={onMetadataSaved}
+            onFilterTag={onFilterTag}
+            onFilterCollection={onFilterCollection}
+          />
         )}
 
         <div className="book-detail-actions">
