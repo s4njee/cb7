@@ -15,6 +15,7 @@ import {
   sourceBadge,
 } from "../lib/bookContext";
 import { metaLine, percentRead, statusLabel, titleInitials } from "../lib/format";
+import { parseLibraryQuery } from "../lib/searchText";
 import { fromQuery, LOAD_MESSAGES } from "../lib/loadState";
 import {
   ContentSkeleton,
@@ -181,9 +182,14 @@ export default function Library() {
     ],
     initialPageParam: 0,
     queryFn: ({ pageParam }) => {
+      // The server FTS already covers title/author/series/summary, so an
+      // unprefixed query goes through verbatim. A field prefix (`series:foo`)
+      // would tokenize to `series & foo` and match nothing — strip it so the
+      // server searches the term itself (its vector spans all those fields).
+      const serverSearch = parseLibraryQuery(search || "").term;
       const params: api.ListParams = {
         mediaType,
-        search: search || undefined,
+        search: serverSearch || undefined,
         sortBy: sort.sortBy,
         sortOrder: sort.sortOrder,
         readStatus: effStatus ?? undefined,

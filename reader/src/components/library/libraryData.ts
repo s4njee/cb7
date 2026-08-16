@@ -12,6 +12,7 @@ import type {
   WebComicRecord,
 } from "../../lib/api";
 import { hasStarted, isFinished } from "../../lib/format";
+import { matchesLibraryQuery } from "../../lib/searchText";
 
 /** What the grid is currently showing. `all` = the whole library (paged);
  *  `collection` = a server library (paged); `series` = one series (bare array). */
@@ -55,7 +56,10 @@ export function applyClientParams(
 ): WebComicRecord[] {
   let out = records;
   const search = params.search?.trim().toLowerCase();
-  if (search) out = out.filter((r) => r.title.toLowerCase().includes(search));
+  // Beyond titles: matches author/series/tags/collections too, honoring
+  // `author:` / `series:` / `tag:` prefixes. Local records carry series/tags/
+  // collections today; author arrives with area 2 metadata.
+  if (search) out = out.filter((r) => matchesLibraryQuery(r, search));
   if (params.mediaType) out = out.filter((r) => r.mediaType === params.mediaType);
   if (params.readStatus) out = out.filter((r) => matchesReadStatus(r, params.readStatus!));
   if (params.favorites) out = out.filter((r) => r.favorited);

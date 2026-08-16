@@ -179,9 +179,20 @@ import/scan time and never requires the network.
   hits and jumps through the existing back-stack. Verified: `pnpm test`
   (searchText vectors + 9 existing suites), `pnpm typecheck` + `pnpm build`,
   clippy clean, iOS target compiles.
-- [ ] **Library search beyond titles — S.** Once area 2 lands, match
+- [x] **Library search beyond titles — S.** Once area 2 lands, match
   author/series/tags in the existing search box, with simple field prefixes
   (`author:`, `series:`).
+  → Implemented 2026-08-16 (v2 commit `…`). `searchText.ts` gained
+  `matchesLibraryQuery` / `parseLibraryQuery`: an unprefixed query matches
+  title, author, series, tags, and collections; `author:` / `series:` /
+  `tag:` / `collection:` (alias `col:`) prefixes scope to one field. The local
+  shelf filter (`applyClientParams`) uses it, so series/tags/collections now
+  searchable offline (author arrives with area 2 metadata — the matcher
+  handles it when the field exists). The server shelf already FTS-matches
+  title/author/series/summary; a prefixed query has its prefix stripped before
+  the API call so `series:foo` searches `foo` instead of tokenizing to
+  `series & foo`. Tests: 3 new library-search vectors (9 total in searchText).
+  Verified: `pnpm test` (10 suites), `pnpm typecheck` + `pnpm build` pass.
 - [ ] **Local full-text library search — XL, later.** Index EPUB/PDF text into
   a local index (tantivy or SQLite FTS5) built as a background job, with a
   storage cap and per-library opt-out. Results deep-link into the book at the

@@ -2,7 +2,9 @@
 import {
   findMatches,
   hitsPerSection,
+  matchesLibraryQuery,
   normalizeSpaces,
+  parseLibraryQuery,
 } from "./searchText";
 
 export interface SearchVector {
@@ -68,6 +70,55 @@ export const SEARCH_TEXT_VECTORS: SearchVector[] = [
     run: () => {
       const s = normalizeSpaces("a  b\tc\nd e");
       if (s !== "a b c d e") throw new Error(`got "${s}"`);
+    },
+  },
+  {
+    name: "library search matches series and tags beyond title",
+    run: () => {
+      const book = {
+        title: "Orbital Quiet",
+        series: "Kaiju Diaries",
+        tags: ["cyberpunk", "manga"],
+        collections: ["Reading queue"],
+      };
+      // Unprefixed search hits any field.
+      if (!matchesLibraryQuery(book, "kaiju")) throw new Error("series not matched");
+      if (!matchesLibraryQuery(book, "cyberpunk")) throw new Error("tag not matched");
+      if (!matchesLibraryQuery(book, "reading queue")) throw new Error("collection not matched");
+      if (!matchesLibraryQuery(book, "orbital")) throw new Error("title not matched");
+      if (matchesLibraryQuery(book, "wombat")) throw new Error("no match should fail");
+    },
+  },
+  {
+    name: "library search honors field prefixes",
+    run: () => {
+      const book = {
+        title: "Orbital Quiet",
+        series: "Kaiju Diaries",
+        tags: ["cyberpunk"],
+      };
+      if (!matchesLibraryQuery(book, "series:kaiju")) throw new Error("series: prefix");
+      if (!matchesLibraryQuery(book, "tag:cyber")) throw new Error("tag: prefix");
+      // tag: must not leak to series/title.
+      if (matchesLibraryQuery(book, "tag:kaiju")) throw new Error("tag: leaked to series");
+      if (matchesLibraryQuery(book, "series:cyber")) throw new Error("series: leaked to tag");
+      // Unknown prefix is treated as a plain (title) query.
+      if (!matchesLibraryQuery(book, "orbital")) throw new Error("unprefixed title");
+    },
+  },
+  {
+    name: "parseLibraryQuery splits prefixes",
+    run: () => {
+      const author = parseLibraryQuery("author:asimov");
+      if (author.field !== "author" || author.term !== "asimov")
+        throw new Error("author parse");
+      const series = parseLibraryQuery("Series: Foundation ");
+      if (series.field !== "series" || series.term !== "foundation")
+        throw new Error("series parse (case-insensitive + trim)");
+      const col = parseLibraryQuery("col:to read");
+      if (col.field !== "collection" || col.term !== "to read") throw new Error("col alias");
+      const plain = parseLibraryQuery("Just a title");
+      if (plain.field !== null || plain.term !== "just a title") throw new Error("plain parse");
     },
   },
 ];
