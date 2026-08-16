@@ -26,7 +26,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "category": "Book",
+    "category": "Entertainment",
     "shortDescription": "Ebook & comic reader for CB8 servers",
     "longDescription": "CB8 is a fast, offline-friendly reading app for your own library: comics (CBZ/CBR) with single, spread, and webtoon layouts, plus reflowable EPUB and PDF books with themes, bookmarks, highlights, and cross-device reading positions.",
     "icon": [
