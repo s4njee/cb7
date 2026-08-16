@@ -104,7 +104,11 @@ fn one() -> i64 {
 
 impl Default for Catalog {
     fn default() -> Self {
-        Self { version: 1, books: Vec::new(), next_id: 1 }
+        Self {
+            version: 1,
+            books: Vec::new(),
+            next_id: 1,
+        }
     }
 }
 
@@ -148,8 +152,8 @@ fn resolve(state: &AppState, rel: &str) -> PathBuf {
 /// Write a catalog snapshot atomically (`.tmp` + rename), so a crash mid-write
 /// can never leave a half-written library index behind.
 async fn write_catalog_snapshot(path: &Path, snapshot: &Catalog) -> ApiResult<()> {
-    let bytes = serde_json::to_vec_pretty(snapshot)
-        .map_err(|err| ApiError::local(format!("serialize catalog: {err}")))?;
+    let bytes =
+        serde_json::to_vec_pretty(snapshot).map_err(|err| ApiError::local(format!("serialize catalog: {err}")))?;
     let tmp = path.with_extension("tmp");
     tokio::fs::write(&tmp, bytes).await?;
     tokio::fs::rename(&tmp, path).await?;
@@ -159,10 +163,7 @@ async fn write_catalog_snapshot(path: &Path, snapshot: &Catalog) -> ApiResult<()
 /// Mutate the in-memory catalog and persist under the catalog write lock.
 /// Concurrent callers serialize: each snapshot includes all prior mutations,
 /// so progress + favorite + cover cannot clobber each other out of order.
-async fn mutate_catalog<R>(
-    state: &AppState,
-    f: impl FnOnce(&mut Catalog) -> R,
-) -> ApiResult<R> {
+async fn mutate_catalog<R>(state: &AppState, f: impl FnOnce(&mut Catalog) -> R) -> ApiResult<R> {
     let _write = state.catalog_write.lock().await;
     let (result, snapshot) = {
         let mut catalog = state.catalog.lock().await;
@@ -171,13 +172,6 @@ async fn mutate_catalog<R>(
     };
     write_catalog_snapshot(&catalog_path(state), &snapshot).await?;
     Ok(result)
-}
-
-/// Persist the current in-memory catalog. Acquires the write lock so a concurrent
-/// `mutate_catalog` cannot interleave a stale snapshot after ours.
-async fn save(state: &AppState) -> ApiResult<()> {
-    let _write = state.catalog_write.lock().await;
-    save_under_write_lock(state).await
 }
 
 /// Snapshot + write while the caller already holds `catalog_write`.
@@ -257,7 +251,6 @@ pub fn is_supported_book_path(path: &std::path::Path) -> bool {
     IMPORTABLE_EXTS.contains(&ext.as_str())
 }
 
-
 /* -------------------------------------------------------------- commands */
 
 /// Every book in the local library.
@@ -309,14 +302,15 @@ pub struct ImportNote {
 /// reported in the result and skipped, while the rest still import. A file that
 /// fails never leaves a partial catalog row — it is not catalogued at all.
 #[tauri::command]
-pub async fn local_import(
-    state: State<'_, AppState>,
-    paths: Vec<String>,
-) -> Result<ImportReport, ApiError> {
+pub async fn local_import(state: State<'_, AppState>, paths: Vec<String>) -> Result<ImportReport, ApiError> {
     tokio::fs::create_dir_all(books_dir(&state)).await?;
     tokio::fs::create_dir_all(covers_dir(&state)).await?;
 
-    let mut report = ImportReport { added: Vec::new(), skipped: Vec::new(), failed: Vec::new() };
+    let mut report = ImportReport {
+        added: Vec::new(),
+        skipped: Vec::new(),
+        failed: Vec::new(),
+    };
     for raw in paths {
         let src = import_source_path(&raw);
         let ext = ext_of(&src);
@@ -447,7 +441,10 @@ pub async fn local_delete(state: State<'_, AppState>, id: i64) -> Result<u64, Ap
     };
 
     let mut freed = 0;
-    for rel in [Some(removed.file.clone()), removed.cover.clone()].into_iter().flatten() {
+    for rel in [Some(removed.file.clone()), removed.cover.clone()]
+        .into_iter()
+        .flatten()
+    {
         let path = resolve(&state, &rel);
         if let Ok(meta) = tokio::fs::metadata(&path).await {
             freed += meta.len();
@@ -483,7 +480,10 @@ pub async fn local_download<R: Runtime>(
     page_count: i64,
 ) -> Result<LocalBook, ApiError> {
     let server = state.server_url().await?;
-    let origin = Origin { server: server.clone(), comic_id };
+    let origin = Origin {
+        server: server.clone(),
+        comic_id,
+    };
 
     // Already have it? Downloading twice would just burn bandwidth and produce
     // a duplicate shelf entry. Still emit a terminal progress event so any UI
@@ -511,7 +511,11 @@ pub async fn local_download<R: Runtime>(
     tokio::fs::create_dir_all(books_dir(&state)).await?;
     tokio::fs::create_dir_all(covers_dir(&state)).await?;
 
-    let ext = if ext.is_empty() { "bin".to_string() } else { ext.to_ascii_lowercase() };
+    let ext = if ext.is_empty() {
+        "bin".to_string()
+    } else {
+        ext.to_ascii_lowercase()
+    };
     let uid = new_uid();
     let rel = format!("books/{uid}.{ext}");
     let dest = resolve(&state, &rel);
@@ -539,7 +543,12 @@ pub async fn local_download<R: Runtime>(
     // until Content-Length is known / first chunk lands).
     let _ = app.emit(
         PROGRESS_EVENT,
-        DownloadProgress { comic_id, received: 0, total, done: false },
+        DownloadProgress {
+            comic_id,
+            received: 0,
+            total,
+            done: false,
+        },
     );
     // ~256 KiB ticks — responsive bar without flooding the webview.
     const EMIT_EVERY: u64 = 256 * 1024;
@@ -552,7 +561,12 @@ pub async fn local_download<R: Runtime>(
             since_emit = 0;
             let _ = app.emit(
                 PROGRESS_EVENT,
-                DownloadProgress { comic_id, received, total, done: false },
+                DownloadProgress {
+                    comic_id,
+                    received,
+                    total,
+                    done: false,
+                },
             );
         }
     }
@@ -609,7 +623,12 @@ pub async fn local_download<R: Runtime>(
 
     let _ = app.emit(
         PROGRESS_EVENT,
-        DownloadProgress { comic_id, received, total: Some(received), done: true },
+        DownloadProgress {
+            comic_id,
+            received,
+            total: Some(received),
+            done: true,
+        },
     );
     Ok(book)
 }
@@ -722,10 +741,7 @@ pub async fn read_page(state: &AppState, id: i64, index: usize) -> ApiResult<(Ve
     let ext = book.ext.clone();
     tokio::task::spawn_blocking(move || {
         let names = page_names(&path, &ext)?;
-        let name = names
-            .get(index)
-            .ok_or_else(|| ApiError::local("No such page"))?
-            .clone();
+        let name = names.get(index).ok_or_else(|| ApiError::local("No such page"))?.clone();
         let bytes = entry_bytes(&path, &ext, &name)?;
         let ct = content_type_for(&ext_of(Path::new(&name))).to_string();
         Ok((bytes, ct))
@@ -790,11 +806,7 @@ pub async fn local_clear_progress(state: State<'_, AppState>, id: i64) -> Result
 }
 
 #[tauri::command]
-pub async fn local_set_favorite(
-    state: State<'_, AppState>,
-    id: i64,
-    favorited: bool,
-) -> Result<(), ApiError> {
+pub async fn local_set_favorite(state: State<'_, AppState>, id: i64, favorited: bool) -> Result<(), ApiError> {
     mutate_catalog(&state, |catalog| {
         if let Some(book) = catalog.books.iter_mut().find(|b| b.id == id) {
             book.favorited = favorited;
@@ -863,16 +875,12 @@ pub async fn local_size(state: State<'_, AppState>) -> Result<u64, ApiError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cmp::Ordering;
     use crate::local_zip::{is_image, natural_cmp};
+    use std::cmp::Ordering;
 
     #[test]
     fn pages_sort_the_way_a_reader_counts() {
-        let mut names = vec![
-            "p10.jpg".to_string(),
-            "p2.jpg".to_string(),
-            "p1.jpg".to_string(),
-        ];
+        let mut names = vec!["p10.jpg".to_string(), "p2.jpg".to_string(), "p1.jpg".to_string()];
         names.sort_by(|a, b| natural_cmp(a, b));
         assert_eq!(names, vec!["p1.jpg", "p2.jpg", "p10.jpg"]);
     }
@@ -934,10 +942,12 @@ mod tests {
     async fn catalog_replacement_overwrites_cleanly() {
         let path = std::env::temp_dir().join("shelf-replace-catalog.json");
         let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_file(&path.with_extension("tmp"));
+        let _ = std::fs::remove_file(path.with_extension("tmp"));
 
-        let mut first = Catalog::default();
-        first.next_id = 2;
+        let mut first = Catalog {
+            next_id: 2,
+            ..Catalog::default()
+        };
         first.books.push(LocalBook {
             id: 1,
             title: "first".into(),
@@ -955,8 +965,10 @@ mod tests {
         write_catalog_snapshot(&path, &first).await.unwrap();
 
         // Second write over the existing file.
-        let mut second = Catalog::default();
-        second.next_id = 3;
+        let mut second = Catalog {
+            next_id: 3,
+            ..Catalog::default()
+        };
         second.books.push(LocalBook {
             id: 2,
             title: "second".into(),
@@ -1015,10 +1027,7 @@ mod tests {
         use std::sync::Arc;
         use tokio::sync::Mutex;
 
-        let dir = std::env::temp_dir().join(format!(
-            "shelf-catalog-conc-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("shelf-catalog-conc-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("catalog.json");

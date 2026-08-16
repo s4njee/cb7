@@ -16,12 +16,20 @@ pub struct ApiError {
 
 impl ApiError {
     pub fn local(message: impl Into<String>) -> Self {
-        Self { status: 0, code: None, message: message.into() }
+        Self {
+            status: 0,
+            code: None,
+            message: message.into(),
+        }
     }
 
     #[allow(dead_code)] // public constructor kept for symmetry with `local`
     pub fn status(status: u16, message: impl Into<String>) -> Self {
-        Self { status, code: None, message: message.into() }
+        Self {
+            status,
+            code: None,
+            message: message.into(),
+        }
     }
 }
 
@@ -35,7 +43,11 @@ impl From<reqwest::Error> for ApiError {
         } else {
             err.to_string()
         };
-        Self { status, code: None, message }
+        Self {
+            status,
+            code: None,
+            message,
+        }
     }
 }
 

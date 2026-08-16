@@ -23,8 +23,7 @@ const IMAGE_EXTS: [&str; 7] = ["jpg", "jpeg", "png", "gif", "webp", "avif", "bmp
 pub(crate) fn is_image(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     // Skip macOS resource forks, which otherwise show up as phantom page 0.
-    if lower.contains("__macosx/") || lower.rsplit('/').next().is_some_and(|f| f.starts_with("._"))
-    {
+    if lower.contains("__macosx/") || lower.rsplit('/').next().is_some_and(|f| f.starts_with("._")) {
         return false;
     }
     // Path-traversal hardening: an entry like `../evil.png` or
@@ -82,8 +81,8 @@ pub(crate) fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
 /// Ordered list of image entry names inside a CBZ.
 pub(crate) fn zip_page_names(path: &Path) -> ApiResult<Vec<String>> {
     let file = std::fs::File::open(path)?;
-    let archive = zip::ZipArchive::new(file)
-        .map_err(|err| ApiError::local(format!("Not a readable archive: {err}")))?;
+    let archive =
+        zip::ZipArchive::new(file).map_err(|err| ApiError::local(format!("Not a readable archive: {err}")))?;
     let mut names: Vec<String> = archive
         .file_names()
         .filter(|name| is_image(name))
@@ -126,8 +125,8 @@ const MAX_ENTRY_BYTES: u64 = 512 * 1024 * 1024;
 /// Read one entry out of a zip by name.
 pub(crate) fn zip_entry_bytes(path: &Path, name: &str) -> ApiResult<Vec<u8>> {
     let file = std::fs::File::open(path)?;
-    let mut archive = zip::ZipArchive::new(file)
-        .map_err(|err| ApiError::local(format!("Not a readable archive: {err}")))?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|err| ApiError::local(format!("Not a readable archive: {err}")))?;
     let entry = archive
         .by_name(name)
         .map_err(|err| ApiError::local(format!("Missing page in archive: {err}")))?;
@@ -187,7 +186,11 @@ pub(crate) fn entry_bytes(path: &Path, ext: &str, name: &str) -> ApiResult<Vec<u
     }
 }
 
-#[cfg(test)]
+// Desktop-only: the RAR (CBR) tests reference `rar_*` helpers that only exist
+// on desktop (unrar is desktop-gated). The zip-side tests would also compile on
+// mobile, but keeping the whole module desktop-consistent is simpler and mobile
+// never runs `cargo test` for the reader crate in CI anyway.
+#[cfg(all(test, desktop))]
 mod tests {
     use super::*;
     use std::io::Write;
@@ -245,9 +248,7 @@ mod tests {
         assert!(!names.is_empty());
         let err = rar_entry_bytes(&data("encrypted.cbr"), &names[0]).expect_err("encrypted read");
         assert!(
-            err.message.contains("password")
-                || err.message.contains("Corrupt")
-                || err.message.contains("readable"),
+            err.message.contains("password") || err.message.contains("Corrupt") || err.message.contains("readable"),
             "unexpected error: {}",
             err.message
         );
@@ -261,7 +262,10 @@ mod tests {
         // path. is_image additionally rejects any name with a `..` segment, so
         // it cannot even appear as a page.
         let names = rar_page_names(&data("traversal.cbr")).expect("list traversal cbr");
-        assert!(names.is_empty(), "traversal name should not be an image page: {names:?}");
+        assert!(
+            names.is_empty(),
+            "traversal name should not be an image page: {names:?}"
+        );
     }
 
     #[test]
@@ -285,8 +289,7 @@ mod tests {
         let path = dir.join(format!("book-{}.cbz", N.fetch_add(1, Ordering::Relaxed)));
         let file = std::fs::File::create(&path).unwrap();
         let mut archive = zip::ZipWriter::new(std::io::BufWriter::new(file));
-        let options =
-            zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        let options = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
         for name in names {
             let blob = format!("{name}-content").into_bytes();
             archive.start_file(*name, options).unwrap();
@@ -333,11 +336,7 @@ mod tests {
         drop(zeros);
 
         let err = zip_entry_bytes(&path, "page.png").expect_err("bomb should be rejected");
-        assert!(
-            err.message.contains("too large"),
-            "unexpected error: {}",
-            err.message
-        );
+        assert!(err.message.contains("too large"), "unexpected error: {}", err.message);
     }
 
     #[test]

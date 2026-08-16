@@ -68,6 +68,16 @@ fn normalize_source(raw: &str) -> Option<String> {
     Some(canon.to_string_lossy().into_owned())
 }
 
+/// Filter raw process args (from Windows/Linux startup or a second
+/// single-instance) down to existing book files. `argv[0]` (the executable) is
+/// skipped; everything else must be a supported book file to survive. This is
+/// the single-instance argument-parsing contract — a `--flag` or `-x` is not a
+/// book and is dropped here.
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+pub fn book_args(args: &[String]) -> Vec<String> {
+    args.iter().skip(1).filter_map(|a| normalize_source(a)).collect()
+}
+
 /// Queue (pre-ready) or emit live (post-ready) a batch of open requests.
 ///
 /// One OS open event is one call: sources are deduped within the batch, and
@@ -120,5 +130,56 @@ pub fn focus_main_window<R: tauri::Runtime>(app: &AppHandle<R>) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp_book(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("cb8-opens-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(name);
+        std::fs::write(&path, b"book").unwrap();
+        path
+    }
+
+    #[test]
+    fn normalize_accepts_file_urls_and_plain_paths() {
+        let epub = tmp_book("a.epub");
+        assert_eq!(
+            normalize_source(&format!("file://{}", epub.display())),
+            Some(epub.canonicalize().unwrap().to_string_lossy().into_owned())
+        );
+        let cbz = tmp_book("b.cbz");
+        assert_eq!(
+            normalize_source(cbz.to_str().unwrap()),
+            Some(cbz.canonicalize().unwrap().to_string_lossy().into_owned())
+        );
+    }
+
+    #[test]
+    fn normalize_rejects_non_books_and_missing_files() {
+        let txt = tmp_book("notes.txt");
+        assert_eq!(normalize_source(txt.to_str().unwrap()), None);
+        assert_eq!(normalize_source("/nonexistent/book.epub"), None);
+        assert_eq!(normalize_source(""), None);
+    }
+
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    #[test]
+    fn book_args_skips_executable_and_flags() {
+        let epub = tmp_book("a.epub");
+        let args = vec![
+            "/usr/bin/reader".to_string(),
+            epub.to_string_lossy().into_owned(),
+            "--flag".to_string(),
+        ];
+        assert_eq!(book_args(&args).len(), 1);
+        assert_eq!(
+            book_args(&args)[0],
+            epub.canonicalize().unwrap().to_string_lossy().into_owned()
+        );
     }
 }

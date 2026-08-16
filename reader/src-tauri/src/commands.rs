@@ -16,8 +16,8 @@ fn normalize_server_url(input: &str) -> ApiResult<String> {
     } else {
         format!("http://{trimmed}")
     };
-    let parsed = url::Url::parse(&with_scheme)
-        .map_err(|err| ApiError::local(format!("Invalid server address: {err}")))?;
+    let parsed =
+        url::Url::parse(&with_scheme).map_err(|err| ApiError::local(format!("Invalid server address: {err}")))?;
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err(ApiError::local("Server address must be http or https"));
     }
@@ -44,11 +44,7 @@ async fn parse_response(response: reqwest::Response) -> ApiResult<Value> {
     let envelope: Option<Value> = serde_json::from_slice(&bytes).ok();
     let message = envelope
         .as_ref()
-        .and_then(|v| {
-            v.get("message")
-                .or_else(|| v.get("error"))
-                .and_then(Value::as_str)
-        })
+        .and_then(|v| v.get("message").or_else(|| v.get("error")).and_then(Value::as_str))
         .map(str::to_string)
         .unwrap_or_else(|| format!("API error {}", status.as_u16()));
     let code = envelope
@@ -56,15 +52,14 @@ async fn parse_response(response: reqwest::Response) -> ApiResult<Value> {
         .and_then(|v| v.get("code"))
         .and_then(Value::as_str)
         .map(str::to_string);
-    Err(ApiError { status: status.as_u16(), code, message })
+    Err(ApiError {
+        status: status.as_u16(),
+        code,
+        message,
+    })
 }
 
-async fn request_json(
-    state: &AppState,
-    method: reqwest::Method,
-    path: &str,
-    body: Option<&Value>,
-) -> ApiResult<Value> {
+async fn request_json(state: &AppState, method: reqwest::Method, path: &str, body: Option<&Value>) -> ApiResult<Value> {
     let server = state.server_url().await?;
     let url = join_api_path(&server, path)?;
     let is_write = method != reqwest::Method::GET;
@@ -124,11 +119,7 @@ pub async fn set_server(state: State<'_, AppState>, url: String) -> Result<Value
 /// Sign in via CB8's own wrapper endpoint (`POST /api/auth/login`), which does
 /// no Origin/CSRF checking and returns `{ ok: true, user }` or 401.
 #[tauri::command]
-pub async fn login(
-    state: State<'_, AppState>,
-    username: String,
-    password: String,
-) -> Result<Value, ApiError> {
+pub async fn login(state: State<'_, AppState>, username: String, password: String) -> Result<Value, ApiError> {
     let body = serde_json::json!({ "username": username.trim(), "password": password });
     request_json(&state, reqwest::Method::POST, "/api/auth/login", Some(&body)).await
 }
@@ -260,10 +251,7 @@ mod tests {
             normalize_server_url("192.168.1.20:8080/").unwrap(),
             "http://192.168.1.20:8080"
         );
-        assert_eq!(
-            normalize_server_url("  example.com  ").unwrap(),
-            "http://example.com"
-        );
+        assert_eq!(normalize_server_url("  example.com  ").unwrap(), "http://example.com");
     }
 
     #[test]

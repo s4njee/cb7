@@ -52,11 +52,7 @@ struct Sidecar {
 /// Register the `cb8` scheme on the Tauri builder. Each request is handled on
 /// the async runtime so the (blocking-ish) network + disk work never stalls the
 /// webview's protocol thread.
-pub fn register<R: Runtime>(
-    ctx: UriSchemeContext<'_, R>,
-    request: Request<Vec<u8>>,
-    responder: UriSchemeResponder,
-) {
+pub fn register<R: Runtime>(ctx: UriSchemeContext<'_, R>, request: Request<Vec<u8>>, responder: UriSchemeResponder) {
     let app = ctx.app_handle().clone();
     tauri::async_runtime::spawn(async move {
         let state = app.state::<AppState>();
@@ -87,13 +83,7 @@ async fn handle(state: &AppState, request: Request<Vec<u8>>, responder: UriSchem
 
     let server = match state.config.read().await.server_url.clone() {
         Some(server) => server,
-        None => {
-            return respond_error(
-                responder,
-                StatusCode::SERVICE_UNAVAILABLE,
-                "No server configured",
-            )
-        }
+        None => return respond_error(responder, StatusCode::SERVICE_UNAVAILABLE, "No server configured"),
     };
 
     let has_query = matches!(uri.query(), Some(query) if !query.is_empty());
@@ -111,11 +101,7 @@ async fn handle(state: &AppState, request: Request<Vec<u8>>, responder: UriSchem
     // in full and blow past the webview's memory limit. So a request carrying a
     // Range header is forwarded with that header and its 206 returned verbatim;
     // partial bodies are never cached or pinned.
-    if let Some(range) = request
-        .headers()
-        .get(header::RANGE)
-        .and_then(|v| v.to_str().ok())
-    {
+    if let Some(range) = request.headers().get(header::RANGE).and_then(|v| v.to_str().ok()) {
         let url = format!("{server}{path_and_query}");
         return forward_range(state, responder, &url, range).await;
     }
@@ -147,12 +133,7 @@ async fn handle(state: &AppState, request: Request<Vec<u8>>, responder: UriSchem
                 Some(existing.notify.clone())
             } else {
                 let notify = Arc::new(Notify::new());
-                map.insert(
-                    key.clone(),
-                    CacheInflight {
-                        notify: notify.clone(),
-                    },
-                );
+                map.insert(key.clone(), CacheInflight { notify: notify.clone() });
                 // Leader: None means we own the fill.
                 drop(map);
                 None
@@ -176,12 +157,7 @@ async fn handle(state: &AppState, request: Request<Vec<u8>>, responder: UriSchem
                 }
             } else {
                 let notify = Arc::new(Notify::new());
-                map.insert(
-                    key.clone(),
-                    CacheInflight {
-                        notify: notify.clone(),
-                    },
-                );
+                map.insert(key.clone(), CacheInflight { notify: notify.clone() });
             }
         }
     }
@@ -218,9 +194,7 @@ async fn handle(state: &AppState, request: Request<Vec<u8>>, responder: UriSchem
             // Transport error → fall back to a pinned copy if we have one (this
             // is the offline path for width-hinted requests too).
             if cacheable {
-                if let Some((body, content_type)) =
-                    downloads::lookup_pinned(state, &server, &path).await
-                {
+                if let Some((body, content_type)) = downloads::lookup_pinned(state, &server, &path).await {
                     return respond_pinned(responder, &content_type, body);
                 }
             }
@@ -273,8 +247,10 @@ fn read_cache(dir: &Path, key: &str) -> Option<(Vec<u8>, String)> {
 
 /// Persist a blob + sidecar. Returns the total bytes written (blob + sidecar).
 fn write_cache(dir: &Path, key: &str, body: &[u8], content_type: &str) -> ApiResult<u64> {
-    let sidecar = serde_json::to_vec(&Sidecar { content_type: content_type.to_string() })
-        .map_err(|err| ApiError::local(format!("serialize sidecar: {err}")))?;
+    let sidecar = serde_json::to_vec(&Sidecar {
+        content_type: content_type.to_string(),
+    })
+    .map_err(|err| ApiError::local(format!("serialize sidecar: {err}")))?;
     fs::write(bin_path(dir, key), body)?;
     fs::write(meta_path(dir, key), &sidecar)?;
     Ok(body.len() as u64 + sidecar.len() as u64)
@@ -427,23 +403,11 @@ async fn serve_local(state: &AppState, responder: UriSchemeResponder, path: &str
 /// its own paging; nothing here is cached (a partial body is not a cacheable
 /// asset). A server that ignores the range and answers 200 is passed through
 /// too — pdf.js copes, it just won't stream.
-async fn forward_range(
-    state: &AppState,
-    responder: UriSchemeResponder,
-    url: &str,
-    range: &str,
-) {
-    let upstream = state
-        .client
-        .get(url)
-        .header(header::RANGE, range)
-        .send()
-        .await;
+async fn forward_range(state: &AppState, responder: UriSchemeResponder, url: &str, range: &str) {
+    let upstream = state.client.get(url).header(header::RANGE, range).send().await;
     let response = match upstream {
         Ok(response) => response,
-        Err(err) => {
-            return respond_error(responder, StatusCode::BAD_GATEWAY, &ApiError::from(err).message)
-        }
+        Err(err) => return respond_error(responder, StatusCode::BAD_GATEWAY, &ApiError::from(err).message),
     };
 
     let status = StatusCode::from_u16(response.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
@@ -460,9 +424,7 @@ async fn forward_range(
 
     let body = match response.bytes().await {
         Ok(bytes) => bytes.to_vec(),
-        Err(err) => {
-            return respond_error(responder, StatusCode::BAD_GATEWAY, &ApiError::from(err).message)
-        }
+        Err(err) => return respond_error(responder, StatusCode::BAD_GATEWAY, &ApiError::from(err).message),
     };
 
     let mut builder = Response::builder()
@@ -486,7 +448,11 @@ async fn forward_range(
 fn respond_bytes(responder: UriSchemeResponder, status: StatusCode, content_type: &str, body: Vec<u8>) {
     // Only successes may be cached by the webview; a cached 401/502 image
     // would otherwise survive a re-login or a server coming back up.
-    let cache_control = if status.is_success() { HDR_CACHE_CONTROL } else { "no-store" };
+    let cache_control = if status.is_success() {
+        HDR_CACHE_CONTROL
+    } else {
+        "no-store"
+    };
     let response = Response::builder()
         .status(status)
         .header(header::CONTENT_TYPE, content_type)
@@ -561,20 +527,14 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         use tokio::sync::Mutex;
 
-        let map: Mutex<std::collections::HashMap<String, CacheInflight>> =
-            Mutex::new(std::collections::HashMap::new());
+        let map: Mutex<std::collections::HashMap<String, CacheInflight>> = Mutex::new(std::collections::HashMap::new());
         let key = "same-key".to_string();
         let fetches = Arc::new(AtomicUsize::new(0));
 
         let leader_notify = {
             let mut g = map.lock().await;
             let n = Arc::new(Notify::new());
-            g.insert(
-                key.clone(),
-                CacheInflight {
-                    notify: n.clone(),
-                },
-            );
+            g.insert(key.clone(), CacheInflight { notify: n.clone() });
             n
         };
 

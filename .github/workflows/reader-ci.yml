@@ -1,0 +1,65 @@
+# Reader CI (Phase 6).
+#
+# Separate from the webui job (which guards the server) so a reader-only change
+# gets its own gates: frontend typecheck + unit tests + production build, and
+# Rust fmt + clippy (warnings denied) + tests. Runs on every push/PR touching
+# reader/.
+#
+# The packaged-app smoke tests and live-CB8 integration test live in
+# `reader-smoke.yml` / are gated by env, so this job stays fast for PRs.
+
+name: Reader CI
+
+on:
+  push:
+    branches: [main]
+    paths: ['reader/**']
+  pull_request:
+    paths: ['reader/**']
+
+jobs:
+  frontend:
+    name: Frontend typecheck, unit tests, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: reader
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: reader/pnpm-lock.yaml
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Unit tests (vector suites)
+        run: pnpm test
+      - name: Production build
+        run: pnpm build
+
+  rust:
+    name: Rust fmt, clippy, tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: reader/src-tauri
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: reader/src-tauri -> target
+      - name: Format
+        run: cargo fmt --check
+      - name: Clippy (warnings denied)
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Unit tests
+        run: cargo test

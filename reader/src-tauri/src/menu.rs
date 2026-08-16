@@ -26,8 +26,7 @@ pub const OPEN_LOGS: &str = "open-logs";
 /// Register the native menu and wire its actions to the frontend.
 pub fn setup<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
     let add_books = MenuItem::with_id(app, ADD_BOOKS, "Add Books…", true, Some("CmdOrCtrl+O"))?;
-    let back_library =
-        MenuItem::with_id(app, BACK_TO_LIBRARY, "Back to Library", false, None::<&str>)?;
+    let back_library = MenuItem::with_id(app, BACK_TO_LIBRARY, "Back to Library", false, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let close_window = PredefinedMenuItem::close_window(app, None)?;
 
@@ -60,16 +59,9 @@ pub fn setup<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
     let fullscreen_accel = Some("Cmd+Ctrl+F");
     #[cfg(not(target_os = "macos"))]
     let fullscreen_accel = Some("F11");
-    let toggle_fullscreen =
-        MenuItem::with_id(app, TOGGLE_FULLSCREEN, "Toggle Full Screen", true, fullscreen_accel)?;
-    let reader_settings =
-        MenuItem::with_id(app, READER_SETTINGS, "Reader Settings…", false, None::<&str>)?;
-    let view = Submenu::with_items(
-        app,
-        "View",
-        true,
-        &[&toggle_fullscreen, &reader_settings],
-    )?;
+    let toggle_fullscreen = MenuItem::with_id(app, TOGGLE_FULLSCREEN, "Toggle Full Screen", true, fullscreen_accel)?;
+    let reader_settings = MenuItem::with_id(app, READER_SETTINGS, "Reader Settings…", false, None::<&str>)?;
+    let view = Submenu::with_items(app, "View", true, &[&toggle_fullscreen, &reader_settings])?;
 
     let undo = PredefinedMenuItem::undo(app, None)?;
     let redo = PredefinedMenuItem::redo(app, None)?;
@@ -79,24 +71,28 @@ pub fn setup<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
     let paste = PredefinedMenuItem::paste(app, None)?;
     let select_all = PredefinedMenuItem::select_all(app, None)?;
     // Cmd/Ctrl+F focuses the library search box (routed to the frontend).
-    let library_search =
-        MenuItem::with_id(app, LIBRARY_SEARCH, "Find in Library…", true, Some("CmdOrCtrl+F"))?;
+    let library_search = MenuItem::with_id(app, LIBRARY_SEARCH, "Find in Library…", true, Some("CmdOrCtrl+F"))?;
     let edit = Submenu::with_items(
         app,
         "Edit",
         true,
-        &[&undo, &redo, &edit_sep, &cut, &copy, &paste, &select_all, &edit_sep, &library_search],
+        &[
+            &undo,
+            &redo,
+            &edit_sep,
+            &cut,
+            &copy,
+            &paste,
+            &select_all,
+            &edit_sep,
+            &library_search,
+        ],
     )?;
 
     let minimize = PredefinedMenuItem::minimize(app, None)?;
     let maximize = PredefinedMenuItem::maximize(app, None)?;
     let window_sep = PredefinedMenuItem::separator(app)?;
-    let window = Submenu::with_items(
-        app,
-        "Window",
-        true,
-        &[&minimize, &maximize, &window_sep, &close_window],
-    )?;
+    let window = Submenu::with_items(app, "Window", true, &[&minimize, &maximize, &window_sep, &close_window])?;
 
     let about = PredefinedMenuItem::about(app, None, None)?;
     let open_logs = MenuItem::with_id(app, OPEN_LOGS, "Open Logs…", true, None::<&str>)?;
@@ -116,7 +112,16 @@ pub fn setup<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
             app,
             app.package_info().name.clone(),
             true,
-            &[&about, &app_sep1, &services, &app_sep2, &hide, &hide_others, &app_sep3, &quit],
+            &[
+                &about,
+                &app_sep1,
+                &services,
+                &app_sep2,
+                &hide,
+                &hide_others,
+                &app_sep3,
+                &quit,
+            ],
         )?;
         Menu::with_items(app, &[&app_menu, &file, &edit, &view, &window, &help])?
     };
@@ -131,12 +136,7 @@ pub fn setup<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
         let id = event.id().0.as_str();
         if matches!(
             id,
-            ADD_BOOKS
-                | BACK_TO_LIBRARY
-                | TOGGLE_FULLSCREEN
-                | READER_SETTINGS
-                | LIBRARY_SEARCH
-                | OPEN_LOGS
+            ADD_BOOKS | BACK_TO_LIBRARY | TOGGLE_FULLSCREEN | READER_SETTINGS | LIBRARY_SEARCH | OPEN_LOGS
         ) {
             let _ = app.emit(MENU_COMMAND_EVENT, id);
         }
@@ -148,8 +148,8 @@ pub fn setup<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
 /// Recursively find a menu item by id anywhere in the menu tree (top-level
 /// items and their submenus). `Menu::get` / `Submenu::get` only search one
 /// level, and our commands live one level deep inside File/View.
-fn find_item<'a, R: Runtime>(
-    items: &'a [tauri::menu::MenuItemKind<R>],
+fn find_item<R: Runtime>(
+    items: &[tauri::menu::MenuItemKind<R>],
     id: &str,
 ) -> tauri::Result<Option<tauri::menu::MenuItem<R>>> {
     for item in items {
@@ -169,11 +169,7 @@ fn find_item<'a, R: Runtime>(
 /// changes, so the menu always matches React's navigation state (e.g. Reader
 /// Settings only while a book is open) without Rust knowing the screen.
 #[tauri::command]
-pub fn set_menu_enabled<R: Runtime>(
-    app: AppHandle<R>,
-    id: &str,
-    enabled: bool,
-) -> tauri::Result<()> {
+pub fn set_menu_enabled<R: Runtime>(app: AppHandle<R>, id: &str, enabled: bool) -> tauri::Result<()> {
     let Some(menu) = app.menu() else {
         return Ok(());
     };

@@ -160,8 +160,8 @@ impl AppState {
 
     pub async fn save_config(&self) -> ApiResult<()> {
         let config = self.config.read().await.clone();
-        let bytes = serde_json::to_vec_pretty(&config)
-            .map_err(|err| ApiError::local(format!("serialize config: {err}")))?;
+        let bytes =
+            serde_json::to_vec_pretty(&config).map_err(|err| ApiError::local(format!("serialize config: {err}")))?;
         tokio::fs::write(&self.config_path, bytes).await?;
         Ok(())
     }
@@ -204,7 +204,7 @@ fn resolve_library_dir<R: Runtime>(
         let docs = app.path().document_dir()?;
         let primary = docs.join("library");
         migrate_library_if_needed(&legacy, &primary)?;
-        return Ok(primary);
+        Ok(primary)
     }
 
     #[cfg(not(target_os = "ios"))]
@@ -217,10 +217,8 @@ fn resolve_library_dir<R: Runtime>(
 /// If `to` has no catalog yet and `from` does, move the library tree so existing
 /// books survive the iOS Documents relocation. Best-effort: failures log and
 /// leave the legacy tree in place rather than stranding the user with nothing.
-fn migrate_library_if_needed(
-    from: &std::path::Path,
-    to: &std::path::Path,
-) -> Result<(), Box<dyn std::error::Error>> {
+#[cfg(target_os = "ios")]
+fn migrate_library_if_needed(from: &std::path::Path, to: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
     let from_catalog = from.join("catalog.json");
     let to_catalog = to.join("catalog.json");
     if !from_catalog.is_file() || to_catalog.is_file() {
@@ -232,11 +230,7 @@ fn migrate_library_if_needed(
     // Prefer atomic rename when both sides share a volume; fall back to copy.
     match fs::rename(from, to) {
         Ok(()) => {
-            log::info!(
-                "migrated local library {} → {}",
-                from.display(),
-                to.display()
-            );
+            log::info!("migrated local library {} → {}", from.display(), to.display());
             Ok(())
         }
         Err(rename_err) => {
@@ -253,6 +247,7 @@ fn migrate_library_if_needed(
     }
 }
 
+#[cfg(target_os = "ios")]
 fn copy_dir_recursive(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
     fs::create_dir_all(to)?;
     for entry in fs::read_dir(from)? {

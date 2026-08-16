@@ -53,14 +53,13 @@ pub fn run() {
     // callback runs in the *first* process, so we record the paths there and
     // restore/focus the window so the import is visible.
     #[cfg(any(target_os = "windows", target_os = "linux"))]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(
-        |app, args, _cwd| {
-            // `args` includes the executable path; skip it, then filter to books.
-            let sources: Vec<String> = args.into_iter().skip(1).collect();
-            record_opens(app, sources);
-            opens::focus_main_window(app);
-        },
-    ));
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        // `args` includes the executable path; `book_args` skips it and keeps
+        // only existing book files (flags and junk are dropped).
+        let sources = opens::book_args(&args);
+        record_opens(app, sources);
+        opens::focus_main_window(app);
+    }));
 
     // Desktop-only: persist normal window size/position/maximized state and
     // restore it on launch. Reader fullscreen is deliberately *not* persisted —
@@ -91,7 +90,8 @@ pub fn run() {
             // "already running" case; this is the fresh-launch case.
             #[cfg(any(target_os = "windows", target_os = "linux"))]
             {
-                let sources: Vec<String> = std::env::args().skip(1).collect();
+                let args: Vec<String> = std::env::args().collect();
+                let sources = opens::book_args(&args);
                 record_opens(app.handle(), sources);
             }
 

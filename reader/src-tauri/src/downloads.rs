@@ -154,11 +154,7 @@ impl Manifest {
     /// `counted` is the set of unit paths that count toward `done` (every page
     /// for comics, the `/file` for books — the thumbnail is excluded).
     fn recompute(&mut self, counted: &HashSet<String>) {
-        self.done = self
-            .files
-            .keys()
-            .filter(|path| counted.contains(*path))
-            .count() as i64;
+        self.done = self.files.keys().filter(|path| counted.contains(*path)).count() as i64;
         self.bytes = self.files.values().map(|entry| entry.size).sum();
         self.complete = self.done >= self.total;
     }
@@ -178,8 +174,8 @@ fn load_manifest(dir: &Path) -> Option<Manifest> {
 }
 
 fn save_manifest(dir: &Path, manifest: &Manifest) -> ApiResult<()> {
-    let bytes = serde_json::to_vec_pretty(manifest)
-        .map_err(|err| ApiError::local(format!("serialize manifest: {err}")))?;
+    let bytes =
+        serde_json::to_vec_pretty(manifest).map_err(|err| ApiError::local(format!("serialize manifest: {err}")))?;
     std::fs::write(manifest_path(dir), bytes)?;
     Ok(())
 }
@@ -414,7 +410,13 @@ fn build_index(root: &Path) -> HashMap<String, PinnedManifest> {
                 continue;
             };
             if let Some(manifest) = load_manifest(&dir) {
-                index.insert(key, PinnedManifest { dir, files: manifest.files });
+                index.insert(
+                    key,
+                    PinnedManifest {
+                        dir,
+                        files: manifest.files,
+                    },
+                );
             }
         }
     }
@@ -562,7 +564,11 @@ mod tests {
         let mut files = HashMap::new();
         files.insert(
             "/api/comics/5/pages/0".to_string(),
-            FileEntry { name: "page-000000".into(), content_type: "image/jpeg".into(), size: 2048 },
+            FileEntry {
+                name: "page-000000".into(),
+                content_type: "image/jpeg".into(),
+                size: 2048,
+            },
         );
         let manifest = Manifest {
             comic_id: 5,
@@ -593,7 +599,8 @@ mod tests {
 
     #[test]
     fn legacy_manifest_without_server_deserializes_as_none() {
-        let json = r#"{"comicId":5,"title":"T","mediaType":"comic","total":3,"done":0,"bytes":0,"complete":false,"files":{}}"#;
+        let json =
+            r#"{"comicId":5,"title":"T","mediaType":"comic","total":3,"done":0,"bytes":0,"complete":false,"files":{}}"#;
         let manifest: Manifest = serde_json::from_str(json).unwrap();
         assert_eq!(manifest.server, None);
         assert_eq!(manifest.comic_id, 5);
@@ -614,22 +621,26 @@ mod tests {
     #[test]
     fn recompute_counts_pages_and_excludes_thumbnail() {
         let units = plan_units(5, true, 3);
-        let counted: HashSet<String> = units
-            .iter()
-            .filter(|u| u.counted)
-            .map(|u| u.path.clone())
-            .collect();
+        let counted: HashSet<String> = units.iter().filter(|u| u.counted).map(|u| u.path.clone()).collect();
         assert_eq!(counted.len(), 3); // 3 pages, thumbnail excluded
 
         let mut manifest = Manifest::new(5, "T".into(), "comic".into(), 3, "http://host:8008".into());
         // Thumbnail + one page present.
         manifest.files.insert(
             "/api/comics/5/thumbnail".into(),
-            FileEntry { name: "thumbnail".into(), content_type: "image/jpeg".into(), size: 50 },
+            FileEntry {
+                name: "thumbnail".into(),
+                content_type: "image/jpeg".into(),
+                size: 50,
+            },
         );
         manifest.files.insert(
             "/api/comics/5/pages/0".into(),
-            FileEntry { name: "page-000000".into(), content_type: "image/jpeg".into(), size: 100 },
+            FileEntry {
+                name: "page-000000".into(),
+                content_type: "image/jpeg".into(),
+                size: 100,
+            },
         );
         manifest.recompute(&counted);
         assert_eq!(manifest.done, 1); // only the page counts
@@ -639,12 +650,15 @@ mod tests {
         for n in 1..3 {
             manifest.files.insert(
                 format!("/api/comics/5/pages/{n}"),
-                FileEntry { name: format!("page-{n:06}"), content_type: "image/jpeg".into(), size: 100 },
+                FileEntry {
+                    name: format!("page-{n:06}"),
+                    content_type: "image/jpeg".into(),
+                    size: 100,
+                },
             );
         }
         manifest.recompute(&counted);
         assert_eq!(manifest.done, 3);
         assert!(manifest.complete);
     }
-
 }
