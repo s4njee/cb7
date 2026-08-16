@@ -17,6 +17,7 @@ import { runOutboxVectors } from "./progressOutbox.test";
 import { runProgressWriteVectorsAsync } from "./progressWrite.test";
 import { runPairVectors } from "./pair.test";
 import { runScrubPreviewVectors } from "./scrubPreview.test";
+import { runSearchTextVectors } from "./searchText.test";
 import { runVirtualWindowVectors } from "./virtualWindow.test";
 
 const runners = [
@@ -27,6 +28,7 @@ const runners = [
   ["outbox", runOutboxVectors],
   ["pair", runPairVectors],
   ["scrubPreview", runScrubPreviewVectors],
+  ["searchText", runSearchTextVectors],
   ["virtualWindow", runVirtualWindowVectors],
 ] as const;
 

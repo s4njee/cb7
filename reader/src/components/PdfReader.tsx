@@ -16,6 +16,8 @@ import * as api from "../lib/api";
 import { roman } from "../lib/format";
 import { isRenderCancelled, loadOutline, openPdf } from "../lib/pdf";
 import type { PdfOutlineEntry } from "../lib/pdf";
+import { hitsPerSection } from "../lib/searchText";
+import type { SearchHit } from "./readerTypes";
 import {
   keepSetFromWindow,
   pagesToRelease,
@@ -463,6 +465,42 @@ const PdfReader = forwardRef<ReaderApi, PdfReaderProps>(function PdfReader(
     }
   }, [bookmarks, record.id]);
 
+  // Search walks every page's text content via pdf.js and collapses the matches
+  // into one hit per page. Bounded: pages are read one at a time (the text layer
+  // is cheap vs rendering), and the query is capped by the search helper.
+  const searchPdf = useCallback(
+    async (query: string): Promise<SearchHit[]> => {
+      if (!doc) return [];
+      const q = query.trim();
+      if (!q) return [];
+      const sections: Array<{ target: number; label: string; text: string }> = [];
+      // Read in chunks so a huge doc doesn't buffer every page's text at once.
+      const CHUNK = 40;
+      for (let start = 0; start < doc.numPages; start += CHUNK) {
+        const end = Math.min(start + CHUNK, doc.numPages);
+        const texts = await Promise.all(
+          Array.from({ length: end - start }, (_, i) =>
+            doc
+              .getPage(start + i + 1)
+              .then((p) => p.getTextContent())
+              .then((tc) =>
+                tc.items
+                  .map((it) => ("str" in it ? it.str : ""))
+                  .join(" "),
+              )
+              .catch(() => ""),
+          ),
+        );
+        texts.forEach((text, i) => {
+          const pageIndex = start + i;
+          if (text) sections.push({ target: pageIndex, label: `Page ${pageIndex + 1}`, text });
+        });
+      }
+      return hitsPerSection(sections, q);
+    },
+    [doc],
+  );
+
   useImperativeHandle(
     ref,
     (): ReaderApi => ({
@@ -475,8 +513,9 @@ const PdfReader = forwardRef<ReaderApi, PdfReaderProps>(function PdfReader(
       goTo: (target) => goToIndex(Number(target)),
       goToPage: (n) => goToIndex(n - 1),
       goToPercent: (pct) => goToIndex((clamp(pct, 0, 100) / 100) * (total - 1)),
+      search: (query) => searchPdf(query),
     }),
-    [total, goToIndex, toggleBookmark, step],
+    [total, goToIndex, toggleBookmark, step, searchPdf],
   );
 
   const isBookmarked = bookmarks.some((b) => b.page === page);

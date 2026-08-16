@@ -32,6 +32,18 @@ export interface HighlightItem {
   target: string; // cfi
 }
 
+/** One in-book text-search result, as a reader reports it to the shell. */
+export interface SearchHit {
+  /** Opaque jump target the reader's `goTo` understands (href / page index). */
+  target: string | number;
+  /** Human label: "Page 12" (PDF) or a section title (EPUB). */
+  label: string;
+  /** First-match snippet for the list. */
+  snippet: string;
+  /** Matches in this section/page. */
+  count: number;
+}
+
 export interface ReaderReportedState {
   pageLabel: string | null;
   percent: number | null;
@@ -73,6 +85,9 @@ export interface ReaderApi {
   goToPercent: (pct: number) => void;
   goToHighlight?: (item: HighlightItem) => void;
   removeHighlight?: (key: string) => void;
+  /** In-book text search. Resolves to a list of per-section/page hits.
+   *  Implemented by the EPUB and PDF readers; comics return []. */
+  search?: (query: string) => Promise<SearchHit[]>;
 }
 
 export const EMPTY_READER_STATE: ReaderReportedState = {

@@ -162,11 +162,23 @@ import/scan time and never requires the network.
 
 ### 3. Search
 
-- [ ] **In-book text search — L.** Search inside the open EPUB (walk spine
+- [x] **In-book text search — L.** Search inside the open EPUB (walk spine
   sections, highlight matches, jump with the existing back-stack/Return
   control) and PDF (pdf.js text layer). Listed unchecked in features.md
   today; on desktop `Cmd/Ctrl+F` while reading should do this instead of
   library search.
+  → Implemented 2026-08-16 (v2 commit `…`). `src/lib/searchText.ts` is a pure,
+  unit-tested helper (whitespace-normalized, case-insensitive, capped matches,
+  per-section collapse). `ReaderApi.search` is implemented by both readers:
+  EPUB walks the spine reading each section via the publication
+  (`readAsString`, chunked 8-at-a-time, best-effort per section) and returns
+  per-section hits with the TOC label + snippet; PDF reads `getTextContent()`
+  per page (chunked 40) and returns per-page hits. A `SearchDrawer` (🔍 in the
+  reader chrome, or `Cmd/Ctrl+F` while reading — routed to in-book search
+  instead of library search via a `readerSearchTick` the Reader watches) lists
+  hits and jumps through the existing back-stack. Verified: `pnpm test`
+  (searchText vectors + 9 existing suites), `pnpm typecheck` + `pnpm build`,
+  clippy clean, iOS target compiles.
 - [ ] **Library search beyond titles — S.** Once area 2 lands, match
   author/series/tags in the existing search box, with simple field prefixes
   (`author:`, `series:`).

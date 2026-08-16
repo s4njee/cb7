@@ -46,6 +46,9 @@ interface SessionState extends PersistedSession {
   /** Monotonic counter bumped when the native menu asks the reader to open its
    *  settings drawer (Reader watches it, mirroring `importTick`). */
   readerSettingsTick: number;
+  /** Monotonic counter bumped when the native menu asks the reader to open its
+   *  in-book search (Cmd/Ctrl+F while reading). */
+  readerSearchTick: number;
   /** Monotonic counter bumped when the native menu asks to focus the library
    *  search box (Cmd/Ctrl+F). Library watches it. */
   librarySearchTick: number;
@@ -59,6 +62,8 @@ interface SessionState extends PersistedSession {
   setImportProgress: (p: { done: number; total: number; current: string } | null) => void;
   /** Ask the reader to open its settings drawer (native View > Reader Settings). */
   requestReaderSettings: () => void;
+  /** Ask the reader to open its in-book search (Cmd/Ctrl+F while reading). */
+  requestReaderSearch: () => void;
   /** Focus the library search box (native Edit > Find in Library…, Cmd/Ctrl+F). */
   requestLibrarySearch: () => void;
   /** Leave the connect detour without connecting; the local shelf is still there. */
@@ -96,6 +101,7 @@ export const useSession = create<SessionState>()(
       sheet: null,
       importTick: 0,
       readerSettingsTick: 0,
+      readerSearchTick: 0,
       librarySearchTick: 0,
       importProgress: null,
 
@@ -105,6 +111,8 @@ export const useSession = create<SessionState>()(
       setImportProgress: (importProgress) => set({ importProgress }),
       requestReaderSettings: () =>
         set((s) => ({ readerSettingsTick: s.readerSettingsTick + 1 })),
+      requestReaderSearch: () =>
+        set((s) => ({ readerSearchTick: s.readerSearchTick + 1 })),
       requestLibrarySearch: () =>
         set((s) => ({ librarySearchTick: s.librarySearchTick + 1 })),
       cancelConnect: () => set({ screen: "library", connectError: null }),

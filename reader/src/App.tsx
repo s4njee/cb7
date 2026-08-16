@@ -32,6 +32,7 @@ export default function App() {
     showToast,
     bumpImport,
     requestReaderSettings,
+    requestReaderSearch,
     requestLibrarySearch,
     importProgress,
     setImportProgress,
@@ -259,7 +260,9 @@ export default function App() {
               requestReaderSettings();
               break;
             case "library-search":
-              requestLibrarySearch();
+              // Cmd/Ctrl+F: in-book search while reading, library search otherwise.
+              if (screen === "reader" && openRecord) requestReaderSearch();
+              else requestLibrarySearch();
               break;
             case "toggle-fullscreen":
               void api.toggleFullscreen();
