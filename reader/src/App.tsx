@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import * as api from "./lib/api";
 import { isTauri } from "./lib/transport";
+import * as platform from "./lib/platform";
 import { usePrefs } from "./store/prefs";
 import { useSession } from "./store/session";
 import Connect from "./components/Connect";
@@ -56,8 +57,6 @@ export default function App() {
     if (booted.current) return;
     booted.current = true;
 
-    enterLibrary();
-
     const route = (session: api.SessionPayload, serverUrl: string) => {
       setGuestAccess(!!session.guestAccess);
       const guestChosen = useSession.getState().guestChosen;
@@ -71,6 +70,14 @@ export default function App() {
     };
 
     async function boot() {
+      // The media protocol base (and isDesktop) come from Rust and are read
+      // synchronously when cover URLs are built — so resolve them before the
+      // library can render any cover. The boot screen covers this short wait.
+      await platform.initPlatform().catch(() => {
+        /* fallback base is the macOS default; still enter the library */
+      });
+      enterLibrary();
+
       try {
         const cfg = await api.getConfig();
         let serverUrl = cfg.server_url;

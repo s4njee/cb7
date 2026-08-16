@@ -1,10 +1,13 @@
 {
   "$schema": "../gen/schemas/mobile-schema.json",
   "identifier": "mobile",
-  "description": "Phone-only abilities: camera QR scanning (QR-3) and page-turn haptics. Separate from `default` because these plugins are compiled in only on iOS/Android (see the target-gated dependencies in Cargo.toml) — naming their permissions in a capability that also applies to desktop fails the build there, since the permission genuinely does not exist.",
+  "description": "Phone-only abilities: camera QR scanning (QR-3) and page-turn haptics. Separate from `desktop` because these plugins are compiled in only on iOS/Android (see the target-gated dependencies in Cargo.toml) — naming their permissions in a capability that also applies to desktop fails the build there, since the permission genuinely does not exist. Also carries the shared core/dialog permissions the desktop file has, because the mobile window no longer inherits them from an unrestricted default file.",
   "windows": ["main"],
   "platforms": ["iOS", "android"],
   "permissions": [
+    "core:default",
+    "core:window:allow-set-fullscreen",
+    "dialog:allow-open",
     "barcode-scanner:default",
     "haptics:allow-impact-feedback"
   ]

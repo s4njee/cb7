@@ -21,9 +21,11 @@ export interface AppConfig {
   server_url: string | null;
 }
 
-export const isTauri =
-  typeof window !== "undefined" &&
-  "__TAURI_INTERNALS__" in (window as unknown as Record<string, unknown>);
+// `isTauri` and the media protocol base now come from the platform boundary
+// (`platform.ts`), where Rust supplies them instead of a UA sniff. Re-exported
+// here so existing `import { isTauri } from "./transport"` callers keep working.
+import { isTauri, mediaBase } from "./platform";
+export { isTauri };
 
 function isApiError(value: unknown): value is ApiError {
   return (
@@ -42,13 +44,11 @@ export function toApiError(value: unknown): ApiError {
 
 /* ------------------------------------------------------------------ media */
 
-function mediaBase(): string {
-  if (!isTauri) return ""; // same-origin (proxied in dev)
-  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
-  return /Android|Windows/.test(ua) ? "http://cb8.localhost" : "cb8://localhost";
-}
-
-/** Build a loadable media URL for a server-relative `/api/...` path. */
+/** Build a loadable media URL for a server-relative `/api/...` path.
+ *
+ *  The protocol base comes from the platform boundary (Rust `platform_info`),
+ *  resolved once during boot — see `platform.ts`. In browser dev it's `""`
+ *  (same-origin through the Vite proxy). */
 export function mediaUrl(path: string): string {
   return mediaBase() + path;
 }

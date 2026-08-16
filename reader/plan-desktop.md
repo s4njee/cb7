@@ -146,29 +146,56 @@ prevents packaging work from hiding reader regressions.
 
 ### Phase 1 — Create a desktop platform boundary
 
-- [ ] Add a small frontend platform module, for example
+- [x] Add a small frontend platform module, for example
   `src/lib/platform.ts`, that exposes capabilities such as `isDesktop`, OS,
   native menus, drag/drop, and the correct media protocol base.
-- [ ] Return the OS/protocol information from Rust or Tauri's platform API.
+  → `src/lib/platform.ts` (owns `isTauri`, `initPlatform`, `mediaBase`,
+  `isDesktop`, `nativeMenus`, `dragDrop`). Resolved once during boot because
+  cover URLs are built synchronously at render time.
+- [x] Return the OS/protocol information from Rust or Tauri's platform API.
   Remove `navigator.userAgent` matching from `src/lib/transport.ts`; Windows'
   `http://cb8.localhost` behavior should be selected from a reliable native
   value.
-- [ ] Add a desktop-only Tauri capability file for only the APIs introduced by
+  → New `platform::platform_info` command returns `os` / `is_desktop` /
+  `media_base` from `cfg!`/`std::env::consts::OS`. `transport.ts` no longer
+  sniffs the UA; `mediaUrl` reads the platform base. Boot awaits
+  `initPlatform()` before entering the library so no cover URL is built with a
+  fallback base.
+- [x] Add a desktop-only Tauri capability file for only the APIs introduced by
   this plan. Keep camera and haptic permissions mobile-only.
-- [ ] Add desktop-only Rust/plugin dependencies under desktop target `cfg`s so
+  → `capabilities/default.json` renamed to `desktop.json` and scoped to
+  `platforms: ["macOS", "windows", "linux"]`; `mobile.json` now also carries the
+  shared `core:default` / `core:window:allow-set-fullscreen` /
+  `dialog:allow-open` it previously inherited from the unrestricted default
+  file. Camera + haptics remain mobile-only.
+- [x] Add desktop-only Rust/plugin dependencies under desktop target `cfg`s so
   mobile bundles do not grow or gain irrelevant permissions.
-- [ ] Add `tauri.desktop.conf.json` only for settings that truly differ by
+  → No new desktop plugin is introduced in Phase 1 (dialog is shared; menus /
+  window-state arrive in Phase 4), so there is nothing new to gate. The existing
+  mobile-only deps (barcode-scanner, haptics) stay under their mobile `cfg` in
+  `Cargo.toml`; Phase 4 adds desktop-only deps the same way.
+- [x] Add `tauri.desktop.conf.json` only for settings that truly differ by
   desktop. Keep shared product identity, icons, associations, and version in
   the main config to prevent release drift.
+  → **Correction:** Tauri has no `tauri.desktop.conf.json` — platform config
+  files are per-OS only (`tauri.macos.conf.json`, `tauri.windows.conf.json`,
+  `tauri.linux.conf.json`, …). No setting currently differs by desktop, so no
+  per-OS file is created; identity, icons, associations, and version all stay
+  in the main `tauri.conf.json`. A per-OS file will be added when a setting
+  genuinely needs it.
 
 Acceptance criteria:
 
-- mobile builds still compile without desktop plugins;
-- browser development still works;
+- mobile builds still compile without desktop plugins → `cargo check --target
+  aarch64-apple-ios` passes with the new capability split.
+- browser development still works → browser `mediaBase()` is `""` (same-origin);
+  `pnpm build` (typecheck + Vite) passes.
 - macOS, Windows, and Linux select the correct media URL form without UA
-  sniffing;
+  sniffing → the base is `platform_info.media_base` from Rust (`cfg!`); no
+  `navigator.userAgent` matching remains.
 - capability denials are visible in logs and no permission is broader than its
-  feature requires.
+  feature requires → capability split is now explicit per platform; camera and
+  haptics are absent from the desktop file entirely.
 
 ### Phase 2 — Make every desktop open/import path reliable
 

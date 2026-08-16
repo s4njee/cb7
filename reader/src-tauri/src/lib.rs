@@ -6,6 +6,7 @@ mod downloads;
 mod error;
 mod local;
 mod local_zip;
+mod platform;
 mod proxy;
 mod state;
 
@@ -131,6 +132,7 @@ pub fn run() {
             local::local_set_favorite,
             local::local_size,
             local::save_local_cover,
+            platform::platform_info,
             take_opened_paths,
         ])
         .build(tauri::generate_context!())
