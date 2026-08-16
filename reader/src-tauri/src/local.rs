@@ -101,6 +101,28 @@ pub struct LocalBook {
     /// User-defined collections this book belongs to.
     #[serde(default)]
     pub collections: Vec<String>,
+    /// `"linked"` when the book is read in place from `external_path` (a
+    /// user-attached folder); null/absent means an app-owned copy.
+    #[serde(default)]
+    pub source: Option<String>,
+    /// Absolute path the file is read from when `source == "linked"`. Absent
+    /// for app-owned copies (they read from `file`, relative to the library).
+    #[serde(default)]
+    pub external_path: Option<String>,
+    /// Linked book whose external file has gone missing (moved/deleted on
+    /// disk). Derived at list time — never persisted.
+    #[serde(default, skip)]
+    pub missing: bool,
+}
+
+/// A user-attached folder read in place (no copy). Books inside are
+/// catalogued with a `linked` source and read from their original path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkedFolder {
+    pub id: i64,
+    /// Absolute path to the folder being watched.
+    pub path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,6 +134,9 @@ pub struct Catalog {
     /// mistaken for a live one by a stale cache key.
     #[serde(default = "one")]
     pub next_id: i64,
+    /// User-attached folders read in place (linked books).
+    #[serde(default)]
+    pub linked_folders: Vec<LinkedFolder>,
 }
 
 fn one() -> i64 {
@@ -124,6 +149,7 @@ impl Default for Catalog {
             version: 1,
             books: Vec::new(),
             next_id: 1,
+            linked_folders: Vec::new(),
         }
     }
 }
@@ -287,10 +313,22 @@ pub fn is_supported_book_path(path: &std::path::Path) -> bool {
 
 /* -------------------------------------------------------------- commands */
 
-/// Every book in the local library.
+/// Every book in the local library. Linked books get a derived `missing` flag
+/// when their external file has gone away (so the UI can offer Locate/Remove).
 #[tauri::command]
 pub async fn local_list(state: State<'_, AppState>) -> Result<Vec<LocalBook>, ApiError> {
-    Ok(state.catalog.lock().await.books.clone())
+    let mut books = state.catalog.lock().await.books.clone();
+    for book in books.iter_mut() {
+        if book.source.as_deref() == Some("linked") {
+            let exists = book
+                .external_path
+                .as_ref()
+                .map(|p| std::path::Path::new(p).is_file())
+                .unwrap_or(false);
+            book.missing = !exists;
+        }
+    }
+    Ok(books)
 }
 
 /// Normalize a path that may arrive as a `file://` URL (Open In / share sheet)
@@ -548,6 +586,9 @@ pub async fn local_import<R: Runtime>(
             volume: None,
             tags: Vec::new(),
             collections: Vec::new(),
+            source: None,
+            external_path: None,
+            missing: false,
         };
 
         // A CBZ/CBR carries its own cover and page count; extract both now so
@@ -784,6 +825,9 @@ pub async fn local_download<R: Runtime>(
         volume: None,
         tags: Vec::new(),
         collections: Vec::new(),
+        source: None,
+        external_path: None,
+        missing: false,
     };
 
     // Hash the finalized file so a download dedupes against a locally-imported
@@ -908,7 +952,7 @@ pub async fn local_page_count(state: State<'_, AppState>, id: i64) -> Result<i64
     if book.page_count > 0 {
         return Ok(book.page_count);
     }
-    let path = resolve(&state, &book.file);
+    let path = book_disk_path(&state, &book)?;
     let ext = book.ext.clone();
     let names = tokio::task::spawn_blocking(move || page_names(&path, &ext))
         .await
@@ -936,7 +980,7 @@ pub async fn read_page(state: &AppState, id: i64, index: usize) -> ApiResult<(Ve
             "CBR comics can only be read from a server — this device can't unpack RAR.",
         ));
     }
-    let path = resolve(state, &book.file);
+    let path = book_disk_path(state, &book)?;
     let ext = book.ext.clone();
     tokio::task::spawn_blocking(move || {
         let names = page_names(&path, &ext)?;
@@ -961,7 +1005,7 @@ pub async fn read_cover(state: &AppState, id: i64) -> ApiResult<(Vec<u8>, String
 /// Whole-file bytes + content type (EPUB: epub.js wants the archive in one go).
 pub async fn read_file(state: &AppState, id: i64) -> ApiResult<(Vec<u8>, String)> {
     let book = get_book(state, id).await?;
-    let path = resolve(state, &book.file);
+    let path = book_disk_path(state, &book)?;
     let bytes = tokio::fs::read(&path).await?;
     Ok((bytes, content_type_for(&book.ext).to_string()))
 }
@@ -1069,6 +1113,230 @@ pub async fn local_toggle_collection(
     .await
 }
 
+/// List the user-attached (linked) folders read in place.
+#[tauri::command]
+pub async fn local_linked_folders(state: State<'_, AppState>) -> Result<Vec<LinkedFolder>, ApiError> {
+    Ok(state.catalog.lock().await.linked_folders.clone())
+}
+
+/// Attach a folder and catalog every supported book inside it, read *in place*
+/// (no copy). Each book gets a `linked` source + `external_path`; existing
+/// linked books for the same file are replaced rather than duplicated.
+#[tauri::command]
+pub async fn local_add_linked_folder<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<Vec<LocalBook>, ApiError> {
+    let root = import_source_path(&path);
+    if !root.is_dir() {
+        return Err(ApiError::local("Not a folder"));
+    }
+    #[cfg(desktop)]
+    crate::linked_watch::watch_folder(app.clone(), root.to_string_lossy().as_ref());
+    let scan_root = root.clone();
+    let scan = tokio::task::spawn_blocking(move || walk_folder(&scan_root))
+        .await
+        .map_err(|err| ApiError::local(format!("folder scan panicked: {err}")))?;
+
+    let mut added = Vec::new();
+    for file in &scan.supported {
+        let file_path = file.clone();
+        let hash = tokio::task::spawn_blocking(move || content_hash(Path::new(&file_path)))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default();
+        let mut book = LocalBook {
+            id: 0,
+            title: Path::new(&file)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("Untitled")
+                .to_string(),
+            file: String::new(), // not app-owned
+            cover: None,
+            ext: ext_of(Path::new(&file)),
+            media_type: media_type_for(&ext_of(Path::new(&file))).to_string(),
+            page_count: 0,
+            bytes: std::fs::metadata(file).map(|m| m.len()).unwrap_or(0),
+            added_at: now_ms(),
+            origin: None,
+            progress: Progress::default(),
+            favorited: false,
+            content_hash: Some(hash),
+            series: None,
+            volume: None,
+            tags: Vec::new(),
+            collections: Vec::new(),
+            source: Some("linked".into()),
+            external_path: Some(file.clone()),
+            missing: false,
+        };
+        let pushed = mutate_catalog(&state, |catalog| {
+            // Replace any existing linked book with the same external path so a
+            // rescan never duplicates the same file.
+            if let Some(idx) = catalog
+                .books
+                .iter()
+                .position(|b| b.external_path.as_deref() == book.external_path.as_deref())
+            {
+                book.id = catalog.books[idx].id;
+                let existing = &mut catalog.books[idx];
+                *existing = book.clone();
+            } else {
+                book.id = catalog.next_id;
+                catalog.next_id += 1;
+                catalog.books.push(book.clone());
+            }
+            // Register the folder once.
+            if !catalog.linked_folders.iter().any(|f| f.path == root.to_string_lossy()) {
+                let fid = catalog.next_id;
+                catalog.next_id += 1;
+                catalog.linked_folders.push(LinkedFolder {
+                    id: fid,
+                    path: root.to_string_lossy().into_owned(),
+                });
+            }
+            book.clone()
+        })
+        .await?;
+        added.push(pushed);
+    }
+    Ok(added)
+}
+
+/// Re-scan every linked folder: add books that appeared, refresh external
+/// metadata, and mark ones that vanished (their `missing` flag shows at list
+/// time). Returns the total books across linked folders after the scan.
+#[tauri::command]
+pub async fn local_rescan_linked_folders(state: State<'_, AppState>) -> Result<usize, ApiError> {
+    let folders = state.catalog.lock().await.linked_folders.clone();
+    let mut total = 0usize;
+    for folder in folders {
+        let path = folder.path.clone();
+        let scan = tokio::task::spawn_blocking(move || walk_folder(Path::new(&path)))
+            .await
+            .map_err(|err| ApiError::local(format!("folder scan panicked: {err}")))?;
+        for file in &scan.supported {
+            let external = file.clone();
+            let mut book = LocalBook {
+                id: 0,
+                title: Path::new(&external)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("Untitled")
+                    .to_string(),
+                file: String::new(),
+                cover: None,
+                ext: ext_of(Path::new(&external)),
+                media_type: media_type_for(&ext_of(Path::new(&external))).to_string(),
+                page_count: 0,
+                bytes: std::fs::metadata(&external).map(|m| m.len()).unwrap_or(0),
+                added_at: now_ms(),
+                origin: None,
+                progress: Progress::default(),
+                favorited: false,
+                content_hash: None,
+                series: None,
+                volume: None,
+                tags: Vec::new(),
+                collections: Vec::new(),
+                source: Some("linked".into()),
+                external_path: Some(external.clone()),
+                missing: false,
+            };
+            let hash_path = external.clone();
+            let hash = tokio::task::spawn_blocking(move || content_hash(Path::new(&hash_path)))
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .unwrap_or_default();
+            book.content_hash = Some(hash);
+            let external_ref = external.clone();
+            mutate_catalog(&state, |catalog| {
+                if let Some(idx) = catalog
+                    .books
+                    .iter()
+                    .position(|b| b.external_path.as_deref() == Some(external_ref.as_str()))
+                {
+                    book.id = catalog.books[idx].id;
+                    let existing = &mut catalog.books[idx];
+                    // Keep user metadata + progress; refresh size/hash.
+                    existing.bytes = book.bytes;
+                    existing.content_hash = book.content_hash.clone();
+                } else {
+                    book.id = catalog.next_id;
+                    catalog.next_id += 1;
+                    catalog.books.push(book.clone());
+                }
+            })
+            .await?;
+            total += 1;
+        }
+        // Anything in this folder's linked set no longer on disk → the `missing`
+        // flag is derived at list time; nothing is deleted, so the user can
+        // Locate a book that merely moved.
+    }
+    Ok(total)
+}
+
+/// Remove a linked folder and its books from the catalog. The files on disk
+/// are untouched — the app only ever reads them in place.
+#[tauri::command]
+pub async fn local_remove_linked_folder<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<(), ApiError> {
+    let folder_path = {
+        let catalog = state.catalog.lock().await;
+        catalog
+            .linked_folders
+            .iter()
+            .find(|f| f.id == id)
+            .map(|f| f.path.clone())
+    };
+    if let Some(path) = folder_path {
+        #[cfg(desktop)]
+        crate::linked_watch::unwatch_folder(&app, &path);
+    }
+    mutate_catalog(&state, |catalog| {
+        let Some(folder) = catalog.linked_folders.iter().find(|f| f.id == id).cloned() else {
+            return;
+        };
+        catalog.linked_folders.retain(|f| f.id != id);
+        catalog.books.retain(|b| {
+            !(b.source.as_deref() == Some("linked")
+                && b.external_path.as_deref().is_some_and(|p| p.starts_with(&folder.path)))
+        });
+    })
+    .await
+}
+
+/// Re-point a missing linked book at a new file (Locate). Returns the updated
+/// book. The user picked a replacement path for the same content.
+#[tauri::command]
+pub async fn local_locate_linked_book(
+    state: State<'_, AppState>,
+    id: i64,
+    new_path: String,
+) -> Result<LocalBook, ApiError> {
+    let mut updated: Option<LocalBook> = None;
+    mutate_catalog(&state, |catalog| {
+        if let Some(book) = catalog.books.iter_mut().find(|b| b.id == id) {
+            if book.source.as_deref() != Some("linked") {
+                return;
+            }
+            book.external_path = Some(new_path);
+            book.missing = false;
+            updated = Some(book.clone());
+        }
+    })
+    .await?;
+    updated.ok_or_else(|| ApiError::local("No such linked book"))
+}
+
 /// Rename a collection everywhere it is used (fixing a typo, or folding one
 /// collection into another). Returns nothing; the shelf re-lists.
 #[tauri::command]
@@ -1125,7 +1393,26 @@ async fn get_book(state: &AppState, id: i64) -> ApiResult<LocalBook> {
 }
 
 async fn book_path(state: &AppState, id: i64) -> ApiResult<PathBuf> {
-    Ok(resolve(state, &get_book(state, id).await?.file))
+    let book = get_book(state, id).await?;
+    book_disk_path(state, &book)
+}
+
+/// Where a book's bytes actually live. Linked books are read *in place* from
+/// their external path (a user-attached folder, never copied); everything else
+/// reads from app-owned storage via the catalog-relative `file`.
+fn book_disk_path(state: &AppState, book: &LocalBook) -> ApiResult<PathBuf> {
+    book_disk_path_at(&state.library_dir, book)
+}
+
+/// Pure path resolver (no AppState) so the linked/copy split is unit-testable.
+fn book_disk_path_at(library_dir: &Path, book: &LocalBook) -> ApiResult<PathBuf> {
+    if book.source.as_deref() == Some("linked") {
+        if let Some(path) = book.external_path.as_ref() {
+            return Ok(PathBuf::from(path));
+        }
+        return Err(ApiError::local("Linked book has no external path"));
+    }
+    Ok(library_dir.join(&book.file))
 }
 
 /// Total bytes held by the local library (books + covers), for Settings.
@@ -1313,6 +1600,9 @@ mod tests {
             volume: None,
             tags: Vec::new(),
             collections: Vec::new(),
+            source: None,
+            external_path: None,
+            missing: false,
         });
         write_catalog_snapshot(&path, &first).await.unwrap();
 
@@ -1339,6 +1629,9 @@ mod tests {
             volume: None,
             tags: Vec::new(),
             collections: Vec::new(),
+            source: None,
+            external_path: None,
+            missing: false,
         });
         write_catalog_snapshot(&path, &second).await.unwrap();
 
@@ -1364,6 +1657,68 @@ mod tests {
         std::fs::write(&b, b"different").unwrap();
         assert_ne!(content_hash(&a).unwrap(), content_hash(&b).unwrap());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn linked_books_resolve_to_their_external_path() {
+        // A linked book reads in place; a copy reads from app storage.
+        let library_dir = Path::new("/tmp/lib");
+        let mut linked = LocalBook {
+            id: 1,
+            title: "linked".into(),
+            file: "books/x.epub".into(),
+            cover: None,
+            ext: "epub".into(),
+            media_type: "book".into(),
+            page_count: 0,
+            bytes: 0,
+            added_at: 0,
+            origin: None,
+            progress: Progress::default(),
+            favorited: false,
+            content_hash: None,
+            series: None,
+            volume: None,
+            tags: Vec::new(),
+            collections: Vec::new(),
+            source: Some("linked".into()),
+            external_path: Some("/Books/x.epub".into()),
+            missing: false,
+        };
+        assert_eq!(
+            book_disk_path_at(library_dir, &linked).unwrap(),
+            PathBuf::from("/Books/x.epub")
+        );
+        // A linked book with no external path is an error, not a stray resolve.
+        linked.external_path = None;
+        assert!(book_disk_path_at(library_dir, &linked).is_err());
+
+        let copy = LocalBook {
+            id: 2,
+            title: "copy".into(),
+            file: "books/y.epub".into(),
+            cover: None,
+            ext: "epub".into(),
+            media_type: "book".into(),
+            page_count: 0,
+            bytes: 0,
+            added_at: 0,
+            origin: None,
+            progress: Progress::default(),
+            favorited: false,
+            content_hash: None,
+            series: None,
+            volume: None,
+            tags: Vec::new(),
+            collections: Vec::new(),
+            source: None,
+            external_path: None,
+            missing: false,
+        };
+        assert_eq!(
+            book_disk_path_at(library_dir, &copy).unwrap(),
+            library_dir.join("books/y.epub")
+        );
     }
 
     #[test]
@@ -1437,6 +1792,9 @@ mod tests {
             volume: None,
             tags: Vec::new(),
             collections: Vec::new(),
+            source: None,
+            external_path: None,
+            missing: false,
         });
         initial.next_id = 2;
         write_catalog_snapshot(&path, &initial).await.unwrap();

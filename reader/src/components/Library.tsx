@@ -26,6 +26,7 @@ import { useSession } from "../store/session";
 import CoverArt from "./CoverArt";
 import CoverCard, { type CardActionAnchor } from "./library/CoverCard";
 import BookDetailSheet from "./library/BookDetailSheet";
+import LinkedFoldersPanel from "./library/LinkedFoldersPanel";
 import ScopeRow from "./library/ScopeRow";
 import SortControl from "./library/SortControl";
 import StatusChips from "./library/StatusChips";
@@ -78,6 +79,7 @@ export default function Library() {
   const [menuOpen, setMenuOpen] = useState(false);
   /** Record ids selected for bulk operations (Cmd/Ctrl-click on cards). */
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [linkedOpen, setLinkedOpen] = useState(false);
   const [sheet, setSheet] = useState<{ record: api.WebComicRecord; anchor: CardActionAnchor } | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -517,6 +519,17 @@ export default function Library() {
                   Add books…
                 </button>
               )}
+              {api.localSupported && (
+                <button
+                  className="menu-item"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setLinkedOpen(true);
+                  }}
+                >
+                  Linked folders…
+                </button>
+              )}
               {api.downloadsSupported && (
                 <button
                   className="menu-item"
@@ -826,6 +839,19 @@ export default function Library() {
               setSheet(null);
             }}
             onClose={() => setSheet(null)}
+            onLocate={async (rec) => {
+              const { open } = await import("@tauri-apps/plugin-dialog");
+              const picked = await open({ multiple: false });
+              if (!picked || Array.isArray(picked)) return;
+              try {
+                await api.localLocateLinkedBook(rec.id, String(picked));
+                await localQuery.refetch();
+                setSheet(null);
+                showToast("Re-located the book.");
+              } catch {
+                showToast("Couldn't locate that file.");
+              }
+            }}
             actions={{
               onOpen: open,
               onMarkRead: markRead,
@@ -839,6 +865,17 @@ export default function Library() {
           />
         );
       })()}
+
+      {linkedOpen && (
+        <div className="sheet-backdrop" onClick={() => setLinkedOpen(false)}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <LinkedFoldersPanel
+              onChanged={() => void localQuery.refetch()}
+              onClose={() => setLinkedOpen(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

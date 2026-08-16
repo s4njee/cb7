@@ -257,6 +257,12 @@ export interface LocalBook {
   tags?: string[];
   /** User-defined collections this book belongs to. */
   collections?: string[];
+  /** "linked" when read in place from `externalPath` (a user-attached folder). */
+  source?: string | null;
+  /** Absolute path a linked book is read from. */
+  externalPath?: string | null;
+  /** Linked book whose file has gone missing on disk. */
+  missing?: boolean;
 }
 
 export interface LocalDownloadProgress {
@@ -470,6 +476,51 @@ export function localToggleCollection(
 ): Promise<string[]> {
   if (!isTauri) return Promise.resolve([]);
   return invoke<string[]>("local_toggle_collection", { id, collection, on });
+}
+
+/** A user-attached folder read in place (no copy). */
+export interface LinkedFolder {
+  id: number;
+  path: string;
+}
+
+/** List attached (linked) folders. */
+export function localLinkedFolders(): Promise<LinkedFolder[]> {
+  if (!isTauri) return Promise.resolve([]);
+  return invoke<LinkedFolder[]>("local_linked_folders");
+}
+
+/** Attach a folder, cataloguing its books read in place (no copy). */
+export function localAddLinkedFolder(path: string): Promise<LocalBook[]> {
+  if (!isTauri) return Promise.resolve([]);
+  return invoke<LocalBook[]>("local_add_linked_folder", { path });
+}
+
+/** Re-scan every linked folder (add new, refresh, mark missing). */
+export function localRescanLinkedFolders(): Promise<number> {
+  if (!isTauri) return Promise.resolve(0);
+  return invoke<number>("local_rescan_linked_folders");
+}
+
+/** Remove a linked folder and its catalogued books (files untouched). */
+export function localRemoveLinkedFolder(id: number): Promise<void> {
+  if (!isTauri) return Promise.resolve();
+  return invoke<void>("local_remove_linked_folder", { id });
+}
+
+/** Re-point a missing linked book at its new location on disk. */
+export function localLocateLinkedBook(id: number, newPath: string): Promise<LocalBook> {
+  if (!isTauri) return Promise.reject({ status: 0, message: "Needs the app" });
+  return invoke<LocalBook>("local_locate_linked_book", { id, newPath });
+}
+
+/** Live event: a linked folder changed on disk; offer a Rescan. */
+export async function onLinkedFoldersChanged(
+  cb: () => void,
+): Promise<() => void> {
+  if (!isTauri) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen("shelf://linked-folders-changed", () => cb());
 }
 
 /** Rename a collection everywhere it is used. */

@@ -44,6 +44,9 @@ export function toRecord(book: LocalBook): WebComicRecord {
     series: book.series ?? null,
     volume: book.volume ?? null,
     collections: book.collections ?? [],
+    linked: book.source === "linked",
+    externalPath: book.externalPath ?? null,
+    missing: book.missing ?? false,
   };
 }
 

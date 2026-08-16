@@ -95,6 +95,12 @@ export interface WebComicRecord {
   series?: string | null;
   volume?: string | null;
   collections?: string[];
+  /** Local records only: read in place from an attached linked folder. */
+  linked?: boolean;
+  /** Local records only: a linked book whose file is missing on disk. */
+  missing?: boolean;
+  /** Local records only: absolute path a linked book reads from. */
+  externalPath?: string | null;
 }
 
 /** The one branch that matters. Every call below that could write to the wrong
@@ -181,12 +187,18 @@ export {
   localDelete,
   localDownload,
   localImport,
+  localAddLinkedFolder,
+  localLinkedFolders,
+  localLocateLinkedBook,
   localPageCount,
+  localRemoveLinkedFolder,
   localRenameCollection,
+  localRescanLinkedFolders,
   localScanFolder,
   localSetMetadata,
   localSize,
   localToggleCollection,
+  onLinkedFoldersChanged,
   onFileDrop,
   onLocalDownloadProgress,
   onLocalImportProgress,
@@ -205,6 +217,7 @@ export {
   type ImportNote,
   type ImportProgress,
   type ImportReport,
+  type LinkedFolder,
   type LocalBook,
   type LocalDownloadProgress,
 } from "./transport";

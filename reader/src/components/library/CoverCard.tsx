@@ -146,6 +146,11 @@ export default function CoverCard({
             {selected ? "✓" : ""}
           </span>
         )}
+        {record.missing && (
+          <span className="missing-badge" title="File missing on disk — open to locate">
+            Missing
+          </span>
+        )}
         <CoverArt record={record} className="cover" variant="grid" />
         {onToggleFavorite && (
           <button

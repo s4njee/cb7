@@ -4,6 +4,8 @@ mod discovery;
 mod download_policy;
 mod downloads;
 mod error;
+#[cfg(desktop)]
+mod linked_watch;
 mod local;
 mod local_zip;
 #[cfg(desktop)]
@@ -32,6 +34,10 @@ pub fn run() {
         // the local-first half of "Add books".
         .plugin(tauri_plugin_dialog::init())
         .manage(opens::OpenRequests::default());
+
+    // Desktop-only: watches for linked-folder on-disk changes.
+    #[cfg(desktop)]
+    let builder = builder.manage(linked_watch::LinkedWatches::default());
 
     // The camera scanner only exists on phones; the crate is not even a
     // dependency on desktop, where QR pairing is manual-entry territory.
@@ -130,6 +136,11 @@ pub fn run() {
             local::local_set_metadata,
             local::local_toggle_collection,
             local::local_rename_collection,
+            local::local_linked_folders,
+            local::local_add_linked_folder,
+            local::local_rescan_linked_folders,
+            local::local_remove_linked_folder,
+            local::local_locate_linked_book,
             local::local_size,
             local::save_local_cover,
             opens::take_opened_paths,

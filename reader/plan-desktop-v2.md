@@ -58,7 +58,7 @@ The single biggest standalone gap. Real users have an existing directory tree
 of books; "import files one by one, as copies" does not survive first contact
 with a 500-book folder.
 
-- [ ] **Linked library folders — XL.** Let the user attach one or more
+- [x] **Linked library folders — XL.** Let the user attach one or more
   existing folders that are read *in place* (no copy). Rust scans them,
   catalogs supported files, and watches for changes (`notify` crate) with a
   manual Rescan action as the fallback. Books keep a `source: linked` origin
@@ -68,6 +68,20 @@ with a 500-book folder.
   designs it properly: linked books are read-only sources, all app state
   (progress, annotations, covers cache) still lives in app storage keyed by
   content hash, so a re-found file reattaches its history.
+  → Implemented 2026-08-16 (v2 commit `…`). `Catalog` gained
+  `linked_folders`; `LocalBook` gained `source: "linked"` + `external_path` +
+  a derived (never-persisted) `missing` flag. Commands: `local_add_linked_folder`
+  (scan + catalog in place, no copy), `local_rescan_linked_folders`,
+  `local_remove_linked_folder`, `local_locate_linked_book`. Reads resolve to
+  the external path (`book_disk_path`), so linked books page/render exactly
+  like copies. A `notify` watcher (desktop-only dep) watches each attached
+  folder and emits `shelf://linked-folders-changed`; the frontend offers a
+  manual Rescan. UI: avatar-menu "Linked folders…" panel (add/rescan/remove),
+  a "Missing" badge on cards whose file vanished, and a Locate button that
+  re-points the book. Progress/tags/collections live on the catalog record
+  keyed by id, so a re-found file keeps its history. Tests:
+  `linked_books_resolve_to_their_external_path` (64 Rust tests). Verified:
+  clippy clean, iOS target compiles, `pnpm typecheck` + `pnpm build` pass.
 - [x] **Recursive folder import — M.** For users who *do* want copies: allow
   dropping/picking a directory, walk it with a preview ("Found 214 supported
   files, 3 unsupported"), then run the existing per-file `local_import`

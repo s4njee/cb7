@@ -49,6 +49,7 @@ export default function BookDetailSheet({
   onMetadataSaved,
   onFilterTag,
   onFilterCollection,
+  onLocate,
   onClose,
 }: {
   record: WebComicRecord;
@@ -62,6 +63,8 @@ export default function BookDetailSheet({
   /** Filter the local shelf to one tag / collection and close the sheet. */
   onFilterTag?: (tag: string) => void;
   onFilterCollection?: (collection: string) => void;
+  /** Re-point a missing linked book at its new location on disk. */
+  onLocate?: (record: WebComicRecord) => void;
   onClose: () => void;
 }) {
   const titleId = useId();
@@ -207,6 +210,16 @@ export default function BookDetailSheet({
           >
             {started && !finished ? "Resume" : "Open"}
           </button>
+
+          {record.missing && onLocate && (
+            <button
+              type="button"
+              className="book-detail-action locate"
+              onClick={() => onLocate(record)}
+            >
+              Locate missing file…
+            </button>
+          )}
 
           <button
             type="button"

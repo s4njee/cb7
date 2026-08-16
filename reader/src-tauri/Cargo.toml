@@ -64,6 +64,9 @@ unrar = "0.5.8"
 # Desktop-only: persist window size/position/maximized across launches and
 # clamp restored geometry to a connected monitor.
 tauri-plugin-window-state = "2.4.1"
+# Desktop-only: watch linked library folders for changes so the shelf can
+# offer a Rescan when books are added/removed on disk.
+notify = "8"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
