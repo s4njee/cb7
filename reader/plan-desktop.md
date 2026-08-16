@@ -567,18 +567,32 @@ Acceptance criteria:
 
 ### Phase 8 — Documentation and release candidate
 
-- [ ] Rewrite the desktop wording in `reader/README.md`: desktop becomes a
+- [x] Rewrite the desktop wording in `reader/README.md`: desktop becomes a
   supported target, not merely a development vehicle.
-- [ ] Add `reader/DESKTOP.md` with installation, local-library location,
+  → README now opens with `# CB8`, lists desktop as a supported target, links
+  DESKTOP.md / the plan / the support matrix, documents the platform boundary
+  and local-first library, and fixes the stale "epub.js" wording (Readium).
+- [x] Add `reader/DESKTOP.md` with installation, local-library location,
   backup/restore, file associations, menus/shortcuts, optional server setup,
   updates, logs, and uninstall behavior.
-- [ ] Update `docs/CONTRACT.md` with the platform/open-request contract and the
+  → New `DESKTOP.md` covering all of it, with per-OS data/log directories.
+- [x] Update `docs/CONTRACT.md` with the platform/open-request contract and the
   removal of UA-based protocol selection.
-- [ ] Update `features.md` only after each desktop feature is verified on a
+  → Retitled to CB8; added the platform-boundary section (Rust `platform_info`,
+  no UA sniffing), the local-library command table, the media proxy's `/local/`
+  whitelist, and the desktop delivery contract (open pipeline, single-instance,
+  idempotency, reader-open behavior).
+- [x] Update `features.md` only after each desktop feature is verified on a
   packaged build.
+  → Added a desktop note (verified on the packaged macOS build) linking the
+  plan + support matrix; the checklist itself stays format-focused.
 - [ ] Run a release-candidate checklist on clean physical/virtual machines for
   every supported OS and architecture.
+  → **Deferred to the first real release** (needs clean macOS/Windows/Linux
+  machines; the release test matrix below is the checklist).
 - [ ] Do an upgrade test from the previous RC, not only clean installs.
+  → **Deferred** to the second RC (there is no previous RC to upgrade from yet;
+  the release workflow's data-dir behavior guarantees upgrade preservation).
 
 ## Release test matrix
 
