@@ -81,9 +81,16 @@ with a 500-book folder.
   dropping a folder routes through the same scan→confirm→import flow. Tests:
   walk collects supported recursively, depth cap, file cap (61 Rust tests).
   Verified: clippy clean, iOS target compiles, `pnpm build` passes.
-- [ ] **Duplicate detection — M.** Content-hash imported files (webui already
+- [x] **Duplicate detection — M.** Content-hash imported files (webui already
   hashes; reuse the approach) so re-importing the same book dedupes to the
   existing record instead of creating a second copy.
+  → Implemented 2026-08-16 (v2 commit `…`). `LocalBook` gained `contentHash`
+  (SHA-256, streaming/bounded memory); `local_import` hashes the source before
+  copying and skips any file whose bytes already exist in the catalog
+  ("Already in your library — skipped as a duplicate"), and `local_download`
+  hashes the finalized file so downloads dedupe too. TS `LocalBook` carries the
+  field. Test: `content_hash` is stable and detects changes (62 Rust tests).
+  Verified: clippy clean, iOS target compiles, `pnpm typecheck` passes.
 - [ ] **Bulk operations — M.** Multi-select in the library grid
   (Cmd/Ctrl-click, Shift-click, marquee optional) with bulk mark-read,
   favorite, tag, delete-local-copy, and re-scan metadata.

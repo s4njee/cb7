@@ -247,6 +247,8 @@ export interface LocalBook {
   origin: { server: string; comicId: number } | null;
   progress: LocalProgress;
   favorited: boolean;
+  /** SHA-256 of the file; used to dedupe re-imports. */
+  contentHash?: string | null;
 }
 
 export interface LocalDownloadProgress {

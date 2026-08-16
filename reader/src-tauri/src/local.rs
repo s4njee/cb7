@@ -85,6 +85,10 @@ pub struct LocalBook {
     /// Set when the book is favorited on this device.
     #[serde(default)]
     pub favorited: bool,
+    /// SHA-256 of the file bytes; used to dedupe re-imports (duplicate
+    /// detection). Null for legacy records until re-hashed.
+    #[serde(default)]
+    pub content_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -201,6 +205,24 @@ fn new_uid() -> String {
     hasher.update(nanos.to_le_bytes());
     hasher.update(n.to_le_bytes());
     hex::encode(hasher.finalize())[..24].to_string()
+}
+
+/// Streaming SHA-256 of a file — bounded memory even for multi-GB PDFs. Used
+/// for duplicate detection: re-importing the same bytes dedupes to the existing
+/// record instead of creating a second copy.
+fn content_hash(path: &Path) -> ApiResult<String> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hex::encode(hasher.finalize()))
 }
 
 /// Normalized, dotless, lowercase extension of a path (`""` when absent).
@@ -354,7 +376,11 @@ fn walk_folder(root: &Path) -> FolderScan {
             }
         }
     }
-    FolderScan { supported, unsupported, truncated }
+    FolderScan {
+        supported,
+        unsupported,
+        truncated,
+    }
 }
 
 /// Preview a directory: list the supported book files a recursive import would
@@ -419,7 +445,11 @@ pub async fn local_import<R: Runtime>(
         }
         let _ = app.emit(
             IMPORT_PROGRESS_EVENT,
-            ImportProgress { done: done as u64, total: total as u64, current: raw.clone() },
+            ImportProgress {
+                done: done as u64,
+                total: total as u64,
+                current: raw.clone(),
+            },
         );
         let src = import_source_path(&raw);
         let ext = ext_of(&src);
@@ -448,6 +478,34 @@ pub async fn local_import<R: Runtime>(
             .unwrap_or("Untitled")
             .to_string();
 
+        // Duplicate detection: hash the source (bounded memory) and skip if a
+        // book with the same bytes is already in the catalog — re-importing the
+        // same file must not create a second copy.
+        let src_for_hash = src.clone();
+        let hash = tokio::task::spawn_blocking(move || content_hash(&src_for_hash))
+            .await
+            .map_err(|err| ApiError::local(format!("hash panicked: {err}")))?;
+        let hash = match hash {
+            Ok(h) => h,
+            Err(err) => {
+                report.failed.push(ImportNote {
+                    path: raw.clone(),
+                    reason: format!("Could not read the file: {}", err.message),
+                });
+                continue;
+            }
+        };
+        {
+            let catalog = state.catalog.lock().await;
+            if catalog.books.iter().any(|b| b.content_hash.as_deref() == Some(&hash)) {
+                report.skipped.push(ImportNote {
+                    path: raw.clone(),
+                    reason: "Already in your library — skipped as a duplicate.".into(),
+                });
+                continue;
+            }
+        }
+
         let uid = new_uid();
         let rel = format!("books/{uid}.{ext}");
         let dest = resolve(&state, &rel);
@@ -473,6 +531,7 @@ pub async fn local_import<R: Runtime>(
             origin: None,
             progress: Progress::default(),
             favorited: false,
+            content_hash: Some(hash),
         };
 
         // A CBZ/CBR carries its own cover and page count; extract both now so
@@ -704,7 +763,18 @@ pub async fn local_download<R: Runtime>(
         origin: Some(origin),
         progress: Progress::default(),
         favorited: false,
+        content_hash: None, // filled below once the file is finalized
     };
+
+    // Hash the finalized file so a download dedupes against a locally-imported
+    // copy of the same book.
+    {
+        let path = dest.clone();
+        book.content_hash = tokio::task::spawn_blocking(move || content_hash(&path))
+            .await
+            .ok()
+            .and_then(Result::ok);
+    }
 
     // A downloaded CBZ/CBR's real page count comes from the archive; the
     // server's number is a fine default but the local reader pages the file
@@ -1016,7 +1086,10 @@ mod tests {
         let scan = walk_folder(&root);
         // epub + cbz are supported; png/txt/md are not.
         assert_eq!(scan.supported.len(), 2);
-        assert!(scan.supported.iter().all(|p| p.ends_with(".epub") || p.ends_with(".cbz")));
+        assert!(scan
+            .supported
+            .iter()
+            .all(|p| p.ends_with(".epub") || p.ends_with(".cbz")));
         assert_eq!(scan.unsupported.len(), 3);
         assert!(!scan.truncated);
         let _ = files;
@@ -1035,7 +1108,11 @@ mod tests {
         std::fs::create_dir_all(&leaf).unwrap();
         std::fs::write(leaf.join("deep.epub"), b"x").unwrap();
         let scan = walk_folder(&dir);
-        assert!(scan.supported.is_empty(), "deep file should be truncated: {:?}", scan.supported);
+        assert!(
+            scan.supported.is_empty(),
+            "deep file should be truncated: {:?}",
+            scan.supported
+        );
         assert!(scan.truncated, "depth cap should set truncated");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1137,6 +1214,7 @@ mod tests {
             origin: None,
             progress: Progress::default(),
             favorited: false,
+            content_hash: None,
         });
         write_catalog_snapshot(&path, &first).await.unwrap();
 
@@ -1158,6 +1236,7 @@ mod tests {
             origin: None,
             progress: Progress::default(),
             favorited: false,
+            content_hash: None,
         });
         write_catalog_snapshot(&path, &second).await.unwrap();
 
@@ -1169,6 +1248,20 @@ mod tests {
         assert!(!path.with_extension("tmp").exists(), "stale .tmp left behind");
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn content_hash_is_stable_and_detects_change() {
+        let dir = std::env::temp_dir().join(format!("cb8-hash-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.epub");
+        let b = dir.join("b.epub");
+        std::fs::write(&a, b"same bytes").unwrap();
+        std::fs::write(&b, b"same bytes").unwrap();
+        assert_eq!(content_hash(&a).unwrap(), content_hash(&b).unwrap());
+        std::fs::write(&b, b"different").unwrap();
+        assert_ne!(content_hash(&a).unwrap(), content_hash(&b).unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1222,6 +1315,7 @@ mod tests {
             origin: None,
             progress: Progress::default(),
             favorited: false,
+            content_hash: None,
         });
         initial.next_id = 2;
         write_catalog_snapshot(&path, &initial).await.unwrap();
