@@ -20,6 +20,42 @@
   z-index: 60;
 }
 
+/* OS file drag-over target: a clear "drop here" card over the whole window.
+   The drop itself is handled by Tauri's drag/drop event, so this overlay is
+   purely visual — pointer-events stay off so the webview keeps receiving drops. */
+.drop-target {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+.drop-target-inner {
+  padding: 32px 48px;
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius-card);
+  background: var(--surface2);
+  text-align: center;
+}
+
+.drop-target-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.drop-target-sub {
+  margin-top: 6px;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+
 /* ---------------------------------------------------------------- Connect */
 
 .connect {

@@ -37,10 +37,16 @@ interface SessionState extends PersistedSession {
   /** Full-screen sheet layered over whatever screen is active (rendered by
    *  App). `stats` = reading statistics + server history. */
   sheet: null | "stats" | "downloads";
+  /** Monotonic counter bumped by external import entry points (native menu,
+   *  drag/drop). Library flips to the local shelf when it changes. */
+  importTick: number;
 
   setBooting: () => void;
   /** Land on the library with no server involved — the local-first entry. */
   enterLibrary: () => void;
+  /** Signal that a book was imported from outside the library screen (native
+   *  menu, drag/drop). Library watches this to switch to the local shelf. */
+  bumpImport: () => void;
   /** Leave the connect detour without connecting; the local shelf is still there. */
   cancelConnect: () => void;
   showToast: (msg: string) => void;
@@ -74,9 +80,11 @@ export const useSession = create<SessionState>()(
       openRecord: null,
       toast: null,
       sheet: null,
+      importTick: 0,
 
       setBooting: () => set({ screen: "boot" }),
       enterLibrary: () => set({ screen: "library" }),
+      bumpImport: () => set((s) => ({ importTick: s.importTick + 1 })),
       cancelConnect: () => set({ screen: "library", connectError: null }),
       showToast: (toast) => set({ toast }),
       dismissToast: () => set({ toast: null }),

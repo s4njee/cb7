@@ -24,8 +24,8 @@ export interface AppConfig {
 // `isTauri` and the media protocol base now come from the platform boundary
 // (`platform.ts`), where Rust supplies them instead of a UA sniff. Re-exported
 // here so existing `import { isTauri } from "./transport"` callers keep working.
-import { isTauri, mediaBase } from "./platform";
-export { isTauri };
+import { isTauri, isDesktop, mediaBase } from "./platform";
+export { isTauri, isDesktop };
 
 function isApiError(value: unknown): value is ApiError {
   return (
@@ -261,9 +261,22 @@ export function localList(): Promise<LocalBook[]> {
   return invoke<LocalBook[]>("local_list");
 }
 
-export function localImport(paths: string[]): Promise<LocalBook[]> {
-  if (!isTauri) return Promise.resolve([]);
-  return invoke<LocalBook[]>("local_import", { paths });
+/** Per-file import outcome — every input file gets a verdict, and one bad file
+ *  never blocks the rest. Mirrors the Rust `ImportReport`. */
+export interface ImportReport {
+  added: LocalBook[];
+  skipped: ImportNote[];
+  failed: ImportNote[];
+}
+
+export interface ImportNote {
+  path: string;
+  reason: string;
+}
+
+export function localImport(paths: string[]): Promise<ImportReport> {
+  if (!isTauri) return Promise.resolve({ added: [], skipped: [], failed: [] });
+  return invoke<ImportReport>("local_import", { paths });
 }
 
 /**
@@ -376,18 +389,63 @@ export async function onLocalDownloadProgress(
 
 /** Open the system file picker and import whatever was chosen.
  *
- *  Resolves to `[]` when the user cancels — a cancel is not an error, and the
- *  shelf just stays as it was. */
-export async function pickAndImportBooks(): Promise<LocalBook[]> {
-  if (!isTauri) return [];
+ *  Resolves to an {@link ImportReport} — a cancel is not an error, and the
+ *  shelf just stays as it was. Desktop pickers get filters so the OS shows only
+ *  book files; on iOS/Android the picker stays unfiltered, because filters
+ *  become UTIs and `cbz`/`cbr` have no system UTI — a filtered picker would
+ *  grey out exactly the files we most want. Rust rejects anything that isn't a
+ *  book format after the pick either way. */
+export async function pickAndImportBooks(): Promise<ImportReport> {
+  if (!isTauri) return { added: [], skipped: [], failed: [] };
   const { open } = await import("@tauri-apps/plugin-dialog");
-  // No `filters`: on iOS they become UTIs, and `cbz`/`cbr` have no system UTI —
-  // a filtered picker would grey out exactly the files we most want. Rust
-  // rejects anything that isn't a book format after the pick instead.
-  const picked = await open({ multiple: true });
-  if (!picked) return [];
+  const filters = isDesktop()
+    ? [
+        // CBR deliberately absent: it imports but can't be read locally yet
+        // (see docs/desktop-support-matrix.md), so don't advertise it here.
+        { name: "Books", extensions: ["epub", "pdf", "cbz"] },
+        { name: "All files", extensions: ["*"] },
+      ]
+    : undefined;
+  const picked = await open({ multiple: true, ...(filters ? { filters } : {}) });
+  if (!picked) return { added: [], skipped: [], failed: [] };
   const paths = Array.isArray(picked) ? picked : [picked];
   return localImport(paths.map(String));
+}
+
+/* ---------------------------------------------------------- native menus */
+
+/** Subscribe to native menu commands (`shelf://menu-command`). The payload is
+ *  the command id the user picked in the native menu, e.g. `"add-books"`.
+ *  Resolves to an unlisten function. */
+export async function onMenuCommand(
+  cb: (command: string) => void,
+): Promise<() => void> {
+  if (!isTauri) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<string>("shelf://menu-command", (event) => cb(event.payload ?? ""));
+}
+
+/* ------------------------------------------------------------- drag/drop */
+
+/** Subscribe to OS file drag-and-drop on the main window (desktop only).
+ *  `onHover(true)` fires as files drag over the window, `onDrop(paths)` on a
+ *  real drop. Resolves to an unlisten function. */
+export async function onFileDrop(
+  onHover: (active: boolean) => void,
+  onDrop: (paths: string[]) => void,
+): Promise<() => void> {
+  if (!isTauri) return () => {};
+  const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+  return getCurrentWebview().onDragDropEvent((event) => {
+    const t = event.payload.type;
+    if (t === "over") onHover(true);
+    else if (t === "drop") {
+      onHover(false);
+      onDrop(event.payload.paths);
+    } else {
+      onHover(false); // leave / cancel
+    }
+  });
 }
 
 /* ---------------------------------------------------------------- downloads */

@@ -246,6 +246,17 @@ pub fn content_type_for(ext: &str) -> &'static str {
 /// at open time beats refusing the file at the picker with no explanation.
 const IMPORTABLE_EXTS: [&str; 4] = ["epub", "pdf", "cbz", "cbr"];
 
+/// Whether a path is a supported book **file** — used by the open-request
+/// pipeline (`opens.rs`) to filter what is worth importing. Directories are
+/// rejected here, not silently walked (v1 never recurses into folders).
+pub fn is_supported_book_path(path: &std::path::Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    let ext = ext_of(path);
+    IMPORTABLE_EXTS.contains(&ext.as_str())
+}
+
 
 /* -------------------------------------------------------------- commands */
 
@@ -269,28 +280,63 @@ fn import_source_path(raw: &str) -> PathBuf {
     PathBuf::from(trimmed)
 }
 
+/// Per-file import outcome: what was added vs skipped/failed, so the frontend
+/// can report every file without one bad file blocking the rest.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportReport {
+    pub added: Vec<LocalBook>,
+    pub skipped: Vec<ImportNote>,
+    pub failed: Vec<ImportNote>,
+}
+
+/// One file that did not import, with the reason.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportNote {
+    pub path: String,
+    pub reason: String,
+}
+
 /// Copy files into the library and catalog them.
 ///
 /// Copying (rather than referencing in place) is deliberate: an imported file
 /// may live behind a security-scoped URL that is only valid for this one pick,
 /// so a stored reference would read fine today and fail on the next launch.
 /// Same rule applies to Open In / share-sheet URLs from Files.
+///
+/// Per-file, never batch-fatal: an unsupported, unreadable, or corrupt file is
+/// reported in the result and skipped, while the rest still import. A file that
+/// fails never leaves a partial catalog row — it is not catalogued at all.
 #[tauri::command]
 pub async fn local_import(
     state: State<'_, AppState>,
     paths: Vec<String>,
-) -> Result<Vec<LocalBook>, ApiError> {
+) -> Result<ImportReport, ApiError> {
     tokio::fs::create_dir_all(books_dir(&state)).await?;
     tokio::fs::create_dir_all(covers_dir(&state)).await?;
 
-    let mut added = Vec::new();
+    let mut report = ImportReport { added: Vec::new(), skipped: Vec::new(), failed: Vec::new() };
     for raw in paths {
         let src = import_source_path(&raw);
         let ext = ext_of(&src);
+
+        // Directories are rejected, not walked (v1 never recurses). Say so
+        // clearly rather than silently importing nothing.
+        if src.is_dir() {
+            report.skipped.push(ImportNote {
+                path: raw.clone(),
+                reason: "Folders can't be imported — choose the files inside.".into(),
+            });
+            continue;
+        }
         // The picker is unfiltered (see `pickAndImportBooks`), so this is where
         // "is that a book?" is actually decided.
         if !IMPORTABLE_EXTS.contains(&ext.as_str()) {
-            log::info!("skipping import of unsupported file: {raw}");
+            report.skipped.push(ImportNote {
+                path: raw.clone(),
+                reason: "Not a supported book format (EPUB, PDF, CBZ, CBR).".into(),
+            });
             continue;
         }
         let title = src
@@ -302,7 +348,13 @@ pub async fn local_import(
         let uid = new_uid();
         let rel = format!("books/{uid}.{ext}");
         let dest = resolve(&state, &rel);
-        tokio::fs::copy(&src, &dest).await?;
+        if let Err(err) = tokio::fs::copy(&src, &dest).await {
+            report.failed.push(ImportNote {
+                path: raw.clone(),
+                reason: format!("Could not copy the file: {err}"),
+            });
+            continue;
+        }
         let bytes = tokio::fs::metadata(&dest).await.map(|m| m.len()).unwrap_or(0);
 
         let mut book = LocalBook {
@@ -350,10 +402,16 @@ pub async fn local_import(
                     book.page_count = count;
                     book.cover = cover;
                 }
-                // An unreadable archive still imports — it shows up on the shelf
-                // with a fallback cover and reports its problem when opened,
-                // which beats silently dropping a file the user just picked.
-                Err(err) => log::warn!("cbz import: {}", err.message),
+                // A corrupt archive is a per-file failure: it must not leave a
+                // catalog row pointing at an unreadable file. Clean up the copy.
+                Err(err) => {
+                    let _ = tokio::fs::remove_file(&dest).await;
+                    report.failed.push(ImportNote {
+                        path: raw.clone(),
+                        reason: format!("Not a readable comic archive: {}", err.message),
+                    });
+                    continue;
+                }
             }
         }
 
@@ -364,10 +422,10 @@ pub async fn local_import(
             book.clone()
         })
         .await?;
-        added.push(pushed);
+        report.added.push(pushed);
     }
 
-    Ok(added)
+    Ok(report)
 }
 
 /// Remove a book and its files. Returns bytes freed.

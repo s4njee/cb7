@@ -1,9 +1,10 @@
 /** Root view state machine (connect → library → reader), accent application,
  *  and the global brightness overlay. */
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import * as api from "./lib/api";
-import { isTauri } from "./lib/transport";
+import { importReportMessage } from "./lib/format";
+import { isDesktop, isTauri } from "./lib/transport";
 import * as platform from "./lib/platform";
 import { usePrefs } from "./store/prefs";
 import { useSession } from "./store/session";
@@ -28,10 +29,12 @@ export default function App() {
     setGuestAccess,
     openBook,
     showToast,
+    bumpImport,
   } = useSession();
   const toast = useSession((s) => s.toast);
   const dismissToast = useSession((s) => s.dismissToast);
   const sheet = useSession((s) => s.sheet);
+  const [dropActive, setDropActive] = useState(false);
 
   // Auto-clear a toast after a few seconds; a fresh toast restarts the timer.
   useEffect(() => {
@@ -100,62 +103,117 @@ export default function App() {
     void boot();
   }, [enterAsGuest, enterAsUser, enterLibrary, setGuestAccess]);
 
-  // Open In / share sheet / Files "Open with CB8": copy into the owned library
-  // and open the first book. Cold-start paths may already be in Rust state
-  // before the webview loads; live opens arrive as `shelf://opened-files`.
+  // Open In / share sheet / Files "Open with CB8", native menu commands, and
+  // drag/drop all land in `importPaths`: copy into the owned library, then
+  // either open the book or leave it on the shelf. The Rust pipeline
+  // (`opens.rs`) is idempotent per OS event, so cold-start take vs live emit
+  // can't double-import; `seenOpenPaths` is a second, harmless net.
   const importingOpen = useRef(false);
   const seenOpenPaths = useRef(new Set<string>());
-  useEffect(() => {
-    if (!isTauri) return;
 
-    const importPaths = async (paths: string[]) => {
-      // Deduplicate cold-start take vs live emit for the same Opened event.
+  const finishImport = useCallback(
+    async (report: api.ImportReport, opts: { open: boolean }) => {
+      await qc.invalidateQueries({ queryKey: ["local"] });
+      const { added } = report;
+      if (!added.length) {
+        showToast(importReportMessage(report));
+        return;
+      }
+      bumpImport();
+      showToast(
+        added.length === 1 ? `Added “${added[0].title}”.` : `Added ${added.length} books.`,
+      );
+      // Open-with should land in the book — but never yank an active reading
+      // session out from under the reader: importing while reading leaves the
+      // book on the shelf (toast above) and preserves unflushed progress.
+      if (opts.open && useSession.getState().screen !== "reader") {
+        openBook(api.toRecord(added[0]));
+      }
+    },
+    [qc, showToast, bumpImport, openBook],
+  );
+
+  const importPaths = useCallback(
+    async (paths: string[], opts: { open: boolean }) => {
       const fresh = paths.filter((p) => !seenOpenPaths.current.has(p));
       for (const p of fresh) seenOpenPaths.current.add(p);
       if (!fresh.length || importingOpen.current) return;
       importingOpen.current = true;
       try {
-        const added = await api.localImport(fresh);
+        const report = await api.localImport(fresh);
         // Clear any store copy of this open so a remount cannot re-import.
         await api.takeOpenedPaths().catch(() => []);
-        await qc.invalidateQueries({ queryKey: ["local"] });
-        if (!added.length) {
-          showToast("That file isn’t a supported book format.");
-          return;
-        }
-        showToast(
-          added.length === 1
-            ? `Added “${added[0].title}”.`
-            : `Added ${added.length} books.`,
-        );
-        // Open-with should land in the book, not just the shelf.
-        openBook(api.toRecord(added[0]));
+        await finishImport(report, opts);
       } catch {
         showToast("Couldn't add that file.");
       } finally {
         importingOpen.current = false;
       }
-    };
+    },
+    [finishImport, showToast],
+  );
 
-    let unlisten: (() => void) | undefined;
+  // Native menu "Add Books…" routes through the same picker as the shelf.
+  const addBooksViaPicker = useCallback(async () => {
+    if (importingOpen.current) return;
+    importingOpen.current = true;
+    try {
+      const report = await api.pickAndImportBooks();
+      if (report.added.length || report.skipped.length || report.failed.length) {
+        await finishImport(report, { open: false });
+      }
+    } catch {
+      showToast("Couldn't add those files.");
+    } finally {
+      importingOpen.current = false;
+    }
+  }, [finishImport, showToast]);
+
+  useEffect(() => {
+    if (!isTauri) return;
+
+    let unlistenOpened: (() => void) | undefined;
+    let unlistenMenu: (() => void) | undefined;
+    let unlistenDrop: (() => void) | undefined;
     let cancelled = false;
     void (async () => {
       try {
         const pending = await api.takeOpenedPaths();
-        if (!cancelled && pending.length) await importPaths(pending);
-        unlisten = await api.onOpenedFiles((paths) => {
-          void importPaths(paths);
+        if (!cancelled && pending.length) await importPaths(pending, { open: true });
+        unlistenOpened = await api.onOpenedFiles((paths) => {
+          void importPaths(paths, { open: true });
         });
       } catch {
         /* open-in is best-effort */
+      }
+      try {
+        // Native menu: File > Add Books… — same picker flow as the shelf button.
+        unlistenMenu = await api.onMenuCommand((command) => {
+          if (command === "add-books") void addBooksViaPicker();
+        });
+      } catch {
+        /* menu command is best-effort */
+      }
+      try {
+        // Drag a book (or several) onto the window: import all, don't force-open.
+        // Mobile webviews never fire OS file drag events, so this is desktop in
+        // practice; the helper gates on Tauri, and `isDesktop()` is not reliable
+        // here (platform info may still be resolving during boot).
+        unlistenDrop = await api.onFileDrop(setDropActive, (paths) => {
+          void importPaths(paths, { open: false });
+        });
+      } catch {
+        /* drag/drop is best-effort */
       }
     })();
 
     return () => {
       cancelled = true;
-      unlisten?.();
+      unlistenOpened?.();
+      unlistenMenu?.();
+      unlistenDrop?.();
     };
-  }, [qc, openBook, showToast]);
+  }, [importPaths]);
 
   const dim = (1 - brightness) * 0.6;
 
@@ -171,6 +229,16 @@ export default function App() {
       {sheet === "downloads" && <DownloadsSheet />}
 
       <TransferBanner />
+
+      {/* OS file drag-over: a clear drop target over the whole window. */}
+      {dropActive && isDesktop() && (
+        <div className="drop-target" aria-hidden="true">
+          <div className="drop-target-inner">
+            <div className="drop-target-title">Add books</div>
+            <div className="drop-target-sub">Drop EPUB, PDF, or CBZ files</div>
+          </div>
+        </div>
+      )}
 
       <div className="dim-overlay" style={{ opacity: dim }} />
 

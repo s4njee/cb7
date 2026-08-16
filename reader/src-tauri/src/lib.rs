@@ -6,71 +6,22 @@ mod downloads;
 mod error;
 mod local;
 mod local_zip;
+#[cfg(desktop)]
+mod menu;
+mod opens;
 mod platform;
 mod proxy;
 mod state;
 
-use std::sync::Mutex;
-
-use tauri::{Emitter, Manager, Url};
+use tauri::Manager;
 
 use state::AppState;
 
-/// File URLs delivered via `RunEvent::Opened` (Open In / share sheet / Files)
-/// before the webview is ready to import them. Frontend drains this on boot
-/// and also listens for the live `shelf://opened-files` event.
-pub struct OpenedUrls(pub Mutex<Vec<Url>>);
-
-/// Drain any cold-start open-in paths (as filesystem paths the importer can
-/// `copy`). Returns `[]` when nothing is pending.
-#[tauri::command]
-fn take_opened_paths(app: tauri::AppHandle) -> Vec<String> {
-    let state = app.state::<OpenedUrls>();
-    let mut guard = match state.0.lock() {
-        Ok(g) => g,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    let urls: Vec<Url> = guard.drain(..).collect();
-    urls.into_iter().filter_map(url_to_fs_path).collect()
-}
-
-/// Convert a `file://` (or bare path) URL into a filesystem path string.
-fn url_to_fs_path(url: Url) -> Option<String> {
-    if url.scheme() == "file" {
-        url.to_file_path()
-            .ok()
-            .map(|p| p.to_string_lossy().into_owned())
-    } else {
-        // Last resort: some platforms hand a path-looking string as the URL.
-        let s = url.as_str();
-        if s.starts_with('/') {
-            Some(s.to_string())
-        } else {
-            log::warn!("opened URL is not a local file path: {s}");
-            None
-        }
-    }
-}
-
-fn record_opened_urls(app: &tauri::AppHandle, urls: Vec<Url>) {
-    if urls.is_empty() {
-        return;
-    }
-    let paths: Vec<String> = urls.iter().cloned().filter_map(url_to_fs_path).collect();
-    if paths.is_empty() {
-        return;
-    }
-    {
-        let state = app.state::<OpenedUrls>();
-        let mut guard = match state.0.lock() {
-            Ok(g) => g,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        // Keep originals for cold-start drain (paths re-derived there).
-        guard.extend(urls);
-    }
-    // Live event carries paths so the frontend can call `local_import` directly.
-    let _ = app.emit("shelf://opened-files", paths);
+/// Deliver one normalized open request (or a batch) from any source:
+/// macOS/iOS/Android `RunEvent::Opened`, Windows/Linux startup argv, or a
+/// second single-instance forwarding. See `opens.rs` for the channel rules.
+fn record_opens(app: &tauri::AppHandle, sources: Vec<String>) {
+    opens::record_opens(app, sources);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -80,7 +31,7 @@ pub fn run() {
         // The file picker is how books get into the library without a server —
         // the local-first half of "Add books".
         .plugin(tauri_plugin_dialog::init())
-        .manage(OpenedUrls(Mutex::new(Vec::new())));
+        .manage(opens::OpenRequests::default());
 
     // The camera scanner only exists on phones; the crate is not even a
     // dependency on desktop, where QR pairing is manual-entry territory.
@@ -96,11 +47,40 @@ pub fn run() {
     // every platform so discovery can call acquire/release without cfg noise.
     let builder = builder.plugin(android_multicast::init());
 
+    // Windows and Linux deliver "Open with CB8" as a command-line argument, not
+    // a RunEvent::Opened. Single-instance support makes a second double-click
+    // forward to the already-running app instead of starting a fresh one; the
+    // callback runs in the *first* process, so we record the paths there and
+    // restore/focus the window so the import is visible.
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(
+        |app, args, _cwd| {
+            // `args` includes the executable path; skip it, then filter to books.
+            let sources: Vec<String> = args.into_iter().skip(1).collect();
+            record_opens(app, sources);
+            opens::focus_main_window(app);
+        },
+    ));
+
     let app = builder
         .register_asynchronous_uri_scheme_protocol(proxy::SCHEME, proxy::register)
         .setup(|app| {
+            // Native menu (File > Add Books… etc.); desktop only.
+            #[cfg(desktop)]
+            menu::setup(app)?;
+
             let state = AppState::init(app.handle())?;
             app.manage(state);
+
+            // Cold-start "Open with CB8" on Windows/Linux: the file path is in
+            // argv (argv[0] is the executable). Single-instance handles the
+            // "already running" case; this is the fresh-launch case.
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            {
+                let sources: Vec<String> = std::env::args().skip(1).collect();
+                record_opens(app.handle(), sources);
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -132,17 +112,19 @@ pub fn run() {
             local::local_set_favorite,
             local::local_size,
             local::save_local_cover,
+            opens::take_opened_paths,
             platform::platform_info,
-            take_opened_paths,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
     app.run(|app_handle, event| {
         // Open In / share sheet / Files "Open with CB8" — macOS, iOS, Android.
+        // Delivered as URLs; the pipeline normalizes and channels them.
         #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
         if let tauri::RunEvent::Opened { urls } = event {
-            record_opened_urls(app_handle, urls);
+            let sources: Vec<String> = urls.into_iter().map(|u| u.to_string()).collect();
+            record_opens(app_handle, sources);
         }
     });
 }

@@ -46,7 +46,7 @@ type Shelf = "local" | "server";
 const PAGE_SIZE = 200;
 
 export default function Library() {
-  const { user, guest, serverUrl, openBook, reset, goConnect, openSheet, showToast } =
+  const { user, guest, serverUrl, openBook, reset, goConnect, openSheet, showToast, importTick } =
     useSession();
   const accent = usePrefs((s) => s.accent);
   const setAccent = usePrefs((s) => s.setAccent);
@@ -134,6 +134,12 @@ export default function Library() {
     if (api.localSupported && localQuery.isLoading) return;
     setShelfChoice(localBooks.length > 0 || !serverReady ? "local" : "server");
   }, [shelfChoice, localQuery.isLoading, localBooks.length, serverReady]);
+
+  // A book imported from outside the library (native menu, drag/drop) lands on
+  // the local shelf — switch to it so the user sees what they just added.
+  useEffect(() => {
+    if (importTick > 0) setShelfChoice("local");
+  }, [importTick]);
 
   const shelf: Shelf = shelfChoice ?? "local";
   const onServer = shelf === "server";

@@ -201,44 +201,71 @@ Acceptance criteria:
 
 Refactor file-open delivery before adding new entry points:
 
-- [ ] Replace the current URL-only pending queue in `src-tauri/src/lib.rs` with
+- [x] Replace the current URL-only pending queue in `src-tauri/src/lib.rs` with
   one normalized open-request pipeline that accepts URLs or filesystem paths,
   canonicalizes supported files, queues cold-start requests, and emits the
   existing live event after the frontend is ready.
-- [ ] Keep macOS `RunEvent::Opened` handling.
-- [ ] On Windows and Linux, capture associated-file paths from process startup
+  → New `opens.rs`: `record_opens` normalizes `file://` URLs or bare paths
+  (canonicalize + supported-extension filter via `local::is_supported_book_path`),
+  queues before the frontend is ready, emits `shelf://opened-files` after.
+- [x] Keep macOS `RunEvent::Opened` handling.
+  → `RunEvent::Opened` (macOS/iOS/Android) routes through `record_opens`.
+- [x] On Windows and Linux, capture associated-file paths from process startup
   arguments and use Tauri's single-instance support to forward later opens to
   the first process. Restore/focus the existing window before emitting the
   request.
-- [ ] Make delivery idempotent within an OS open event so the cold-start drain
+  → `tauri-plugin-single-instance` (desktop-only Cargo cfg) forwards second-
+  instance argv to the first process, then `opens::focus_main_window`. Cold-start
+  argv is captured in `setup`.
+- [x] Make delivery idempotent within an OS open event so the cold-start drain
   and live event cannot import the same path twice.
-- [ ] Keep the actual copy/catalog work in `local_import`.
+  → One `record_opens` batch dedupes its own sources and goes entirely to one
+  channel (queue pre-ready, live post-ready), so a path can never arrive twice.
+- [x] Keep the actual copy/catalog work in `local_import`.
+  → `record_opens` only normalizes/delivers; `local_import` still copies and
+  catalogs.
 
 Add desktop entry points:
 
-- [ ] Add **File > Add Books…** with `Cmd+O` on macOS and `Ctrl+O` elsewhere.
-- [ ] Use desktop file-picker filters for EPUB/PDF/CBZ and CBR only when CBR is
+- [x] Add **File > Add Books…** with `Cmd+O` on macOS and `Ctrl+O` elsewhere.
+  → Native menu (`menu.rs`) builds File/Edit/Window/Help (+ app menu on macOS);
+  the item emits `shelf://menu-command` "add-books", routed by App to the same
+  picker flow as the shelf button.
+- [x] Use desktop file-picker filters for EPUB/PDF/CBZ and CBR only when CBR is
   supported. Preserve the current unfiltered mobile picker where custom UTIs
   require it.
-- [ ] Subscribe to Tauri drag/drop events on the main window. Show a clear
+  → Desktop picker filters `epub/pdf/cbz` (CBR omitted — not locally readable
+  yet, per the Phase 0 matrix); mobile stays unfiltered.
+- [x] Subscribe to Tauri drag/drop events on the main window. Show a clear
   drop target over the library, validate extensions, import all accepted files
   in one operation, and report skipped/failed files without blocking successful
   imports.
-- [ ] Do not recursively import directories in v1. Reject them clearly rather
+  → `onFileDrop` (webview `onDragDropEvent`) → `importPaths` → `local_import`
+  report; a `.drop-target` overlay shows while dragging. Per-file skipped/failed
+  are reported via `ImportReport` + `importReportMessage`.
+- [x] Do not recursively import directories in v1. Reject them clearly rather
   than silently walking an unexpectedly large tree.
-- [ ] If a book is delivered while the reader is open, import it first and then
+  → `local_import` rejects `is_dir` with an explicit "Folders can't be imported"
+  note; the pipeline's `is_supported_book_path` also requires a file.
+- [x] If a book is delivered while the reader is open, import it first and then
   ask before replacing the current reading session, or leave it on the shelf
   with a confirmation toast. Never discard unflushed progress.
+  → Import lands first (report toast); when a reader session is active the book
+  is left on the shelf rather than replacing the open book.
 
 Acceptance criteria:
 
 - picker, drag/drop, double-click, and second-instance opens all use the same
-  importer and produce the same catalog record;
+  importer and produce the same catalog record → all funnel into
+  `local_import`.
 - spaces, Unicode, long paths, read-only source files, and multiple selected
-  files work;
+  files work → paths are canonicalized PathBufs; `local_import` reports
+  per-file, never aborting the batch.
 - unsupported and corrupt files produce per-file errors and do not leave
-  partial catalog rows;
-- a copied book still opens after the original is renamed or removed.
+  partial catalog rows → `ImportReport` returns added/skipped/failed; a failed
+  file is never catalogued and its copied file is cleaned up.
+- a copied book still opens after the original is renamed or removed → imports
+  are copies into app-owned storage (unchanged).
 
 ### Phase 3 — Resolve desktop format parity, especially CBR
 

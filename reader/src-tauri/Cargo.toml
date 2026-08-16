@@ -49,5 +49,10 @@ tauri-plugin-dialog = "2.7.2"
 tauri-plugin-barcode-scanner = "2"
 tauri-plugin-haptics = "2"
 
+# Desktop-only: Windows/Linux deliver "Open with CB8" via argv, and
+# single-instance support forwards later double-clicks to the first process.
+[target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
+tauri-plugin-single-instance = "2"
+
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

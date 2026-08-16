@@ -7,6 +7,7 @@
 import { useCallback } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import * as api from "../../lib/api";
+import { importReportMessage } from "../../lib/format";
 import { useDeviceTransfer } from "../../lib/deviceTransfer";
 import { invalidateLibrary, patchLibraryCaches } from "./libraryData";
 
@@ -155,8 +156,9 @@ export function useLibraryActions(
     setImporting(true);
     api
       .pickAndImportBooks()
-      .then((added) => {
+      .then((report) => {
         qc.invalidateQueries({ queryKey: ["local"] });
+        const { added, skipped, failed } = report;
         if (added.length) {
           setShelfChoice("local");
           showToast(
@@ -164,6 +166,10 @@ export function useLibraryActions(
               ? `Added “${added[0].title}”.`
               : `Added ${added.length} books.`,
           );
+        } else if (skipped.length || failed.length) {
+          showToast(importReportMessage(report));
+        } else {
+          showToast("Nothing to add.");
         }
       })
       .catch(() => showToast("Couldn't add those files."))

@@ -1,5 +1,6 @@
 /** Progress math, status labels, metadata lines, roman numerals. */
 import type { WebComicRecord } from "./api";
+import type { ImportReport } from "./transport";
 
 const ROMAN = [
   "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X",
@@ -61,6 +62,30 @@ export function kindLabel(r: WebComicRecord): string {
 }
 
 /** Human file size for detail surfaces (`1.2 MB`, `< 0.1 MB`). */
+/** A short human toast for a multi-file import that added nothing: the reason
+ *  the picker/drop/open produced no shelf entries. Single "Added N" messages
+ *  are built by callers; this is the no-success path. */
+export function importReportMessage(report: ImportReport): string {
+  const { skipped, failed } = report;
+  const parts: string[] = [];
+  if (failed.length) {
+    parts.push(
+      failed.length === 1
+        ? `1 file couldn't be added (${failed[0].reason})`
+        : `${failed.length} files couldn't be added`,
+    );
+  }
+  if (skipped.length) {
+    parts.push(
+      skipped.length === 1
+        ? `1 file skipped (${skipped[0].reason})`
+        : `${skipped.length} files skipped`,
+    );
+  }
+  if (!parts.length) return "Nothing to add.";
+  return parts.join(" · ");
+}
+
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "—";
   const mb = bytes / (1024 * 1024);
