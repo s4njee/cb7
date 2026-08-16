@@ -26,7 +26,7 @@ use tauri::{AppHandle, Emitter, Runtime, State};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 use crate::error::{ApiError, ApiResult};
-use crate::local_zip::{zip_entry_bytes, zip_page_names};
+use crate::local_zip::{entry_bytes, page_names};
 use crate::state::AppState;
 
 /// Progress event name; payload is {@link DownloadProgress}.
@@ -372,20 +372,22 @@ pub async fn local_import(
             favorited: false,
         };
 
-        // A CBZ carries its own cover and page count; extract both now so the
-        // shelf is complete the moment the import finishes. EPUB and PDF covers
-        // are rendered client-side later (see `save_local_cover`) — keeping
-        // those renderers out of Rust is the whole reason this split exists.
-        if book.media_type == "comic" && ext == "cbz" {
+        // A CBZ/CBR carries its own cover and page count; extract both now so
+        // the shelf is complete the moment the import finishes. EPUB and PDF
+        // covers are rendered client-side later (see `save_local_cover`) —
+        // keeping those renderers out of Rust is the whole reason this split
+        // exists. RAR (CBR) reads only page headers + the cover entry on demand.
+        if book.media_type == "comic" && (ext == "cbz" || (ext == "cbr" && cfg!(desktop))) {
             let path = dest.clone();
             let uid2 = uid.clone();
             let covers = covers_dir(&state);
+            let ext = ext.clone();
             let extracted = tokio::task::spawn_blocking(move || -> ApiResult<(i64, Option<String>)> {
-                let names = zip_page_names(&path)?;
+                let names = page_names(&path, &ext)?;
                 let count = names.len() as i64;
                 let cover = match names.first() {
                     Some(first) => {
-                        let bytes = zip_entry_bytes(&path, first)?;
+                        let bytes = entry_bytes(&path, &ext, first)?;
                         let cext = ext_of(Path::new(first));
                         let cext = if cext.is_empty() { "jpg".into() } else { cext };
                         std::fs::write(covers.join(format!("{uid2}.{cext}")), bytes)?;
@@ -581,11 +583,13 @@ pub async fn local_download<R: Runtime>(
         favorited: false,
     };
 
-    // A downloaded CBZ's real page count comes from the archive; the server's
-    // number is a fine default but the local reader pages the file itself.
-    if book.ext == "cbz" {
+    // A downloaded CBZ/CBR's real page count comes from the archive; the
+    // server's number is a fine default but the local reader pages the file
+    // itself. CBR count is desktop-only (no RAR backend on mobile).
+    if book.ext == "cbz" || (book.ext == "cbr" && cfg!(desktop)) {
         let path = dest.clone();
-        if let Ok(Ok(names)) = tokio::task::spawn_blocking(move || zip_page_names(&path)).await {
+        let ext = book.ext.clone();
+        if let Ok(Ok(names)) = tokio::task::spawn_blocking(move || page_names(&path, &ext)).await {
             if !names.is_empty() {
                 book.page_count = names.len() as i64;
             }
@@ -687,7 +691,8 @@ pub async fn local_page_count(state: State<'_, AppState>, id: i64) -> Result<i64
         return Ok(book.page_count);
     }
     let path = resolve(&state, &book.file);
-    let names = tokio::task::spawn_blocking(move || zip_page_names(&path))
+    let ext = book.ext.clone();
+    let names = tokio::task::spawn_blocking(move || page_names(&path, &ext))
         .await
         .map_err(|err| ApiError::local(format!("archive read panicked: {err}")))??;
     let count = names.len() as i64;
@@ -702,21 +707,26 @@ pub async fn local_page_count(state: State<'_, AppState>, id: i64) -> Result<i64
 
 /// Raw bytes of page `index` of a local comic, plus its content type.
 /// Also the engine behind the proxy's `/local/<id>/page/<n>` route.
+///
+/// CBZ and CBR share one page pipeline; `local_zip::page_names` /
+/// `entry_bytes` dispatch to the right archive backend. CBR is desktop-only —
+/// mobile has no RAR backend, so it still reports the server-only message.
 pub async fn read_page(state: &AppState, id: i64, index: usize) -> ApiResult<(Vec<u8>, String)> {
     let book = get_book(state, id).await?;
-    if book.ext == "cbr" {
+    if book.ext == "cbr" && !cfg!(desktop) {
         return Err(ApiError::local(
-            "CBR comics can only be read from a server — CB8 can't unpack RAR on device.",
+            "CBR comics can only be read from a server — this device can't unpack RAR.",
         ));
     }
     let path = resolve(state, &book.file);
+    let ext = book.ext.clone();
     tokio::task::spawn_blocking(move || {
-        let names = zip_page_names(&path)?;
+        let names = page_names(&path, &ext)?;
         let name = names
             .get(index)
             .ok_or_else(|| ApiError::local("No such page"))?
             .clone();
-        let bytes = zip_entry_bytes(&path, &name)?;
+        let bytes = entry_bytes(&path, &ext, &name)?;
         let ct = content_type_for(&ext_of(Path::new(&name))).to_string();
         Ok((bytes, ct))
     })

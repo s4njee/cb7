@@ -54,5 +54,13 @@ tauri-plugin-haptics = "2"
 [target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = "2"
 
+# Desktop-only: local CBR (RAR) reading. `unrar` is an MIT/Apache wrapper around
+# RARLAB's UnRAR C library, whose freeware license permits use in any software
+# to handle RAR archives and redistribution inside other packages — no sidecar,
+# no shell, just a page list + on-demand entry read. Mobile keeps its existing
+# "CBR needs a server" behavior so phone bundles don't grow.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+unrar = "0.5.8"
+
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

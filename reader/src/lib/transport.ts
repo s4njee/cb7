@@ -400,9 +400,10 @@ export async function pickAndImportBooks(): Promise<ImportReport> {
   const { open } = await import("@tauri-apps/plugin-dialog");
   const filters = isDesktop()
     ? [
-        // CBR deliberately absent: it imports but can't be read locally yet
-        // (see docs/desktop-support-matrix.md), so don't advertise it here.
-        { name: "Books", extensions: ["epub", "pdf", "cbz"] },
+        // CBR is locally readable on desktop (RAR via the unrar crate), so the
+        // picker advertises it; mobile has no RAR backend and stays unfiltered
+        // anyway (custom UTIs).
+        { name: "Books", extensions: ["epub", "pdf", "cbz", "cbr"] },
         { name: "All files", extensions: ["*"] },
       ]
     : undefined;

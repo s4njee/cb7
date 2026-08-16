@@ -75,9 +75,10 @@ release.
 2. **Local CBR is advertised but cannot be read.** `tauri.conf.json` registers
    `.cbr` file association, and `local_import` accepts CBR, but `read_page`
    returns *"CBR comics can only be read from a server — CB8 can't unpack RAR on
-   device."* This violates the plan's release gate ("every format shown by the
-   picker or registered with the OS must actually open as a local file"). Phase
-   3 decides RAR support vs de-registration. Logged, not fixed here.
+   device."* This violated the plan's release gate. **Fixed in Phase 3** by
+   adding local RAR extraction via the `unrar` crate (desktop-only): CBR now
+   lists and reads pages through the same bounded abstraction as CBZ, and the
+   desktop picker advertises `cbr`. Remote-only is gone on desktop.
 3. **Server-side data loss in the local dev docker stack.** All pre-existing
    comic files were missing from `/var/lib/cb8/web-uploads` (records existed in
    Postgres but the files were gone), so every `pages/0` returned 500. This is

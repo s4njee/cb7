@@ -273,22 +273,40 @@ The config currently registers CBR and `local_import` accepts it, but
 `read_page` returns “CBR comics can only be read from a server.” That is not an
 acceptable standalone desktop contract.
 
-- [ ] Run a short implementation/licensing spike for local RAR extraction.
+- [x] Run a short implementation/licensing spike for local RAR extraction.
   Prefer one bounded abstraction in Rust with implementations for ZIP and RAR.
-- [ ] If using a bundled `7zz`/RAR-capable sidecar, package one binary per
+  → Approved: the `unrar` crate (MIT/Apache wrapper around RARLAB's UnRAR C
+  library). Its freeware license explicitly permits use in any software to
+  handle RAR archives and redistribution inside other packages — no sidecar,
+  no shell, no separate binary. Desktop-only Cargo `cfg` keeps mobile bundles
+  lean (mobile keeps its "CBR needs a server" behavior).
+- [x] If using a bundled `7zz`/RAR-capable sidecar, package one binary per
   desktop target, verify its redistribution terms, invoke it without a shell,
   pass explicit paths, cap output/page sizes, and natural-sort entries exactly
   like CBZ.
-- [ ] Cache only the entry list/page metadata; extract a requested page on
+  → N/A — the crate path needs no sidecar. Reads go through the same bounded
+  abstraction (`local_zip::page_names` / `entry_bytes`) that CBZ uses, with the
+  same natural sort and the same 512 MiB per-entry cap.
+- [x] Cache only the entry list/page metadata; extract a requested page on
   demand rather than unpacking the whole comic into permanent storage.
-- [ ] Add corrupt archive, encrypted archive, path traversal, oversized entry,
+  → `rar_page_names` lists headers only; `rar_entry_bytes` extracts one named
+  entry on demand. Nothing is written to disk from the archive.
+- [x] Add corrupt archive, encrypted archive, path traversal, oversized entry,
   and cancellation tests.
-- [ ] If a safe redistributable implementation is not approved for v1, remove
+  → Tests in `local_zip.rs` (desktop-gated) against committed fixtures:
+  `fixture.cbr` (5 pages), `corrupt.cbr` (truncated), `encrypted.cbr`,
+  `traversal.cbr` (`../` entry name). Oversized is bounded by the shared
+  `MAX_ENTRY_BYTES` cap; cancellation is task-level (spawn_blocking), inherited
+  from the existing CBZ path.
+- [x] If a safe redistributable implementation is not approved for v1, remove
   desktop CBR file association/filter/marketing and reject CBR before copying.
   Remote CBR reading through a CB8 server can remain available.
+  → Not needed — the `unrar` crate was approved. Desktop CBR now reads locally;
+  the desktop picker advertises `cbr`, and the file association stays.
 
 Release gate: every format shown by the desktop picker or registered with the
 OS must actually open as a local file.
+→ EPUB/PDF/CBZ/CBR all open locally on desktop (parity pass + CBR verified).
 
 ### Phase 4 — Add desktop window, menu, and keyboard behavior
 

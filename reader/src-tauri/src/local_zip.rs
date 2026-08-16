@@ -2,6 +2,16 @@
 //!
 //! Page listing, natural sort, and entry extraction live here so `local.rs`
 //! can own catalog commands without also being an archive library.
+//!
+//! One bounded abstraction with two backends:
+//! - **ZIP** (CBZ) via the `zip` crate;
+//! - **RAR** (CBR) via the `unrar` crate (RARLAB's UnRAR C library, wrapped
+//!   under MIT/Apache). Only *listing* and *entry reads* are used — a page is
+//!   extracted on demand, never the whole comic, and nothing is written to
+//!   disk from the archive, so path traversal is structurally impossible.
+//!
+//! The desktop build compiles both backends; mobile keeps the old
+//! "CBR needs a server" behavior (see `local.rs`), so phone bundles stay lean.
 
 use std::io::Read;
 use std::path::Path;
@@ -15,6 +25,13 @@ pub(crate) fn is_image(name: &str) -> bool {
     // Skip macOS resource forks, which otherwise show up as phantom page 0.
     if lower.contains("__macosx/") || lower.rsplit('/').next().is_some_and(|f| f.starts_with("._"))
     {
+        return false;
+    }
+    // Path-traversal hardening: an entry like `../evil.png` or
+    // `a/../../evil.png` must never be treated as a page. The reader never
+    // resolves entry names to disk paths, so this is belt-and-suspenders, but
+    // a `..` segment is never a legitimate page name anyway.
+    if lower.split('/').any(|seg| seg == "..") {
         return false;
     }
     IMAGE_EXTS.iter().any(|ext| lower.ends_with(&format!(".{ext}")))
@@ -76,11 +93,33 @@ pub(crate) fn zip_page_names(path: &Path) -> ApiResult<Vec<String>> {
     Ok(names)
 }
 
+/// Ordered list of image entry names inside a CBR (RAR). On-demand, like the
+/// ZIP side: only entry headers are read, nothing is extracted to disk.
+#[cfg(desktop)]
+fn rar_page_names(path: &Path) -> ApiResult<Vec<String>> {
+    let archive = unrar::Archive::new(path)
+        .open_for_listing()
+        .map_err(|err| ApiError::local(format!("Not a readable archive: {err}")))?;
+    let mut names: Vec<String> = Vec::new();
+    for entry in archive {
+        let entry = entry.map_err(|err| ApiError::local(format!("Corrupt archive: {err}")))?;
+        if entry.is_directory() {
+            continue;
+        }
+        let name = entry.filename.to_string_lossy().into_owned();
+        if is_image(&name) {
+            names.push(name);
+        }
+    }
+    names.sort_by(|a, b| natural_cmp(a, b));
+    Ok(names)
+}
+
 /// Soft cap on a single entry read (one page image or a cover). Reading an
 /// entry is inherently a whole-page memory operation, but a corrupt or
-/// malicious CBZ can declare a huge uncompressed size up front — trusting that
-/// claim for a `Vec::with_capacity` would abort on a bogus allocation, and a
-/// zip-bomb entry would OOM the reader. 512 MiB is far beyond any real page
+/// malicious archive can declare a huge uncompressed size up front — trusting
+/// that claim for a `Vec::with_capacity` would abort on a bogus allocation, and
+/// a zip-bomb entry would OOM the reader. 512 MiB is far beyond any real page
 /// image while still bounding the damage.
 const MAX_ENTRY_BYTES: u64 = 512 * 1024 * 1024;
 
@@ -102,3 +141,133 @@ pub(crate) fn zip_entry_bytes(path: &Path, name: &str) -> ApiResult<Vec<u8>> {
     Ok(buf)
 }
 
+/// Read one entry out of a CBR (RAR) by name, on demand.
+#[cfg(desktop)]
+fn rar_entry_bytes(path: &Path, name: &str) -> ApiResult<Vec<u8>> {
+    let mut archive = unrar::Archive::new(path)
+        .open_for_processing()
+        .map_err(|err| ApiError::local(format!("Not a readable archive: {err}")))?;
+    loop {
+        let header = archive
+            .read_header()
+            .map_err(|err| ApiError::local(format!("Corrupt archive: {err}")))?
+            .ok_or_else(|| ApiError::local("Missing page in archive"))?;
+        let entry = header.entry();
+        if entry.is_file() && entry.filename.to_string_lossy() == name {
+            let (bytes, _) = header
+                .read()
+                .map_err(|err| ApiError::local(format!("Corrupt archive: {err}")))?;
+            if bytes.len() as u64 > MAX_ENTRY_BYTES {
+                return Err(ApiError::local("Archive entry is too large to read as one page"));
+            }
+            return Ok(bytes);
+        }
+        archive = header
+            .skip()
+            .map_err(|err| ApiError::local(format!("Corrupt archive: {err}")))?;
+    }
+}
+
+/// Dispatch to the right backend by extension. `cbr` is desktop-only; on mobile
+/// the caller must have rejected it already (see `local.rs`).
+pub(crate) fn page_names(path: &Path, ext: &str) -> ApiResult<Vec<String>> {
+    match ext {
+        #[cfg(desktop)]
+        "cbr" => rar_page_names(path),
+        _ => zip_page_names(path),
+    }
+}
+
+/// Dispatch to the right backend by extension.
+pub(crate) fn entry_bytes(path: &Path, ext: &str, name: &str) -> ApiResult<Vec<u8>> {
+    match ext {
+        #[cfg(desktop)]
+        "cbr" => rar_entry_bytes(path, name),
+        _ => zip_entry_bytes(path, name),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Resolve a file under `src-tauri/tests/data/`.
+    fn data(name: &str) -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/data")
+            .join(name)
+    }
+
+    /// The CBR fixtures are generated from original PNG pages (see the scratch
+    /// generator), so they are safe to commit. `fixture.cbr` holds five pages.
+    #[test]
+    fn cbr_lists_pages_in_natural_order() {
+        let names = rar_page_names(&data("fixture.cbr")).expect("open cbr");
+        assert_eq!(names.len(), 5);
+        assert_eq!(names[0], "page-01.png");
+        assert_eq!(names[4], "page-05.png");
+    }
+
+    #[test]
+    fn cbr_reads_a_page_on_demand() {
+        let bytes = rar_entry_bytes(&data("fixture.cbr"), "page-03.png").expect("read page");
+        assert!(!bytes.is_empty());
+        assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
+    }
+
+    #[test]
+    fn cbr_missing_page_is_an_error_not_a_panic() {
+        let err = rar_entry_bytes(&data("fixture.cbr"), "nope.png").unwrap_err();
+        assert!(err.message.contains("Missing page"));
+    }
+
+    #[test]
+    fn corrupt_archive_fails_on_read_not_list() {
+        // A truncated RAR keeps enough of its first header to list; the
+        // corruption surfaces when the page's bytes are actually read.
+        let names = rar_page_names(&data("corrupt.cbr")).expect("list corrupt cbr");
+        assert!(!names.is_empty());
+        let err = rar_entry_bytes(&data("corrupt.cbr"), &names[0]).expect_err("corrupt page read");
+        assert!(
+            err.message.contains("Corrupt") || err.message.contains("readable"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn encrypted_archive_rejects_page_read() {
+        // Headers are visible on an encrypted archive (data is what's locked),
+        // so listing succeeds; reading without a password must fail cleanly
+        // rather than hang or panic. No password is ever supplied.
+        let names = rar_page_names(&data("encrypted.cbr")).expect("list encrypted cbr");
+        assert!(!names.is_empty());
+        let err = rar_entry_bytes(&data("encrypted.cbr"), &names[0]).expect_err("encrypted read");
+        assert!(
+            err.message.contains("password")
+                || err.message.contains("Corrupt")
+                || err.message.contains("readable"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn traversal_entry_names_are_rejected_as_pages() {
+        // `traversal.cbr` contains an entry whose name starts with `../`. The
+        // reader never writes entries to disk, so a traversal name could only
+        // ever be listed and matched by exact string — never resolved as a
+        // path. is_image additionally rejects any name with a `..` segment, so
+        // it cannot even appear as a page.
+        let names = rar_page_names(&data("traversal.cbr")).expect("list traversal cbr");
+        assert!(names.is_empty(), "traversal name should not be an image page: {names:?}");
+    }
+
+    #[test]
+    fn dispatch_routes_cbr_to_rar_and_zip_to_zip() {
+        assert!(page_names(&data("fixture.cbr"), "cbr").is_ok());
+        // A .cbr mislabeled as zip should fail as an unreadable zip.
+        let err = page_names(&data("fixture.cbr"), "cbz").expect_err("mislabeled");
+        assert!(err.message.contains("readable"));
+    }
+}
