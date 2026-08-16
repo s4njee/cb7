@@ -47,6 +47,7 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
   const showToast = useSession((s) => s.showToast);
   const guest = useSession((s) => s.guest);
   const serverUrl = useSession((s) => s.serverUrl) ?? "";
+  const readerSettingsTick = useSession((s) => s.readerSettingsTick);
   const comicMode = usePrefs((s) => s.comicMode);
   const immersive = usePrefs((s) => s.immersive);
   const haptics = usePrefs((s) => s.haptics);
@@ -106,6 +107,11 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
   const [tocTab, setTocTab] = useState<TocTab>(isComic ? "bookmarks" : "contents");
   const [rstate, setRstate] = useState<ReaderReportedState>(EMPTY_READER_STATE);
   const [seekOpen, setSeekOpen] = useState(false);
+
+  // Native menu "View > Reader Settings…" bumps this tick; open the drawer.
+  useEffect(() => {
+    if (readerSettingsTick > 0) setPanel("settings");
+  }, [readerSettingsTick]);
 
   /** Latest reported state, readable inside stable callbacks. */
   const rstateRef = useRef<ReaderReportedState>(EMPTY_READER_STATE);

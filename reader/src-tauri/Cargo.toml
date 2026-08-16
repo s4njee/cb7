@@ -61,6 +61,9 @@ tauri-plugin-single-instance = "2"
 # "CBR needs a server" behavior so phone bundles don't grow.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 unrar = "0.5.8"
+# Desktop-only: persist window size/position/maximized across launches and
+# clamp restored geometry to a connected monitor.
+tauri-plugin-window-state = "2.4.1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

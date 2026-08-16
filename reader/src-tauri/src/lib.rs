@@ -62,6 +62,20 @@ pub fn run() {
         },
     ));
 
+    // Desktop-only: persist normal window size/position/maximized state and
+    // restore it on launch. Reader fullscreen is deliberately *not* persisted —
+    // a transient fullscreen should never be the next launch state.
+    #[cfg(desktop)]
+    let builder = builder.plugin(
+        tauri_plugin_window_state::Builder::new()
+            .with_state_flags(
+                tauri_plugin_window_state::StateFlags::SIZE
+                    | tauri_plugin_window_state::StateFlags::POSITION
+                    | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+            )
+            .build(),
+    );
+
     let app = builder
         .register_asynchronous_uri_scheme_protocol(proxy::SCHEME, proxy::register)
         .setup(|app| {
@@ -114,6 +128,8 @@ pub fn run() {
             local::save_local_cover,
             opens::take_opened_paths,
             platform::platform_info,
+            #[cfg(desktop)]
+            menu::set_menu_enabled,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

@@ -426,6 +426,26 @@ export async function onMenuCommand(
   return listen<string>("shelf://menu-command", (event) => cb(event.payload ?? ""));
 }
 
+/** Enable/disable a native menu item by id, so the menu always matches the
+ *  current screen (Reader Settings only while a book is open, etc.). */
+export function setMenuEnabled(id: string, enabled: boolean): Promise<void> {
+  if (!isTauri) return Promise.resolve();
+  return invoke<void>("set_menu_enabled", { id, enabled }).catch(() => {});
+}
+
+/** Toggle the native window fullscreen (native View > Toggle Full Screen).
+ *  Best-effort — a platform without window fullscreen just stays put. */
+export async function toggleFullscreen(): Promise<void> {
+  if (!isTauri) return;
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const win = getCurrentWindow();
+    await win.setFullscreen(!(await win.isFullscreen()));
+  } catch {
+    /* no window fullscreen — ignore */
+  }
+}
+
 /* ------------------------------------------------------------- drag/drop */
 
 /** Subscribe to OS file drag-and-drop on the main window (desktop only).

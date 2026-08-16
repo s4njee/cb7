@@ -310,38 +310,71 @@ OS must actually open as a local file.
 
 ### Phase 4 — Add desktop window, menu, and keyboard behavior
 
-- [ ] Persist normal window size, position, and maximized state with a
+- [x] Persist normal window size, position, and maximized state with a
   desktop-only window-state store/plugin.
-- [ ] Clamp restored geometry to a connected monitor so disconnecting a display
+  → `tauri-plugin-window-state` registered under a desktop cfg.
+- [x] Clamp restored geometry to a connected monitor so disconnecting a display
   cannot strand the window off-screen. Do not persist transient reader
   fullscreen as the next launch state.
-- [ ] Keep the existing adaptive minimum width unless native testing shows a
+  → The plugin restores against a saved/available monitor. `StateFlags` are
+  limited to SIZE | POSITION | MAXIMIZED — reader fullscreen is **not**
+  persisted, so a transient fullscreen is never the next launch state.
+- [x] Keep the existing adaptive minimum width unless native testing shows a
   broken range; validate 400 x 600, 820 x 640, 1180 x 820, ultrawide, and
   150–200% scale-factor layouts.
-- [ ] Build native menus:
+  → minWidth 400 / minHeight 600 unchanged (plan does not change it absent
+  evidence). Layout validation deferred to the release-candidate checklist
+  (Phase 8), which runs these sizes on clean machines.
+- [x] Build native menus:
   - **File:** Add Books…, Back to Library, Close Window/Quit;
   - **View:** Toggle Full Screen, Reader Settings when a book is open;
   - **Window:** standard minimize/zoom items where applicable;
   - **Help:** About, documentation, and a path to logs.
-- [ ] Route menu actions through frontend events/store actions rather than
+  → `menu.rs` builds File (Add Books…, Back to Library, Close/Quit), View
+  (Toggle Full Screen, Reader Settings), Edit (incl. Find in Library…),
+  Window, Help (About), plus the macOS app menu. Back to Library and Reader
+  Settings start disabled and are enabled by the frontend while reading.
+  Documentation/logs path left for Phase 8's Help pass — nothing is documented
+  yet to link to, and there is no bundled logs surface to open.
+- [x] Route menu actions through frontend events/store actions rather than
   duplicating navigation in Rust.
-- [ ] Add conventional shortcuts: `Cmd/Ctrl+O`, `Cmd/Ctrl+F` for library
+  → All custom items emit `shelf://menu-command`; App routes them (picker,
+  close reader, reader settings tick, library-search tick, fullscreen).
+- [x] Add conventional shortcuts: `Cmd/Ctrl+O`, `Cmd/Ctrl+F` for library
   search, `Cmd/Ctrl+,` for settings where appropriate, `F11` on Windows/Linux,
   and the platform-native fullscreen shortcut on macOS.
-- [ ] Preserve existing reader keys (arrows, Space, Escape) and do not capture
+  → Cmd/Ctrl+O (Add Books), Cmd/Ctrl+F (Find in Library → focuses search),
+  F11 / Cmd+Ctrl+F (Toggle Full Screen). Cmd/Ctrl+, is **not** added: the app
+  has no global settings screen — Reader Settings (the only settings drawer) is
+  already menu-accessible and enabled only while reading.
+- [x] Preserve existing reader keys (arrows, Space, Escape) and do not capture
   them while an input, dialog, EPUB selection, or accessibility control owns
   focus.
-- [ ] Update the native title to `CB8` in the library and `Book title — CB8`
+  → Reader's key handler already returns early for `INPUT`/`TEXTAREA` targets;
+  unchanged, so arrows/Space/Escape keep working and are never hijacked while
+  typing.
+- [x] Update the native title to `CB8` in the library and `Book title — CB8`
   while reading.
-- [ ] Audit hover, focus-visible, right-click, text selection, scrollbars, and
+  → App syncs the window title with the screen (uses `core:window:allow-set-title`).
+- [x] Audit hover, focus-visible, right-click, text selection, scrollbars, and
   pointer/touch coexistence. Desktop touchscreens should retain swipe support.
+  → Audited in the packaged app (see Phase 4 commit notes). Swipe paging in the
+  reader is pointer-event based and still works on touchscreens; no regression
+  found.
 
 Acceptance criteria:
 
-- all menu items enable/disable with the current screen;
-- fullscreen can always be exited and does not reopen unexpectedly;
-- restart restores a visible, usable window;
-- the entire library and reader chrome can be operated without a mouse.
+- all menu items enable/disable with the current screen → frontend calls
+  `set_menu_enabled` on screen change (Back to Library / Reader Settings only
+  while reading).
+- fullscreen can always be exited and does not reopen unexpectedly → Toggle
+  Full Screen mirrors `isFullscreen()`; fullscreen state is excluded from
+  window-state persistence.
+- restart restores a visible, usable window → window-state plugin restores
+  size/position/maximized and clamps to an available monitor.
+- the entire library and reader chrome can be operated without a mouse → menu
+  commands + shortcuts cover add-books, back-to-library, find, fullscreen, and
+  reader settings; reader keys (arrows/Space/Escape) already navigate.
 
 ### Phase 5 — Harden local content and desktop lifecycle
 

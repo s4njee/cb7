@@ -28,8 +28,11 @@ export default function App() {
     enterAsGuest,
     setGuestAccess,
     openBook,
+    closeReader,
     showToast,
     bumpImport,
+    requestReaderSettings,
+    requestLibrarySearch,
   } = useSession();
   const toast = useSession((s) => s.toast);
   const dismissToast = useSession((s) => s.dismissToast);
@@ -47,6 +50,25 @@ export default function App() {
   useEffect(() => {
     document.documentElement.setAttribute("data-accent", accent);
   }, [accent]);
+
+  // Desktop chrome follows the screen: menu items enable/disable (Back to
+  // Library and Reader Settings only while reading) and the native title reads
+  // "CB8" in the library, "Book title — CB8" while reading.
+  useEffect(() => {
+    if (!isDesktop()) return;
+    const reading = screen === "reader" && !!openRecord;
+    api.setMenuEnabled("back-library", reading);
+    api.setMenuEnabled("reader-settings", reading);
+    const title = reading && openRecord ? `${openRecord.title} — CB8` : "CB8";
+    void (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        await getCurrentWindow().setTitle(title);
+      } catch {
+        /* browser dev or no title support — ignore */
+      }
+    })();
+  }, [screen, openRecord]);
 
   // Boot straight into the library, then reattach any server in the background.
   //
@@ -187,9 +209,29 @@ export default function App() {
         /* open-in is best-effort */
       }
       try {
-        // Native menu: File > Add Books… — same picker flow as the shelf button.
+        // Native menu commands — routed here, never handled in Rust:
+        //  - add-books: same picker flow as the shelf button;
+        //  - back-library: leave the reader without discarding progress;
+        //  - reader-settings: ask the open Reader to show its settings drawer;
+        //  - toggle-fullscreen: mirror the window's fullscreen state.
         unlistenMenu = await api.onMenuCommand((command) => {
-          if (command === "add-books") void addBooksViaPicker();
+          switch (command) {
+            case "add-books":
+              void addBooksViaPicker();
+              break;
+            case "back-library":
+              closeReader();
+              break;
+            case "reader-settings":
+              requestReaderSettings();
+              break;
+            case "library-search":
+              requestLibrarySearch();
+              break;
+            case "toggle-fullscreen":
+              void api.toggleFullscreen();
+              break;
+          }
         });
       } catch {
         /* menu command is best-effort */

@@ -46,8 +46,18 @@ type Shelf = "local" | "server";
 const PAGE_SIZE = 200;
 
 export default function Library() {
-  const { user, guest, serverUrl, openBook, reset, goConnect, openSheet, showToast, importTick } =
-    useSession();
+  const {
+    user,
+    guest,
+    serverUrl,
+    openBook,
+    reset,
+    goConnect,
+    openSheet,
+    showToast,
+    importTick,
+    librarySearchTick,
+  } = useSession();
   const accent = usePrefs((s) => s.accent);
   const setAccent = usePrefs((s) => s.setAccent);
   const signedIn = !!user && !guest;
@@ -67,6 +77,7 @@ export default function Library() {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
 
   const { sort, setSortBy, toggleOrder } = useLibrarySort();
 
@@ -140,6 +151,11 @@ export default function Library() {
   useEffect(() => {
     if (importTick > 0) setShelfChoice("local");
   }, [importTick]);
+
+  // Native Edit > Find in Library… (Cmd/Ctrl+F) focuses the search box.
+  useEffect(() => {
+    if (librarySearchTick > 0) searchRef.current?.focus();
+  }, [librarySearchTick]);
 
   const shelf: Shelf = shelfChoice ?? "local";
   const onServer = shelf === "server";
@@ -419,6 +435,7 @@ export default function Library() {
           <div className="search-pill">
             <span className="search-glyph" />
             <input
+              ref={searchRef}
               className="search-input"
               placeholder="Search titles"
               value={searchInput}
