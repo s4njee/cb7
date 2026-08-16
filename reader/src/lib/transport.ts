@@ -194,14 +194,21 @@ export async function fileByteLength(path: string): Promise<number | null> {
 }
 
 /** Read a half-open `[begin, end)` byte range of a server file as an
- *  ArrayBuffer, over the network. Used only in browser dev (a same-origin
- *  ranged `fetch`); on device a PDF is copied into the local library and read
- *  from disk instead — see {@link localDownload} / {@link localReadRange}. */
+ *  ArrayBuffer, over the network.
+ *
+ *  Under Tauri this goes through Rust's `read_file_range` command, never a
+ *  webview `fetch`: WKWebView does not reliably forward a `Range` header to the
+ *  custom scheme handler (same rationale as {@link fileByteLength}), and Rust
+ *  attaches the session cookie. In browser dev it's a same-origin ranged
+ *  `fetch` (the Vite proxy forwards `/api`). */
 export async function readFileRange(
   path: string,
   begin: number,
   end: number,
 ): Promise<ArrayBuffer> {
+  if (isTauri) {
+    return invoke<ArrayBuffer>("read_file_range", { path, begin, end });
+  }
   const resp = await fetch(path, {
     headers: { Range: `bytes=${begin}-${end - 1}` },
     credentials: "include",
