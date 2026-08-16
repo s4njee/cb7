@@ -4,6 +4,8 @@ import type { LibraryDatabase } from '../libraryDatabase';
 import { FileScannerImpl } from '../fileScanner';
 import { IngestService, type IngestFailure } from '../ingestService';
 import { COMIC_EXTENSIONS, BOOK_EXTENSIONS } from '../../shared/mediaTypes';
+import type { ComicSource } from '../db/comics';
+import { createLogger } from '../logger';
 
 /**
  * @module
@@ -20,6 +22,8 @@ import { COMIC_EXTENSIONS, BOOK_EXTENSIONS } from '../../shared/mediaTypes';
 export const COMIC_EXTS = new Set([...COMIC_EXTENSIONS].map(e => `.${e}`));
 export const BOOK_EXTS = new Set([...BOOK_EXTENSIONS].map(e => `.${e}`));
 
+const log = createLogger('webServer:ingest');
+
 /**
  * Import a single file into the library.
  * @param db The library database facade.
@@ -32,8 +36,10 @@ export async function addSingleFile(
   filePath: string,
   folderId?: number,
   jobId?: number | string | null,
-): Promise<{ added: boolean; error?: string }> {
-  return new IngestService(db).addFile(filePath, folderId, jobId);
+  source: ComicSource = 'scan',
+): Promise<{ added: boolean; error?: string; duplicate?: boolean }> {
+  const result = await new IngestService(db).addFile(filePath, folderId, jobId, source);
+  return { added: result.added, error: result.error, duplicate: result.duplicate };
 }
 
 /** Number of per-file failure examples emitted at the end of a scan. The full
@@ -45,7 +51,7 @@ export type IngestEvent =
   | { type: 'progress'; phase: 'comics' | 'books' | 'file'; discovered: number; processed: number; currentFile: string }
   | { type: 'error'; message: string }
   | { type: 'failures-summary'; total: number; byClass: Record<string, number>; sample: IngestFailure[] }
-  | { type: 'done'; added: number };
+  | { type: 'done'; added: number; duplicates: number };
 
 export interface IngestPathOptions {
   folderId?: number;
@@ -82,13 +88,14 @@ export async function ingestPathStreaming(
     stat = fs.statSync(targetPath);
   } catch (err) {
     emit({ type: 'error', message: `Cannot access path: ${err instanceof Error ? err.message : String(err)}` });
-    emit({ type: 'done', added: 0 });
+    emit({ type: 'done', added: 0, duplicates: 0 });
     return;
   }
 
   if (stat.isDirectory()) {
     const scanner = new FileScannerImpl(db);
     let added = 0;
+    let duplicates = 0;
     const allFailures: IngestFailure[] = [];
     const scanOpts = { useFolderNamesAsSeries, jobId };
     try {
@@ -100,6 +107,7 @@ export async function ingestPathStreaming(
             emit({ type: 'progress', phase: 'comics', discovered: p.discovered, processed: p.processed, currentFile: path.basename(p.currentFile) });
           }, signal, folderId, scanOpts);
       added += r.added;
+      duplicates += r.duplicates;
       allFailures.push(...r.failures);
     } catch (err) {
       emit({ type: 'error', message: err instanceof Error ? err.message : String(err) });
@@ -113,12 +121,24 @@ export async function ingestPathStreaming(
             emit({ type: 'progress', phase: 'books', discovered: p.discovered, processed: p.processed, currentFile: path.basename(p.currentFile) });
           }, signal, folderId, scanOpts);
       added += r.added;
+      duplicates += r.duplicates;
       allFailures.push(...r.failures);
     } catch (err) {
       emit({ type: 'error', message: err instanceof Error ? err.message : String(err) });
     }
+    // Post-scan sweep (P1-8): on a FULL scan, stat every cataloged file under the
+    // root and stamp/clear the missing flag so deleted files are badged and
+    // re-added files are restored. Best-effort — a sweep failure must never fail
+    // the scan job.
+    if (since == null) {
+      try {
+        await db.refreshMissingUnderRoot(targetPath);
+      } catch (err) {
+        log.warn(`Missing-file sweep failed for ${targetPath}:`, err);
+      }
+    }
     if (allFailures.length > 0) emit(buildFailuresSummary(allFailures));
-    emit({ type: 'done', added });
+    emit({ type: 'done', added, duplicates });
     return;
   }
 
@@ -127,12 +147,12 @@ export async function ingestPathStreaming(
     const result = await addSingleFile(db, targetPath, folderId, jobId);
     emit({ type: 'progress', phase: 'file', discovered: 1, processed: 1, currentFile: path.basename(targetPath) });
     if (result.error) emit({ type: 'error', message: `${targetPath}: ${result.error}` });
-    emit({ type: 'done', added: result.added ? 1 : 0 });
+    emit({ type: 'done', added: result.added ? 1 : 0, duplicates: result.duplicate ? 1 : 0 });
     return;
   }
 
   emit({ type: 'error', message: 'Path is not a regular file or directory' });
-  emit({ type: 'done', added: 0 });
+  emit({ type: 'done', added: 0, duplicates: 0 });
 }
 
 function buildFailuresSummary(failures: IngestFailure[]): IngestEvent {

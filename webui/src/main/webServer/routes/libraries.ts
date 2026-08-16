@@ -20,10 +20,11 @@ import { formatPagedComicResponse } from './routeResponseHelpers';
 export const handle: RouteHandler = async (ctx) => {
   const { req, res, db, pathname, method, query, currentUser } = ctx;
 
-  // List libraries
+  // List libraries — per-user library access (P1-1): a user only sees
+  // collections that are public or that they're a member of.
   if (method === 'GET' && pathname === '/api/libraries') {
     const mediaType = query.mediaType as 'comic' | 'book' | undefined;
-    sendJson(res, 200, await db.getAllLibraries(mediaType));
+    sendJson(res, 200, await db.getAllLibraries(mediaType, currentUser?.id ?? null, currentUser?.isAdmin === true));
     return true;
   }
 
@@ -115,9 +116,45 @@ export const handle: RouteHandler = async (ctx) => {
   // Query comics in library
   if (method === 'GET' && libComicsMatch) {
     const libId = parseInt(libComicsMatch[1], 10);
+    // A non-member of a restricted collection gets a 404 for the collection
+    // itself, not an empty card.
+    const visible = await db.getAllLibraries(undefined, currentUser?.id ?? null, currentUser?.isAdmin === true);
+    if (!visible.some((l) => l.id === libId)) {
+      sendError(res, 404, 'Collection not found');
+      return true;
+    }
     const opts = buildLibraryComicQueryOptions(parseQueryOptions(query), query, libId);
-    const result = await db.queryComicsForUser(currentUser?.id ?? null, opts);
+    const result = await db.queryComicsForUser(currentUser?.id ?? null, {
+      ...opts,
+      admin: currentUser?.isAdmin === true,
+    });
     sendJson(res, 200, formatPagedComicResponse(result));
+    return true;
+  }
+
+  // Library access (P1-1, admin): read or set who can see a restricted collection.
+  const libAccessMatch = pathname.match(/^\/api\/libraries\/(\d+)\/access$/);
+  if (method === 'GET' && libAccessMatch) {
+    if (!requireAdmin(ctx)) return true;
+    const id = parseInt(libAccessMatch[1], 10);
+    const libraries = await db.getAllLibraries(undefined, undefined, true);
+    const library = libraries.find((l) => l.id === id);
+    if (!library) { sendError(res, 404, 'Collection not found'); return true; }
+    sendJson(res, 200, { everyone: library.everyone, memberIds: await db.getLibraryMemberIds(id) });
+    return true;
+  }
+
+  if (method === 'PUT' && libAccessMatch) {
+    if (!requireAdmin(ctx)) return true;
+    const id = parseInt(libAccessMatch[1], 10);
+    const parsed = await readJsonBody<{ everyone?: unknown; memberIds?: unknown }>(req, res);
+    if (!parsed.ok) return true;
+    const everyone = parsed.value.everyone === true;
+    const memberIds = Array.isArray(parsed.value.memberIds)
+      ? parsed.value.memberIds.filter((n): n is number => typeof n === 'number' && Number.isFinite(n))
+      : [];
+    await db.setLibraryAccess(id, everyone, memberIds);
+    sendJson(res, 200, { ok: true, everyone, memberIds });
     return true;
   }
 

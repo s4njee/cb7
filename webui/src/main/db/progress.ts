@@ -1,6 +1,7 @@
 import { NOW_TEXT_SQL, type Db } from './pg';
 import type { SqlParam, ComicRow } from './types';
 import { rowsToRecords } from './comics';
+import { comicVisibilityCondition } from './libraryAccess';
 import type { MediaRecord } from '../../shared/types';
 
 /**
@@ -103,13 +104,16 @@ export async function getRecentlyReadByUser(
   const where = mediaType ? 'AND c.media_type = ?' : '';
   const params: SqlParam[] = [userId];
   if (mediaType) params.push(mediaType);
+  // Per-user library access (P1-1): shelves never surface restricted books.
+  const visibility = comicVisibilityCondition(userId);
+  params.push(...visibility.params);
   params.push(limit);
   const rows = await db.all<ComicRow>(
     `SELECT c.id, c.file_path, c.title, c.page_count, c.file_size, NULL as cover_thumbnail, c.date_added,
             up.last_page, up.last_location, up.last_percent, up.last_read, c.media_type
      FROM user_progress up
      JOIN comics c ON up.comic_id = c.id
-     WHERE up.user_id = ? ${where}
+     WHERE up.user_id = ? ${where} AND ${visibility.sql}
      ORDER BY up.last_read DESC
      LIMIT ?`,
     params,
@@ -126,13 +130,15 @@ export async function getContinueReadingByUser(
   const where = mediaType ? 'AND c.media_type = ?' : '';
   const params: SqlParam[] = [userId];
   if (mediaType) params.push(mediaType);
+  const visibility = comicVisibilityCondition(userId);
+  params.push(...visibility.params);
   params.push(limit);
   const rows = await db.all<ComicRow>(
     `SELECT c.id, c.file_path, c.title, c.page_count, c.file_size, NULL as cover_thumbnail, c.date_added,
             up.last_page, up.last_location, up.last_percent, up.last_read, c.media_type
      FROM user_progress up
      JOIN comics c ON up.comic_id = c.id
-     WHERE up.user_id = ? AND up.completed = 0 ${where}
+     WHERE up.user_id = ? AND up.completed = 0 ${where} AND ${visibility.sql}
      ORDER BY up.last_read DESC
      LIMIT ?`,
     params,

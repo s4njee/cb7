@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle } from 'lucide-react';
 import * as api from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
 import { invalidateLibraryQueries } from '@/lib/queryClient';
 import { showToast } from '@/hooks/useToast';
+import { useWorkerStatus } from '@/hooks/useWorkerStatus';
 import AddPathFailureReport, { type AddPathFailureReportData } from './AddPathFailureReport';
 import {
   AddPathActions,
@@ -28,6 +30,7 @@ interface AddPathPanelProps {
 
 export default function AddPathPanel({ onSuccess, onBack }: AddPathPanelProps) {
   const queryClient = useQueryClient();
+  const { data: workerOverview } = useWorkerStatus();
   const [path, setPath] = useState('');
   const [folder, setFolder] = useState('');
   const [useFolderSeries, setUseFolderSeries] = useState(false);
@@ -189,10 +192,14 @@ export default function AddPathPanel({ onSuccess, onBack }: AddPathPanelProps) {
         return;
       }
 
-      const msg = result.added > 0
-        ? `Added ${result.added.toLocaleString()} item${result.added === 1 ? '' : 's'}`
-        : 'No new items found';
-      showToast(msg);
+      const parts: string[] = [];
+      if (result.added > 0) {
+        parts.push(`Added ${result.added.toLocaleString()} item${result.added === 1 ? '' : 's'}`);
+      }
+      if (result.duplicates > 0) {
+        parts.push(`${result.duplicates} duplicate${result.duplicates === 1 ? '' : 's'} skipped`);
+      }
+      showToast(parts.length > 0 ? parts.join(' · ') : 'No new items found');
       onSuccess();
     } catch (err) {
       setErrorMsg(errorMessage(err, 'Failed to add path'));
@@ -232,6 +239,16 @@ export default function AddPathPanel({ onSuccess, onBack }: AddPathPanelProps) {
       <p className="text-xs text-muted-foreground text-left">
         Enter a file or directory path on the server host. Files are indexed in place.
       </p>
+
+      {workerOverview?.worker && !workerOverview.worker.alive && !scanning && (
+        <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 p-3 rounded-lg text-xs leading-relaxed">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <span>
+            The background worker is not running. The scan will be queued but will not execute until
+            the worker process (cb8-worker) is started.
+          </span>
+        </div>
+      )}
 
       <form onSubmit={handleScanSubmit} className="space-y-3" autoComplete="off">
         <AddPathInput

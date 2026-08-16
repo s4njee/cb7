@@ -6,6 +6,7 @@ import {
   folderScanMetaKey,
   folderThumbnailUrl,
   parseFolderRouteOptions,
+  resolveScanTarget,
   withGroupThumbnail,
 } from './folderRouteHelpers';
 
@@ -53,5 +54,30 @@ describe('folderRouteHelpers', () => {
 
   it('builds stable folder scan timestamp keys', () => {
     expect(folderScanMetaKey(123)).toBe('folder_scan_ts:123');
+  });
+
+  describe('resolveScanTarget', () => {
+    const root = path.join(path.sep, 'library');
+    it('prefers the stored scan root (works for empty folders)', () => {
+      expect(resolveScanTarget({ scanPath: path.join(root, 'incoming'), filePaths: [] })).toEqual({
+        targetPath: path.join(root, 'incoming'),
+        source: 'root',
+      });
+    });
+
+    it('falls back to the common directory for legacy folders without a root', () => {
+      expect(resolveScanTarget({
+        scanPath: null,
+        filePaths: [path.join(root, 'Saga', 'v1', 'a.cbz'), path.join(root, 'Saga', 'v2', 'b.cbz')],
+      })).toEqual({ targetPath: path.join(root, 'Saga'), source: 'derived' });
+    });
+
+    it('returns null for a rootless empty folder', () => {
+      expect(resolveScanTarget({ scanPath: null, filePaths: [] })).toBeNull();
+    });
+
+    it('ignores a whitespace-only scan root', () => {
+      expect(resolveScanTarget({ scanPath: '  ', filePaths: [] })).toBeNull();
+    });
   });
 });

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import ePub from 'epubjs';
 import { useReaderStore } from '@/store/readerStore';
 import * as api from '@/lib/api';
+import { scheduleProgress, flushProgress } from '@/lib/progressSync';
 import { errorMessage } from '@/lib/errors';
 import { toast } from 'sonner';
 import EpubReaderControls from './EpubReaderControls';
@@ -13,7 +14,7 @@ import {
   epubDocumentFromRenderedView,
 } from './epubReaderIframeEvents';
 import { resolveEpubDisplayTarget } from './epubReaderLinks';
-import { applyEpubThemeToRendition, applyLiveEpubFontSize } from './epubRenditionTheme';
+import { applyEpubThemeToRendition, applyLiveEpubFontSize, applyLiveEpubSpacing } from './epubRenditionTheme';
 import type { EpubBook, EpubChapter, EpubFactory, EpubRendition, EpubSection } from './EpubReaderTypes';
 import type { EpubPrefs } from '@/store/readerStore';
 import { getThemeColors } from '../../../shared/epubTheme';
@@ -116,6 +117,17 @@ export default function EpubReader({
     if (partial.fontSize !== undefined && renditionRef.current) {
       applyLiveEpubFontSize(renditionRef.current, partial.fontSize);
     }
+    if ((partial.lineSpacing !== undefined || partial.pageMargin !== undefined) && renditionRef.current) {
+      applyLiveEpubSpacing(renditionRef.current, nextPrefs.lineSpacing, nextPrefs.pageMargin);
+    }
+    if (partial.flow !== undefined && renditionRef.current) {
+      try {
+        renditionRef.current.flow(partial.flow);
+      } catch {}
+      try {
+        renditionRef.current.resize();
+      } catch {}
+    }
   }, [applyPrefsToCurrentRendition, setEpubPrefs]);
 
   const rerenderCurrentLocation = useCallback((targetRendition = renditionRef.current) => {
@@ -205,7 +217,7 @@ export default function EpubReader({
           width: '100%',
           height: '100%',
           spread: epubPrefs.spread ? 'auto' : 'none',
-          flow: 'paginated',
+          flow: epubPrefs.flow,
         });
         localRendition = rendered;
         setRendition(rendered);
@@ -243,12 +255,12 @@ export default function EpubReader({
           if (location.start.href) {
             currentSectionHrefRef.current = location.start.href;
           }
-          // Persist every page turn. The only relocate we skip is the start-of-book
-          // event fired during teardown (see closingRef), which would clobber the
-          // real position with page 1.
+          // Persist every page turn (debounced — flushed on unmount). The only
+          // relocate we skip is the start-of-book event fired during teardown
+          // (see closingRef), which would clobber the real position with page 1.
           if (cfi && !closingRef.current) {
             currentLocationCfiRef.current = cfi;
-            api.updateLocation(record.id, cfi, wholeBookPercent).catch(() => {});
+            scheduleProgress(record.id, { location: cfi, percent: wholeBookPercent });
           }
         });
 
@@ -325,7 +337,7 @@ export default function EpubReader({
                 setCurrentPercent(percent);
                 // Persist now that we have a whole-book percentage, so the
                 // library card reflects progress even if the reader never moves.
-                api.updateLocation(record.id, cfi, percent).catch(() => {});
+                scheduleProgress(record.id, { location: cfi, percent });
               }
             })
             .catch(() => {});
@@ -362,9 +374,12 @@ export default function EpubReader({
               percent = Math.round(fraction * 100);
             }
           }
-          api.updateLocation(record.id, liveCfi, percent).catch(() => {});
+          // Route the final position through the sync module and flush it
+          // immediately, so it replaces any debounced (stale) pending write.
+          scheduleProgress(record.id, { location: liveCfi, percent }, 0);
         }
       } catch {}
+      flushProgress(record.id);
       if (localRendition) {
         if (localRendition._onKey) {
           document.removeEventListener('keydown', localRendition._onKey);
@@ -378,6 +393,37 @@ export default function EpubReader({
     // so the book is loaded once per record, not re-downloaded on every URL/page
     // change from the toolbar.
   }, [record.id, resolveDisplayTarget]);
+
+  // Toolbar scrub actually moves (P3-5): the shared slider is 1..pageCount.
+  // Treat a post-mount page change as a whole-book percent jump → CFI via the
+  // locations index, so dragging the slider relocates the book. The first
+  // evaluation is skipped — the initial URL page is handled by startLocationRef.
+  const handledScrubPageRef = useRef<number | null>(null);
+  const skipFirstScrubRef = useRef(true);
+  useEffect(() => {
+    const pageNum = Number(initialLocation);
+    if (!Number.isFinite(pageNum) || pageNum < 1) return;
+    if (skipFirstScrubRef.current) {
+      skipFirstScrubRef.current = false;
+      handledScrubPageRef.current = pageNum;
+      return;
+    }
+    if (handledScrubPageRef.current === pageNum) return;
+    handledScrubPageRef.current = pageNum;
+
+    const book = bookRef.current;
+    const targetRendition = renditionRef.current;
+    if (!book?.locations || book.locations.length() === 0 || !targetRendition) return;
+    const total = record.pageCount > 1 ? record.pageCount : book.locations.length();
+    if (total <= 1) return;
+    const fraction = (pageNum - 1) / (total - 1);
+    try {
+      const cfi = book.locations.cfiFromPercentage(fraction);
+      if (cfi) {
+        void targetRendition.display(cfi).catch(() => {});
+      }
+    } catch {}
+  }, [initialLocation, record.pageCount]);
 
   // 4. Handle resizing
   useEffect(() => {

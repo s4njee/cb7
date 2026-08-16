@@ -1,11 +1,16 @@
 /**
  * @module
- * Periodic Incremental Rescan of Watched Folders
+ * Periodic Incremental Rescan of Watched Library Roots
  *
  * Architecture overview for Junior Devs:
- * If a user adds files to a watched folder on disk, the library won't know until
- * it rescans. This scheduler does that automatically on an interval read from
- * `auto_rescan_interval_min` in `app_meta` (0 disables it).
+ * If a user drops files into a watched library root on disk, the library won't
+ * know until it rescans. This scheduler does that automatically on an interval
+ * read from `auto_rescan_interval_min` in `app_meta` (0 disables it).
+ *
+ * It walks only folders with a registered `scan_path` (watched roots) whose
+ * `auto_scan_enabled` flag is on — plain virtual collections are never scanned.
+ * Each root's stored path is used directly, so empty / brand-new drop folders
+ * are valid watch targets.
  *
  * Key design choice: instead of a fixed `setInterval`, it schedules the *next*
  * run only after the current one finishes (via `setTimeout`). That guarantees
@@ -14,10 +19,9 @@
  * scheduled rescans share one incremental state.
  *
  * The actual scanning is injected via {@link FolderScanFn}: in the worker
- * process this *enqueues* a durable `ingest-scan` job per folder rather than
+ * process this *enqueues* a durable `ingest-scan` job per root rather than
  * scanning inline, so a long auto-rescan survives restarts like any other job.
  */
-import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { createLogger } from './logger';
 import type { LibraryDatabase } from './libraryDatabase';
@@ -26,12 +30,12 @@ const log = createLogger('folderScheduler');
 
 export const AUTO_RESCAN_INTERVAL_KEY = 'auto_rescan_interval_min';
 
-/** What the scheduler hands its injected action for each due folder. */
+/** What the scheduler hands its injected action for each due watched root. */
 export interface FolderScanRequest {
   folderId: number;
   folderName: string;
-  /** Common ancestor directory of the folder's comics — the scan root. */
-  commonDir: string;
+  /** The folder's registered scan root (its `scan_path`). */
+  scanPath: string;
   /** Unix ms of the last successful scan; undefined means full scan. */
   since?: number;
   /**
@@ -100,31 +104,30 @@ export class FolderScheduler {
     this.running = true;
     log.info('Auto-rescan starting');
     try {
-      const folders = await this.db.getAllFolders();
-      for (const folder of folders) {
+      const roots = (await this.db.getWatchedRoots()).filter((r) => r.autoScanEnabled);
+      for (const root of roots) {
         if (this.stopped) break;
-        const filePaths = await this.db.getFolderFilePaths(folder.id);
-        if (filePaths.length === 0) continue;
-
-        const dirs = filePaths.map((p) => path.dirname(p));
-        const commonDir = findCommonDir(dirs);
-        if (!commonDir) {
-          log.warn(`Folder "${folder.name}" (${folder.id}) spans multiple roots, skipping`);
-          continue;
-        }
-        if (!fs.existsSync(commonDir)) {
-          log.warn(`Folder "${folder.name}" path ${commonDir} no longer exists, skipping`);
+        if (!fs.existsSync(root.scanPath)) {
+          // Missing mount (NFS down, path removed) — skip loudly in the log, the
+          // admin roots surface reports the same via `pathExists`.
+          log.warn(`Watched root "${root.name}" (${root.id}) path ${root.scanPath} missing, skipping`);
           continue;
         }
 
-        const lastScanRaw = await this.db.getAppMeta(`folder_scan_ts:${folder.id}`);
+        const lastScanRaw = await this.db.getAppMeta(`folder_scan_ts:${root.id}`);
         const since = lastScanRaw ? parseInt(lastScanRaw, 10) : undefined;
         const scanStartMs = Date.now();
 
         try {
-          await this.runScan({ folderId: folder.id, folderName: folder.name, commonDir, since, scanStartMs });
+          await this.runScan({
+            folderId: root.id,
+            folderName: root.name,
+            scanPath: root.scanPath,
+            since,
+            scanStartMs,
+          });
         } catch (err) {
-          log.error(`Auto-rescan enqueue failed for folder "${folder.name}":`, err);
+          log.error(`Auto-rescan enqueue failed for watched root "${root.name}":`, err);
         }
       }
     } finally {
@@ -132,17 +135,4 @@ export class FolderScheduler {
       log.info('Auto-rescan complete');
     }
   }
-}
-
-function findCommonDir(dirs: string[]): string | null {
-  if (dirs.length === 0) return null;
-  let common = dirs[0];
-  for (const dir of dirs.slice(1)) {
-    while (dir !== common && !dir.startsWith(common + path.sep)) {
-      const parent = path.dirname(common);
-      if (parent === common) return null;
-      common = parent;
-    }
-  }
-  return common;
 }

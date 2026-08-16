@@ -246,14 +246,14 @@ const TextReader = forwardRef<ReaderApi, TextReaderProps>(function TextReader(
       container.replaceChildren();
 
       try {
-        const { data: buffer, localId } = await loadBookData(record);
+        const { source, localId } = await loadBookData(record);
         if (cancelled) return;
         setDownloadPct(null);
         if (localId != null && record.source !== "local") {
           qc.invalidateQueries({ queryKey: ["local"] });
         }
 
-        opened = await openEpubAsPublication(buffer);
+        opened = await openEpubAsPublication(source);
         if (cancelled) return teardown();
         openedRef.current = opened;
         setFixed(opened.isFixedLayout);

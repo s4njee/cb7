@@ -58,6 +58,7 @@ export function invalidateLibraryQueries(client: QueryClient): Promise<void> {
         'browse-chapter-comics',
         'continue-reading',
         'recently-read',
+        'recently-added',
         'library-comics',
         'tag-comics',
       ].includes(String(key));

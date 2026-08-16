@@ -59,6 +59,8 @@ export interface EpubRendition {
   prev: () => void;
   resize: () => void;
   spread: (mode: 'auto' | 'none') => void;
+  /** Switch paginated ↔ continuous-scroll flow live (P3-5). */
+  flow: (flow: 'paginated' | 'scrolled') => void;
   destroy: () => void;
   /** The current rendered location; epubjs updates this on every relocate. */
   location?: EpubLocation;
@@ -68,6 +70,8 @@ export interface EpubRendition {
 export interface EpubLocations {
   generate: (charsPerLocation?: number) => Promise<string[]>;
   percentageFromCfi: (cfi: string) => number | null;
+  /** CFI at a whole-book fraction (0–1), for the toolbar scrub (P3-5). */
+  cfiFromPercentage: (percentage: number) => string;
   length: () => number;
 }
 
@@ -86,7 +90,7 @@ export interface EpubBook {
       width: string;
       height: string;
       spread: 'auto' | 'none';
-      flow: 'paginated';
+      flow: 'paginated' | 'scrolled';
     }
   ) => EpubRendition;
   destroy?: () => void;

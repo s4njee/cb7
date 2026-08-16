@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useReaderStore } from '@/store/readerStore';
 import * as api from '@/lib/api';
+import { scheduleProgress, flushProgress } from '@/lib/progressSync';
 import { errorMessage } from '@/lib/errors';
 import useComicGestures from '@/hooks/useComicGestures';
 import useComicKeyboard from '@/hooks/useComicKeyboard';
@@ -346,8 +347,8 @@ export default function ComicReader({
       setHintVisible(false);
     }, 1800);
 
-    // Save reading progress to database
-    api.updateProgress(record.id, pageIndex).catch(() => {});
+    // Save reading progress to database (debounced — flushed on unmount)
+    scheduleProgress(record.id, { page: pageIndex });
 
     // Preload neighbors
     for (const neighborPageIndex of preloadNeighborPageIndexes(pageIndex, record.pageCount, prefs.spread)) {
@@ -375,6 +376,12 @@ export default function ComicReader({
       }
     };
   }, []);
+
+  // Flush any debounced progress on unmount so the final page is saved even if
+  // the last page turn never reached its trailing timer.
+  useEffect(() => {
+    return () => flushProgress(record.id);
+  }, [record.id]);
 
   // 8. Attach gesture hooks
   useComicGestures({

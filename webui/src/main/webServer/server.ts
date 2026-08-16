@@ -29,6 +29,7 @@ import {
 } from './middleware';
 import { createLogger } from '../logger';
 import { createAuth, getAuth } from './auth';
+import { resolveBasicAuthUser } from './basicAuth';
 import type { RequestContext, RouteHandler } from './context';
 import * as authRoutes from './routes/auth';
 import * as userRoutes from './routes/users';
@@ -36,6 +37,7 @@ import * as tagRoutes from './routes/tags';
 import * as libraryRoutes from './routes/libraries';
 import * as folderRoutes from './routes/folders';
 import * as progressRoutes from './routes/progress';
+import * as rootsRoutes from './routes/roots';
 import * as comicRoutes from './routes/comics';
 import * as uploadRoutes from './routes/upload';
 import * as searchRoutes from './routes/search';
@@ -63,6 +65,7 @@ const API_ROUTES: RouteHandler[] = [
   tagRoutes.handle,
   libraryRoutes.handle,
   folderRoutes.handle,
+  rootsRoutes.handle,
   searchRoutes.handle,
   jobRoutes.handle,
 ];
@@ -135,10 +138,33 @@ async function dispatchApi(
     return;
   }
 
-  const currentUser = await resolveCurrentUser(req);
+  let currentUser = await resolveCurrentUser(req);
+
+  // OPDS endpoints accept HTTP Basic auth so external reader apps (which can't
+  // hold a browser cookie) can authenticate. A valid Basic header wins over any
+  // cookie session; an invalid one is answered with a 401 challenge rather than
+  // silently degrading to guest access.
+  // OPDS clients send Basic on every request. The catalog lives under
+  // `/api/opds`, but acquisition links point at `/api/comics/:id/{manifest,
+  // thumbnail, pages, file}` — resolve Basic there too or those fetches 401
+  // after a successful catalog browse.
+  if (pathname.startsWith('/api/opds') || pathname.startsWith('/api/comics')) {
+    const basicUser = await resolveBasicAuthUser(db, req.headers.authorization);
+    if (basicUser) {
+      currentUser = basicUser;
+    } else if (typeof req.headers.authorization === 'string' && /^Basic\s/i.test(req.headers.authorization)) {
+      res.setHeader('WWW-Authenticate', 'Basic realm="CB8"');
+      return sendError(res, 401, 'Invalid username or password');
+    }
+  }
+
   const guestEnabled = await isGuestAccessEnabled(db);
 
   if (!canAccessApiRequest(pathname, method, currentUser, guestEnabled)) {
+    // Unauthenticated OPDS needs a challenge so reader apps prompt for credentials.
+    if (pathname.startsWith('/api/opds')) {
+      res.setHeader('WWW-Authenticate', 'Basic realm="CB8"');
+    }
     return sendError(res, 401, 'Unauthorized');
   }
 

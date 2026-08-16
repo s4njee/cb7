@@ -14,6 +14,8 @@ export const QUEUE = {
   ingestScan: 'ingest-scan',
   /** (Re)build the ebook semantic-search index for un-indexed books. */
   searchBackfill: 'search-backfill',
+  /** Re-extract covers in the worker (admin batch refresh, missing-cover sweep). */
+  coverRefresh: 'cover-refresh',
   /** FUTURE (not yet wired): OCR a comic's pages → chunk → embed → index. */
   ocrIndex: 'ocr-index',
 } as const;
@@ -48,6 +50,20 @@ export interface IngestScanJob {
 export interface SearchBackfillJob {
   /** True = wipe the ebook index first, then re-embed every book. */
   full?: boolean;
+}
+
+/**
+ * Payload for a {@link QUEUE.coverRefresh} job. Either explicit ids or
+ * `allMissing` (re-extract every cover that is missing or a placeholder);
+ * `allMissing` wins when both are set. The producer pins a singletonKey so
+ * repeated "refresh all" requests (or identical id sets) are deduped while one
+ * is already queued/active.
+ */
+export interface CoverRefreshJob {
+  /** Explicit comic ids to re-extract covers for. */
+  ids?: number[];
+  /** Re-extract covers for every comic missing a real cover. */
+  allMissing?: boolean;
 }
 
 /**

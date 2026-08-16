@@ -9,6 +9,7 @@ export * from './jobs';
 export * from './libraries';
 export * from './metadata';
 export * from './reading';
+export * from './roots';
 export * from './search';
 export * from './settings';
 export * from './tags';

@@ -32,6 +32,8 @@ export interface UserComicOverlaySql {
 export type ComicFilterOptions = QueryOptions & {
   libraryId?: number;
   folderId?: number;
+  /** Filter to only missing (`true`) or only present (`false`) items (P1-8). */
+  missing?: boolean;
 };
 
 /**
@@ -166,6 +168,10 @@ export function buildComicFilters(
     conditions.push('LOWER(c.file_path) LIKE ?');
     params.push('%.' + options.fileExt.toLowerCase());
   }
+
+  // P1-8 missing-file filter: only items whose file is gone, or only present ones.
+  if (options.missing === true) conditions.push('c.missing_at IS NOT NULL');
+  if (options.missing === false) conditions.push('c.missing_at IS NULL');
 
   if (opts.includeSharedReadStatus) {
     addSharedReadStatusFilter(conditions, options.readStatus);

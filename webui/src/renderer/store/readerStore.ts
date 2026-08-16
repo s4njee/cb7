@@ -27,6 +27,12 @@ export interface EpubPrefs {
   fontFamily: string;
   themeMode: 'black' | 'white' | 'sepia';
   googleFont: string;
+  /** Body line-height multiplier (P3-5). */
+  lineSpacing: number;
+  /** Body padding in px, applied to all sides (P3-5). */
+  pageMargin: number;
+  /** epub.js flow: paginated columns vs continuous scroll (P3-5). */
+  flow: 'paginated' | 'scrolled';
 }
 
 interface ReaderState {
@@ -56,6 +62,9 @@ const DEFAULT_EPUB_PREFS: EpubPrefs = {
   fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   themeMode: 'black',
   googleFont: '',
+  lineSpacing: 1.6,
+  pageMargin: 44,
+  flow: 'paginated',
 };
 
 function loadPrefs<T>(key: string, defaults: T): T {

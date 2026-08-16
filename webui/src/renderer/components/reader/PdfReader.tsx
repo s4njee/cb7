@@ -5,6 +5,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 import PdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { useReaderStore } from '@/store/readerStore';
 import * as api from '@/lib/api';
+import { scheduleProgress, flushProgress } from '@/lib/progressSync';
 import { errorMessage } from '@/lib/errors';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
@@ -93,6 +94,12 @@ export default function PdfReader({
 
     return () => {
       active = false;
+      if (renderTaskRef.current) {
+        try {
+          renderTaskRef.current.cancel();
+        } catch {}
+        renderTaskRef.current = null;
+      }
       pdfDocRef.current = null;
       void loadingTask.destroy();
     };
@@ -161,7 +168,8 @@ export default function PdfReader({
   useEffect(() => {
     if (pdfLoading) return;
     renderPage(currentPage);
-    api.updateProgress(record.id, currentPage - 1).catch(() => {});
+    // Debounced — flushed on unmount (see the history effect below).
+    scheduleProgress(record.id, { page: currentPage - 1 });
   }, [currentPage, pdfLoading, renderPage, record.id]);
 
   // 5. Navigation event handlers
@@ -222,6 +230,8 @@ export default function PdfReader({
     return () => {
       const pageNum = useReaderStore.getState().currentPage;
       api.logHistory(record.id, 'closed', pageNum - 1).catch(() => {});
+      // Flush the debounced position so the final page is saved.
+      flushProgress(record.id);
     };
   }, [record.id]);
 

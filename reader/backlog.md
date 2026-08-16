@@ -29,7 +29,13 @@ another reader mode immediately.
 
 ## P0 — reliability and performance
 
-### Debounce and flush reading progress — S
+### ~~Debounce and flush reading progress — S~~
+
+Done: `src/lib/progressWrite.ts` — trailing ~800 ms debounce
+(`getProgressWriter`), latest-wins per book, explicit `flushProgress` /
+`flushAllProgress` on reader close, background, and WebView unload. Wired
+through `api.ts` for both local (catalog.json) and server progress; fake-timer
+tests in `progressWrite.test.ts`.
 
 All three readers currently call `putProgress` on every page or EPUB relocation
 (`ComicReader.tsx`, `PdfReader.tsx`, and `TextReader.tsx`). A local progress
@@ -43,7 +49,12 @@ Expected result: far fewer server requests and disk writes during fast paging,
 with no loss of the final position. Add fake-timer tests for burst collapsing
 and unmount/background flushing.
 
-### Make local catalog updates transactional under concurrency — M
+### ~~Make local catalog updates transactional under concurrency — M~~
+
+Done: every mutation runs `save_under_write_lock` (a dedicated `write: Mutex<()>`
+serializes snapshot ordering on top of the catalog mutex); temporary-file/rename
+crash-safety retained; concurrency tests in `local.rs` interleave progress,
+favorite, and cover updates.
 
 `local.rs::save` clones the catalog after callers release the catalog mutex,
 then performs the file write. Two concurrent mutations can therefore save
@@ -53,7 +64,11 @@ Serialize mutation plus snapshot ordering with a dedicated save lock or a
 single catalog writer. Retain the temporary-file/rename crash-safety behavior.
 Add a concurrency test that interleaves progress, favorite, and cover updates.
 
-### Coalesce duplicate media-cache misses — M
+### ~~Coalesce duplicate media-cache misses — M~~
+
+Done: `AppState.cache_inflight` (`HashMap<cacheKey, CacheInflight>` +
+`Notify`) in `state.rs`; later callers for the same cold URL park on the shared
+fill instead of re-fetching (`proxy.rs`).
 
 The Rust media proxy checks the disk cache and then fetches upstream. Concurrent
 requests for the same cold URL can all miss and download/write the same object.
@@ -62,7 +77,12 @@ Use a per-cache-key in-flight map so later callers await the first fetch.
 This is most visible when the grid, continue card, thumbnail strip, and page
 preloader request the same image close together.
 
-### Virtualize long comic/PDF scroll surfaces and thumbnail strips — L
+### ~~Virtualize long comic/PDF scroll surfaces and thumbnail strips — L~~
+
+Done: `computeVirtualWindow` (measured window + overscan) drives both the
+thumbnail strip and the page list in `ComicReader` (strips `overscan: 12`,
+pages `overscan: 3`) and `PdfReader`; spacers keep total scroll height stable
+for 1,000+ page books.
 
 Continuous comic mode and PDF scroll mode create one React element per page;
 the comic thumbnail strip does the same. PDF scroll handling also scans every
@@ -74,7 +94,12 @@ anchors stable, and render only the visible thumbnail range. Replace the PDF
 scroll loop with observer-driven visibility/current-page tracking. Test books
 with 1,000+ pages.
 
-### Bound PDF canvas memory explicitly — M
+### ~~Bound PDF canvas memory explicitly — M~~
+
+Done: `src/lib/pdfMemory.ts` computes a device-class budget
+(`maxPaintedPages` 5–12 + overscan); `PdfReader` releases canvases leaving the
+buffered window (`releaseCanvas`) and re-enforces the budget after paints, so
+off-window pages don't retain DPR-scaled buffers.
 
 Rendered PDF canvases retain pixel buffers even after pages leave the buffered
 window. Clear offscreen canvas dimensions and cancel/release render tasks when
@@ -82,7 +107,12 @@ they leave overscan. Set a small rendered-page budget based on device class.
 This matters on iPadOS, where a few DPR-scaled color pages can consume tens of
 megabytes each.
 
-### Add an offline progress outbox — L
+### ~~Add an offline progress outbox — L~~
+
+Done: `src/lib/progressOutbox.ts` persists the latest unsent position per
+server/book, drains on connectivity return / app focus (`Reader.tsx`), and
+coalesces intermediate turns; same-session conflicts resolve to the furthest
+position, cross-session asks (`api.ts`). Tests in `progressOutbox.test.ts`.
 
 Server-book progress silently fails when offline. Persist the latest unsent
 position per server/user/book, retry after connectivity returns, and expose a
@@ -292,7 +322,12 @@ beyond what add-path already supports.
 
 ### Stories
 
-#### 1. Persist an explicit scan root per watched folder — M
+#### ~~1. Persist an explicit scan root per watched folder — M~~
+
+Done (2026-08-14): `folders.scan_path` + `auto_scan_enabled` (idempotent
+`ALTER`s); `POST /api/admin/add-path` writes the root when a folder label is
+given; `GET /api/roots` returns `scanPath` to admins (public `/api/folders`
+still omits it); empty folders with a root are valid watch targets.
 
 Store a durable `scanPath` (absolute path the worker can see) on each library
 folder that is meant to be watched, instead of only inferring a common ancestor
@@ -308,7 +343,13 @@ from already-ingested files.
 Acceptance: create/register `/data/incoming`, delete all catalog entries for
 testing if needed, and still be able to rescan that path from the stored root.
 
-#### 2. One-click Rescan without re-browsing — S
+#### ~~2. One-click Rescan without re-browsing — S~~
+
+Done (2026-08-14): Rescan button per root in the Settings `WatchedRootsSection`
+(enqueues `ingest-scan` for the stored path) plus `POST /api/roots/rescan-all`;
+`POST /api/folders/:id/rescan` prefers the stored root, falls back to common-dir
+only for legacy folders, and returns a clear error on a missing path. Job status
+(queued / running / last outcome) is shown from `scan_jobs`.
 
 Admin UI on each watched folder (and/or a central “Library roots” list): a
 **Rescan** button that enqueues an incremental `ingest-scan` for the stored
@@ -323,7 +364,12 @@ Admin UI on each watched folder (and/or a central “Library roots” list): a
 Acceptance: drop a new CBZ/EPUB into the watched path on the host, click Rescan
 once, and the title appears without opening the add-path browser again.
 
-#### 3. Configurable interval that is clearly “for watched roots” — S
+#### ~~3. Configurable interval that is clearly “for watched roots” — S~~
+
+Done (2026-08-14): Settings copy says *watched folders*, presets Off / 5 / 15 /
+60 min with a “0 = manual only” hint; one global interval covers all roots
+(per-root `auto_scan_enabled` gates each root); the scheduler walks only folders
+with a registered root.
 
 Keep a global default interval, but product-copy and settings should say
 **watched folders**, not an obscure auto-rescan toggle.
@@ -338,7 +384,14 @@ Keep a global default interval, but product-copy and settings should say
 Acceptance: with interval set to 5 minutes, new files appear without any UI
 click; with interval 0, only manual Rescan adds them.
 
-#### 4. Watched-roots admin surface — M
+#### ~~4. Watched-roots admin surface — M~~
+
+Done (2026-08-14): `WatchedRootsSection` in Settings — Path / Folder / Interval /
+Last scan / Status / Actions (Rescan, enable/disable via a Switch, edit path via
+a dialog, remove watch). “Add watched folder” reuses the add-path picker
+(`AddPathPanel` in a dialog). First scan runs immediately on register (add-path
+already scans). Missing mounts show an offline badge (`pathExists` from the
+server host).
 
 A single admin place (settings subsection or Library admin page) listing:
 
@@ -356,7 +409,13 @@ delete files or necessarily delete catalog rows — product choice, document it)
 Acceptance: an operator can manage drop folders without memorizing paths or
 using add-path as a rescan workaround.
 
-#### 5. Incremental scan correctness for drop workflows — M
+#### ~~5. Incremental scan correctness for drop workflows — M~~
+
+Done (2026-08-14, mostly existing behavior — verified and documented): new files
+picked up, unchanged skipped (the `since` cursor + `comicExistsByPath`); removed
+files leave catalog rows (files referenced in place) and never crash a scan;
+manual + scheduled rescans of the same path stay single-flight via the queue's
+`singletonKey` dedupe; progress and last-error surface in the roots Status column.
 
 Tighten incremental behavior so drop-folder use is trustworthy:
 
@@ -370,7 +429,11 @@ Tighten incremental behavior so drop-folder use is trustworthy:
 Acceptance: add 10 files, rescan → 10 new; rescan again → 0 new, no errors;
 remove one file → policy applied without failing the job.
 
-#### 6. Ops / docs — S
+#### ~~6. Ops / docs — S~~
+
+Done (2026-08-14): `webui/README.md` updated — registering a root vs one-shot
+add-path, interval config, worker requirement, offline/missing-mount badge.
+Wiki / `AGENTS.md` follow-ups tracked in the webui backlog.
 
 Update server docs (`README`, wiki ops, `AGENTS.md`) for:
 

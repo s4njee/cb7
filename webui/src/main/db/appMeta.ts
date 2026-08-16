@@ -22,6 +22,14 @@ export async function getAppMeta(db: Db, key: string): Promise<string | null> {
   return row?.value ?? null;
 }
 
+/** app_meta key holding the worker's last heartbeat (ISO timestamp). */
+export const WORKER_HEARTBEAT_KEY = 'worker_heartbeat';
+
+/** The worker's last-seen time, or null if it has never reported in. */
+export async function getWorkerHeartbeat(db: Db): Promise<string | null> {
+  return getAppMeta(db, WORKER_HEARTBEAT_KEY);
+}
+
 /**
  * Write (insert or overwrite) a setting value.
  * @param db The database handle.

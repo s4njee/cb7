@@ -202,9 +202,18 @@ export const handle: RouteHandler = async (ctx) => {
     return true;
   }
 
+  // Reading stats (P1-7): per-user aggregate over reading_history. Personal
+  // state, so guests get 401 just like the other /api/history endpoints.
+  if (method === 'GET' && pathname === '/api/stats') {
+    const user = requireCurrentUser(ctx);
+    if (!user) return true;
+    sendJson(res, 200, await db.getReadingStats(user.id));
+    return true;
+  }
+
   // Series
   if (method === 'GET' && pathname === '/api/series') {
-    const series = (await db.getAllSeries()).map((s) => ({
+    const series = (await db.getAllSeries(currentUser?.id ?? null, currentUser?.isAdmin === true)).map((s) => ({
       name: s.name,
       count: s.count,
       thumbnailUrl: s.coverComicId ? `/api/comics/${s.coverComicId}/thumbnail` : null,
@@ -214,10 +223,26 @@ export const handle: RouteHandler = async (ctx) => {
   }
   const seriesComicsMatch = pathname.match(/^\/api\/series\/([^/]+)\/comics$/);
   if (method === 'GET' && seriesComicsMatch) {
-    const name = seriesComicsMatch[1];
-    const records = await db.getSeriesComics(name);
+    const name = decodeURIComponent(seriesComicsMatch[1]);
+    const records = await db.getSeriesComics(name, currentUser?.id ?? null, currentUser?.isAdmin === true);
     const uid = currentUser?.id ?? null;
     sendJson(res, 200, await overlayUserStateMany(records.map((r) => toWebRecord(r)!), db, uid));
+    return true;
+  }
+
+  // Recently added — the newest catalog entries ("new on disk"), distinct from
+  // recently read ("I just read this"). Shared home-page shelf for P3-2.
+  if (method === 'GET' && pathname === '/api/recently-added') {
+    const limit = parseBoundedInteger(query.limit, 20, 1, 200);
+    const mediaType = query.mediaType as 'comic' | 'book' | undefined;
+    const result = await db.queryComicsForUser(currentUser?.id ?? null, {
+      sortBy: 'dateAdded',
+      sortOrder: 'desc',
+      limit,
+      ...(mediaType ? { mediaType } : {}),
+      admin: currentUser?.isAdmin === true,
+    });
+    sendJson(res, 200, result.records.map(toWebRecord));
     return true;
   }
 
@@ -227,7 +252,7 @@ export const handle: RouteHandler = async (ctx) => {
     const mediaType = query.mediaType as 'comic' | 'book' | undefined;
     const records = currentUser
       ? await db.getRecentlyReadByUser(currentUser.id, limit, mediaType)
-      : await db.getRecentlyRead(limit, mediaType);
+      : await db.getRecentlyRead(limit, mediaType, null);
     sendJson(res, 200, records.map(toWebRecord));
     return true;
   }
@@ -238,7 +263,7 @@ export const handle: RouteHandler = async (ctx) => {
     const mediaType = query.mediaType as 'comic' | 'book' | undefined;
     const records = currentUser
       ? await db.getContinueReadingByUser(currentUser.id, limit, mediaType)
-      : await db.getContinueReading(limit, mediaType);
+      : await db.getContinueReading(limit, mediaType, null);
     sendJson(res, 200, records.map(toWebRecord));
     return true;
   }

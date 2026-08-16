@@ -4,9 +4,15 @@ import { useQuery } from '@tanstack/react-query';
 import { useUiStore } from '@/store/uiStore';
 import { useInfiniteComics } from '@/hooks/useInfiniteComics';
 import * as api from '@/lib/api';
+import { Library, SearchX, FolderPlus, Upload, Users, AlertCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import ContinueShelf from '@/components/library/ContinueShelf';
+import EmptyState from '@/components/library/EmptyState';
+import ActiveFilterChips from '@/components/library/ActiveFilterChips';
+import RecentlyAddedShelf from '@/components/library/RecentlyAddedShelf';
 import FilterStrips from '@/components/library/FilterStrips';
 import LibraryGrid from '@/components/library/LibraryGrid';
+import ReadingStats from '@/components/library/ReadingStats';
 import SelectionBar from '@/components/library/SelectionBar';
 
 export default function AllPage() {
@@ -18,9 +24,20 @@ export default function AllPage() {
     fileExt,
     readStatus,
     favoritesOnly,
+    missingOnly,
   } = useUiStore();
 
   const isSearchActive = search.trim() !== '';
+
+  // Session + admin, for first-run onboarding on an empty library.
+  const { data: session } = useQuery({ queryKey: ['session'], queryFn: api.getSession });
+  const isAdmin = session?.user?.isAdmin === true;
+  const openAdminPanel = useUiStore((s) => s.openAdminPanel);
+  const resetFilters = useUiStore((s) => s.resetFilters);
+
+  // "Filters" exclude sort/search: sort just orders, search switches the view.
+  const hasActiveFilters =
+    mediaType !== '' || fileExt !== '' || readStatus !== '' || favoritesOnly || missingOnly;
 
   // 1. Query for standard infinite comics list (when search is empty)
   const infiniteQuery = useInfiniteComics({
@@ -30,6 +47,7 @@ export default function AllPage() {
     fileExt: fileExt || undefined,
     readStatus: readStatus || undefined,
     favoritesOnly: favoritesOnly || undefined,
+    missingOnly: missingOnly || undefined,
   });
 
   // Flatten the infinite query pages into a single flat array of WebComicRecord.
@@ -60,6 +78,77 @@ export default function AllPage() {
   });
   const inside = insideResp?.results || [];
 
+  // Distinct empty states (P3-2): an empty library gets onboarding CTAs for
+  // admins; an active filter with no matches gets a "clear" action — never the
+  // same empty illustration.
+  const emptyLibraryContent = isAdmin ? (
+    <EmptyState
+      icon={<Library className="h-8 w-8 text-faint" />}
+      title="Your library is empty"
+      description="Point CB8 at the folders where your comics and books live, or upload them directly. Everything stays readable offline."
+      actions={
+        <>
+          <Button size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold" onClick={() => openAdminPanel('add-path')}>
+            <FolderPlus className="h-4 w-4 mr-1.5" /> Add a folder
+          </Button>
+          <Button size="sm" variant="outline" className="border-border" onClick={() => openAdminPanel('upload')}>
+            <Upload className="h-4 w-4 mr-1.5" /> Upload files
+          </Button>
+          <Button size="sm" variant="outline" className="border-border" onClick={() => navigate('/settings')}>
+            <Users className="h-4 w-4 mr-1.5" /> Enable guest access
+          </Button>
+        </>
+      }
+    />
+  ) : (
+    <EmptyState
+      icon={<Library className="h-8 w-8 text-faint" />}
+      title="Your library is empty"
+      description="Ask an admin to add folders or upload files."
+    />
+  );
+
+  const standardEmptyContent = hasActiveFilters ? (
+    <EmptyState
+      icon={<SearchX className="h-8 w-8 text-faint" />}
+      title="No books match these filters"
+      description="Try another media type or status, or clear the filters to see the whole library."
+      actions={
+        <Button size="sm" variant="outline" className="border-border" onClick={resetFilters}>
+          Clear filters
+        </Button>
+      }
+    />
+  ) : (
+    emptyLibraryContent
+  );
+
+  const catalogErrorContent = (
+    <EmptyState
+      icon={<AlertCircle className="h-8 w-8 text-faint" />}
+      title="Couldn't load the library"
+      description="The catalog request failed. Check that the server is running and try again."
+      actions={
+        <Button size="sm" variant="outline" className="border-border" onClick={() => void infiniteQuery.refetch()}>
+          Try again
+        </Button>
+      }
+    />
+  );
+
+  const searchEmptyContent = (
+    <EmptyState
+      icon={<SearchX className="h-8 w-8 text-faint" />}
+      title="No series match your search"
+      description={`Nothing in the library matches "${search}".`}
+      actions={
+        <Button size="sm" variant="outline" className="border-border" onClick={resetFilters}>
+          Clear search
+        </Button>
+      }
+    />
+  );
+
   return (
     <div className="flex flex-col min-h-full">
       {isSearchActive ? (
@@ -73,6 +162,7 @@ export default function AllPage() {
               Found {searchGroupsResponse?.totalCount ?? 0} series match{searchGroupsResponse?.totalCount === 1 ? '' : 'es'}.
             </p>
           </div>
+          <ActiveFilterChips />
           {inside.length > 0 && (
             <div className="p-4 border-b border-border select-none">
               <h3 className="text-sm font-bold tracking-wide text-muted-foreground uppercase mb-3">
@@ -123,18 +213,27 @@ export default function AllPage() {
               badgeLabel="Series"
               groupHrefPrefix="/browse/series/"
               isLoading={searchLoading}
-              emptyMessage="No matching series found for your query."
+              emptyContent={searchEmptyContent}
             />
           </div>
         </div>
       ) : (
-        // Standard View: Shelf + Filter Strips + Paginated Grid
+        // Standard View: Reading stats + Shelf + Filter Strips + Paginated Grid
         <div className="flex-1 flex flex-col">
+          {/* Per-user reading summary (P1-7) — hidden for guests / no activity */}
+          <ReadingStats />
+
           {/* Continue reading shelf */}
           <ContinueShelf />
 
+          {/* Recently added shelf (P3-2) — "new on disk", not "recently read". */}
+          <RecentlyAddedShelf />
+
           {/* Core filters bar */}
           <FilterStrips />
+
+          {/* Removable chips for active filters (P3-1) */}
+          <ActiveFilterChips />
 
           {/* Paginated Infinite Scroll grid */}
           <div className="flex-1">
@@ -144,14 +243,14 @@ export default function AllPage() {
               fetchNextPage={infiniteQuery.fetchNextPage}
               hasNextPage={infiniteQuery.hasNextPage}
               isFetchingNextPage={infiniteQuery.isFetchingNextPage}
-              emptyMessage="No comics or books found matching the selected filters."
+              emptyContent={infiniteQuery.isError ? catalogErrorContent : standardEmptyContent}
             />
           </div>
         </div>
       )}
 
       {/* Floating bulk selection actions bar */}
-      <SelectionBar />
+      <SelectionBar matchingScope={{}} />
     </div>
   );
 }

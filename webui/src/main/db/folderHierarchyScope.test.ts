@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { buildHierarchyScope } from './folderHierarchyScope';
 
 describe('folderHierarchyScope', () => {
+  // Admin queries skip the library-visibility condition (P1-1), so the exact
+  // outputs below stay as they were before it existed.
   it('builds an unfiltered global scope', () => {
-    expect(buildHierarchyScope(null, {}, null)).toEqual({
+    expect(buildHierarchyScope(null, { admin: true }, null)).toEqual({
       joins: '',
       where: 'WHERE 1=1',
       params: [],
@@ -15,6 +17,7 @@ describe('folderHierarchyScope', () => {
       mediaType: 'book',
       fileExt: 'PDF',
       search: 'Saga',
+      admin: true,
     }, null)).toEqual({
       joins: '',
       where: [
@@ -28,7 +31,7 @@ describe('folderHierarchyScope', () => {
   });
 
   it('adds shared read-status filters for anonymous/global scopes', () => {
-    expect(buildHierarchyScope(null, { readStatus: 'completed' }, null)).toEqual({
+    expect(buildHierarchyScope(null, { readStatus: 'completed', admin: true }, null)).toEqual({
       joins: '',
       where: 'WHERE c.last_page = c.page_count - 1',
       params: [],
@@ -36,7 +39,7 @@ describe('folderHierarchyScope', () => {
   });
 
   it('adds user joins and user read-status filters for user-scoped scopes', () => {
-    expect(buildHierarchyScope(null, { readStatus: 'in-progress' }, 7)).toEqual({
+    expect(buildHierarchyScope(null, { readStatus: 'in-progress', admin: true }, 7)).toEqual({
       joins: 'LEFT JOIN user_progress up ON up.comic_id = c.id AND up.user_id = ? LEFT JOIN user_favorites uf ON uf.comic_id = c.id AND uf.user_id = ?',
       where: 'WHERE up.comic_id IS NOT NULL AND up.completed = 0 AND (COALESCE(up.last_page, 0) > 0 OR up.last_location IS NOT NULL OR COALESCE(up.last_percent, 0) > 0)',
       params: [7, 7],
@@ -44,16 +47,25 @@ describe('folderHierarchyScope', () => {
   });
 
   it('requires a user for favorites-only hierarchy filters', () => {
-    expect(buildHierarchyScope(null, { favorites: true }, null)).toEqual({
+    expect(buildHierarchyScope(null, { favorites: true, admin: true }, null)).toEqual({
       joins: '',
       where: 'WHERE 1 = 0',
       params: [],
     });
 
-    expect(buildHierarchyScope(null, { favorites: true }, 4)).toEqual({
+    expect(buildHierarchyScope(null, { favorites: true, admin: true }, 4)).toEqual({
       joins: 'LEFT JOIN user_progress up ON up.comic_id = c.id AND up.user_id = ? LEFT JOIN user_favorites uf ON uf.comic_id = c.id AND uf.user_id = ?',
       where: 'WHERE uf.comic_id IS NOT NULL',
       params: [4, 4],
     });
+  });
+
+  it('appends the library-visibility condition for non-admins (P1-1)', () => {
+    const scope = buildHierarchyScope(null, {}, 5);
+    expect(scope.where).toContain('NOT EXISTS (SELECT 1 FROM library_comics vl WHERE vl.comic_id = c.id)');
+    expect(scope.where).toContain('vm.user_id = ?');
+    // userId binds once for the progress join, once for favorites, once for
+    // the visibility condition.
+    expect(scope.params).toEqual([5, 5, 5]);
   });
 });

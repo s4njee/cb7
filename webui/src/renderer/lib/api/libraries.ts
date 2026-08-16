@@ -24,3 +24,14 @@ export const addFoldersToLibrary = (libraryId: number, folderIds: number[]): Pro
 
 export const fetchLibraryComics = (libraryId: number, options: ComicQueryOptions = {}): Promise<ComicListResponse> =>
   get<ComicListResponse>(`/api/libraries/${libraryId}/comics`, { query: options });
+
+export interface LibraryAccess {
+  everyone: boolean;
+  memberIds: number[];
+}
+
+export const fetchLibraryAccess = (libraryId: number): Promise<LibraryAccess> =>
+  get<LibraryAccess>(`/api/libraries/${libraryId}/access`);
+
+export const setLibraryAccess = (libraryId: number, access: LibraryAccess): Promise<void> =>
+  put<void>(`/api/libraries/${libraryId}/access`, { body: access, parse: 'none' });

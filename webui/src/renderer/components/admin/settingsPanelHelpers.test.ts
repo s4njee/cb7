@@ -6,6 +6,7 @@ import {
   buildPairPayload,
   clearLibraryRemovedMessage,
   defaultPairOrigin,
+  formatBytes,
   pairOriginCandidates,
   isUnreachableOrigin,
   pairOriginWarning,
@@ -26,9 +27,9 @@ describe('settingsPanelHelpers', () => {
   });
 
   it('formats auto-rescan saved messages', () => {
-    expect(autoRescanSavedMessage(0)).toBe('Auto-rescan disabled.');
-    expect(autoRescanSavedMessage(1)).toBe('Folders will rescan every 1 minute.');
-    expect(autoRescanSavedMessage(5)).toBe('Folders will rescan every 5 minutes.');
+    expect(autoRescanSavedMessage(0)).toBe('Auto-rescan disabled — only manual Rescan adds files.');
+    expect(autoRescanSavedMessage(1)).toBe('Watched folders will rescan every 1 minute.');
+    expect(autoRescanSavedMessage(5)).toBe('Watched folders will rescan every 5 minutes.');
   });
 
   it('parses valid web server ports only', () => {
@@ -175,5 +176,15 @@ describe('pair panel helpers', () => {
       expect(warning).toContain("phone can't reach it");
       expect(warning).toContain('BETTER_AUTH_TRUSTED_ORIGINS');
     });
+  });
+});
+
+describe('formatBytes', () => {
+  it('formats bytes into compact human units', () => {
+    expect(formatBytes(0)).toBe('0 B');
+    expect(formatBytes(512)).toBe('512 B');
+    expect(formatBytes(1536)).toBe('1.5 KB');
+    expect(formatBytes(1024 * 1024 * 3)).toBe('3.0 MB');
+    expect(formatBytes(1024 ** 3 * 1.2)).toBe('1.2 GB');
   });
 });

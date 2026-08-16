@@ -13,6 +13,9 @@ import { requireAdmin, type RouteHandler } from '../context';
 import type { InitialCredentialsResponse, PairInfoResponse, PairTokenResponse } from '../../../shared/apiTypes';
 import { pairOriginsForRequest } from '../pairPayload';
 import { readJsonBody, requireCurrentUser, requireString, requireTrimmedString } from './validation';
+import { getCacheStats, clearImageCaches } from '../../imageResizer';
+import { streamPgDump } from '../pgBackup';
+import { serverVersion } from '../serverVersion';
 const AUTO_RESCAN_INTERVAL_KEY = 'auto_rescan_interval_min';
 
 /**
@@ -300,6 +303,40 @@ export const handle: RouteHandler = async (ctx) => {
     const minutes = typeof parsed.value.minutes === 'number' ? Math.max(0, Math.round(parsed.value.minutes)) : 0;
     await db.setAppMeta(AUTO_RESCAN_INTERVAL_KEY, String(minutes));
     sendJson(res, 200, { ok: true, minutes });
+    return true;
+  }
+
+  // Server version (P2-3). Harmless public info; shown in Settings to every user.
+  if (method === 'GET' && pathname === '/api/settings/version') {
+    sendJson(res, 200, { version: serverVersion() });
+    return true;
+  }
+
+  // Cache controls (P2-2): both on-disk caches are regenerable, so an admin can
+  // inspect their footprint and clear them to reclaim disk space.
+  if (method === 'GET' && pathname === '/api/admin/cache') {
+    if (!requireAdmin(ctx)) return true;
+    sendJson(res, 200, await getCacheStats());
+    return true;
+  }
+
+  if (method === 'DELETE' && pathname === '/api/admin/cache') {
+    if (!requireAdmin(ctx)) return true;
+    await clearImageCaches();
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  // Backup (P2-1): stream a pg_dump SQL backup as a download. Restore stays a
+  // host-side operation (stop both processes, psql -f backup.sql DATABASE_URL).
+  if (method === 'GET' && pathname === '/api/admin/backup') {
+    if (!requireAdmin(ctx)) return true;
+    const databaseUrl = process.env.DATABASE_URL;
+    if (!databaseUrl) {
+      sendError(res, 500, 'DATABASE_URL is not set on the server');
+      return true;
+    }
+    streamPgDump(res, databaseUrl);
     return true;
   }
 

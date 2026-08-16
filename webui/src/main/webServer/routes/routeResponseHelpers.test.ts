@@ -41,6 +41,7 @@ describe('routeResponseHelpers', () => {
         mediaType: 'comic',
         thumbnailUrl: '/api/comics/1/thumbnail?v=1781870400000',
         fileExt: 'cbz',
+        missingAt: null,
         favorited: false,
       }],
       totalCount: 1,

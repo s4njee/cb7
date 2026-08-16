@@ -1,23 +1,21 @@
 import * as path from 'node:path';
-import { sendJson, sendError } from '../middleware';
+import { sendJson } from '../middleware';
 import { requestBaseUrl } from '../serverHelpers';
 import { type RouteHandler } from '../context';
 import { withArchive } from '../archiveCache';
 import { pageMimeForFilename } from './comicRouteHelpers';
+import { requireComicLite } from './validation';
 
 export const handle: RouteHandler = async (ctx) => {
-  const { req, res, db, pathname, method, query, currentUser } = ctx;
+  const { req, res, db, pathname, method } = ctx;
 
   // 1. WebPub manifest endpoint
   // GET /api/comics/:id/manifest
   const manifestMatch = pathname.match(/^\/api\/comics\/(\d+)\/manifest$/);
   if (method === 'GET' && manifestMatch) {
     const id = parseInt(manifestMatch[1], 10);
-    const record = await db.getComicLite(id);
-    if (!record) {
-      sendError(res, 404, 'Comic not found');
-      return true;
-    }
+    const record = await requireComicLite(ctx, id);
+    if (!record) return true;
 
     const baseUrl = requestBaseUrl(
       req.headers.host,

@@ -1,5 +1,6 @@
 import type { EpubPrefs } from '@/store/readerStore';
 import { Button } from '@/components/ui/button';
+import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -189,6 +190,64 @@ export function EpubSettingsSheet({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Line spacing + margins (P3-5) */}
+          <div className="space-y-2.5">
+            <Label className={settingsLabel}>Line spacing</Label>
+            <Slider
+              value={[prefs.lineSpacing]}
+              min={1.2}
+              max={2.2}
+              step={0.1}
+              onValueChange={(val) => onPrefsChange({ lineSpacing: val[0] })}
+              className="cursor-pointer [&_[role=slider]]:bg-primary [&_[role=slider]]:border-primary [&_.bg-primary]:bg-primary [&_.bg-secondary]:bg-progress-track"
+            />
+            <div className="flex justify-between text-[10px] text-faint">
+              <span>Compact</span>
+              <span className="text-muted-foreground">{prefs.lineSpacing.toFixed(1)}×</span>
+              <span>Airy</span>
+            </div>
+          </div>
+
+          <div className="space-y-2.5">
+            <Label className={settingsLabel}>Margins</Label>
+            <Slider
+              value={[prefs.pageMargin]}
+              min={12}
+              max={80}
+              step={4}
+              onValueChange={(val) => onPrefsChange({ pageMargin: val[0] })}
+              className="cursor-pointer [&_[role=slider]]:bg-primary [&_[role=slider]]:border-primary [&_.bg-primary]:bg-primary [&_.bg-secondary]:bg-progress-track"
+            />
+            <div className="flex justify-between text-[10px] text-faint">
+              <span>Narrow</span>
+              <span className="text-muted-foreground">{prefs.pageMargin}px</span>
+              <span>Wide</span>
+            </div>
+          </div>
+
+          {/* Paginated vs scroll (P3-5) */}
+          <div className="space-y-2.5">
+            <Label className={settingsLabel}>Layout</Label>
+            <div className="flex items-center gap-2">
+              {(['paginated', 'scrolled'] as const).map((flow) => (
+                <button
+                  key={flow}
+                  type="button"
+                  onClick={() => onPrefsChange({ flow })}
+                  aria-pressed={prefs.flow === flow}
+                  className={cn(
+                    'flex-1 h-9 rounded-lg text-[13px] font-medium capitalize transition-colors',
+                    prefs.flow === flow
+                      ? 'bg-primary text-primary-foreground'
+                      : 'border border-popover-border text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {flow}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Google web font */}

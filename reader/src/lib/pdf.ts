@@ -112,22 +112,18 @@ class RangeTransport extends PDFDataRangeTransport {
 /**
  * Start loading a PDF.
  *
- * Three paths, all of them page-at-a-time:
+ * Two paths, both page-at-a-time:
  *
  * - **Local book**: the file is already on disk and owned by the app, so every
  *   range is a straight `seek`+`read` in Rust. Nothing is downloaded, and the
  *   book opens with the network off.
- * - **Server book on device**: the file is **copied into the local library**
- *   first, then paged from there. A PDF has to be fetched in full to be paged
- *   anyway (pdf.js needs arbitrary offsets, and the webview can't hold a
- *   500 MB book in memory), so the bytes are landing on this device regardless
- *   — the only question is whether they land somewhere you keep. Making that
- *   the library rather than an evictable cache means opening a book once is
- *   enough to own it: it appears on your shelf and reopens with the network
- *   off. This is PDF-only; EPUBs are small enough to stream and comics page
- *   from the server on demand, so neither needs the copy.
- * - **Browser dev**: range-fetch over the network (CB8's `/file` serves Range),
- *   falling back to a single full download when no length is reported.
+ * - **Server book**: **streamed** from the server. pdf.js asks for the byte
+ *   ranges it needs (`file_byte_length` probe, then ranged reads via Rust IPC
+ *   on device or a same-origin `fetch` in browser dev), so only the pages you
+ *   actually view are transferred and nothing is persisted — opening a book is
+ *   no longer a download. If the server ever reports no length, fall back to a
+ *   local-library copy on device (a huge PDF must never land in memory whole)
+ *   or a single full read in browser dev.
  *
  * Returns the loading task; `task.destroy()` tears the worker down on unmount.
  */
@@ -137,9 +133,17 @@ export async function openPdf(
   if (record.source === "local") return openLocal(record.id);
 
   const id = record.id;
+  const filePath = `/api/comics/${id}/file`;
+  const length = await fileByteLength(filePath).catch(() => null);
+  if (length != null && length > 0) {
+    const read: RangeReader = (begin, end) => readFileRange(filePath, begin, end);
+    return getDocument({ range: new RangeTransport(length, read) });
+  }
+
+  // No range support (never the case for CB8). On device, stream the file to
+  // the local library and page from disk — a huge PDF must never land in
+  // memory whole. In browser dev, one full read, parse from memory.
   if (localSupported) {
-    // Already downloaded? `local_download` dedupes on origin, so a reopen is a
-    // catalog lookup, not a second transfer.
     const book = await localDownload({
       comicId: id,
       title: record.title,
@@ -147,19 +151,8 @@ export async function openPdf(
       mediaType: record.mediaType,
       pageCount: record.pageCount,
     }).catch(() => null);
-    // A failed copy (no disk, server hiccup mid-stream) must not cost you the
-    // book — fall through to reading it over the network.
     if (book) return openLocal(book.id);
   }
-
-  // Browser dev: network range fetches against the same-origin file path.
-  const filePath = `/api/comics/${id}/file`;
-  const length = await fileByteLength(filePath).catch(() => null);
-  if (length != null && length > 0) {
-    const read: RangeReader = (begin, end) => readFileRange(filePath, begin, end);
-    return getDocument({ range: new RangeTransport(length, read) });
-  }
-  // No range support: one full download, parse from memory.
   const data = await readFileRange(filePath, 0, Number.MAX_SAFE_INTEGER);
   return getDocument({ data });
 }

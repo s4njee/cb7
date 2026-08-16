@@ -25,7 +25,7 @@ export function describePg(name: string, fn: () => void): void {
 
 /** Top-level tables wiped between tests; CASCADE clears dependent rows. */
 const TRUNCATE_SQL =
-  'TRUNCATE comics, scan_jobs, ingest_errors, folders, libraries, tags, users, app_meta, dismissed_paths, pair_tokens, ebook_chunks RESTART IDENTITY CASCADE';
+  'TRUNCATE comics, comic_covers, scan_jobs, ingest_errors, folders, libraries, tags, users, app_meta, dismissed_paths, pair_tokens, ebook_chunks RESTART IDENTITY CASCADE';
 
 /** Create an initialized LibraryDatabase against the test DB, with catalog rows wiped. */
 export async function freshTestDb(): Promise<LibraryDatabase> {

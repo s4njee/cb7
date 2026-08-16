@@ -70,6 +70,8 @@ export function comicCaption(record: CaptionRecord): string {
   }
   // Unstarted: quiet format + length line, e.g. "CBZ · 24 pages".
   const ext = (record.fileExt || '').toUpperCase();
+  // Plain-image-folder comics have no file extension; give them a label.
+  if (!ext && record.mediaType === 'comic') return 'Folder';
   const unit = record.mediaType === 'book' ? 'chapter' : 'page';
   const count =
     record.pageCount > 0 ? `${record.pageCount} ${unit}${record.pageCount === 1 ? '' : 's'}` : '';

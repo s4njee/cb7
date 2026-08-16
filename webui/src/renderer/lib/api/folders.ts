@@ -83,6 +83,6 @@ export const rescanFolder = async (
   onProgress?: (event: IngestProgressEvent) => void,
 ): Promise<IngestProgress> => {
   const res = await post<EnqueueResponse>(`/api/folders/${folderId}/rescan`, {});
-  if (!res.jobId) return { added: 0, errors: [], failuresSummary: null };
+  if (!res.jobId) return { added: 0, duplicates: 0, errors: [], failuresSummary: null };
   return pollIngestJob(res.jobId, onProgress);
 };

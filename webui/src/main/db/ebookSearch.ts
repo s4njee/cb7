@@ -1,5 +1,6 @@
 import type { Db } from './pg';
 import { toVector } from '../search/embedClient';
+import { comicVisibilityCondition } from './libraryAccess';
 
 /**
  * @module
@@ -42,24 +43,53 @@ export async function insertEbookChunk(
 }
 
 /** Keyword arm: Postgres full-text search, best matches first. */
-export function ftsCandidates(db: Db, q: string, limit: number): Promise<ChunkHit[]> {
+export function ftsCandidates(
+  db: Db,
+  q: string,
+  limit: number,
+  userId: number | null = null,
+  admin = false,
+): Promise<ChunkHit[]> {
+  const conditions = ["e.tsv @@ plainto_tsquery('english', ?)"];
+  const params: unknown[] = [q];
+  // Per-user library access (P1-1): search-inside never returns passages from
+  // books the user can't open.
+  if (admin !== true) {
+    const visibility = comicVisibilityCondition(userId);
+    conditions.push(visibility.sql);
+    params.push(...visibility.params);
+  }
   return db.all<ChunkHit>(
     `SELECT e.id, e.comic_id, c.title, e.chapter, e.content
        FROM ebook_chunks e JOIN comics c ON c.id = e.comic_id
-      WHERE e.tsv @@ plainto_tsquery('english', ?)
+      WHERE ${conditions.join(' AND ')}
       ORDER BY ts_rank(e.tsv, plainto_tsquery('english', ?)) DESC
       LIMIT ?`,
-    [q, q, limit],
+    [...params, q, limit],
   );
 }
 
 /** Semantic arm: nearest chunks by cosine distance over the query embedding. */
-export function vectorCandidates(db: Db, queryVec: number[], limit: number): Promise<ChunkHit[]> {
+export function vectorCandidates(
+  db: Db,
+  queryVec: number[],
+  limit: number,
+  userId: number | null = null,
+  admin = false,
+): Promise<ChunkHit[]> {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  if (admin !== true) {
+    const visibility = comicVisibilityCondition(userId);
+    conditions.push(visibility.sql);
+    params.push(...visibility.params);
+  }
   return db.all<ChunkHit>(
     `SELECT e.id, e.comic_id, c.title, e.chapter, e.content
        FROM ebook_chunks e JOIN comics c ON c.id = e.comic_id
+      ${conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''}
       ORDER BY e.embedding <=> ?::vector
       LIMIT ?`,
-    [toVector(queryVec), limit],
+    [...params, toVector(queryVec), limit],
   );
 }

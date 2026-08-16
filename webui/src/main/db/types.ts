@@ -27,11 +27,14 @@ export interface ComicRow {
   last_percent?: number | null;
   last_read: string | null;
   media_type: string;
+  /** Stamped when the file is missing from disk (P1-8); NULL when present. */
+  missing_at: string | null;
 }
 
 export interface ComicListRow extends Omit<ComicRow, 'cover_thumbnail'> {
   has_thumbnail: number;
   thumbnail_version: number;
+  missing_at: string | null;
 }
 
 export interface CountRow {
@@ -51,6 +54,7 @@ export interface LibraryRow {
   name: string;
   comic_count: number;
   media_type: string;
+  everyone: boolean;
 }
 
 /** Maps an API `sortBy` value to the SQL expression to ORDER BY. */
@@ -71,7 +75,7 @@ export const SORT_COLUMN_MAP: Record<string, string> = {
  */
 export const COMIC_FULL_COLUMNS = `
   id, file_path, title, page_count, file_size, cover_thumbnail,
-  date_added, last_page, last_location, last_percent, last_read, media_type
+  date_added, last_page, last_location, last_percent, last_read, media_type, missing_at
 `;
 
 /**
@@ -84,8 +88,24 @@ export const COMIC_FULL_COLUMNS = `
  */
 export const COMIC_NO_BLOB_COLUMNS = `
   id, file_path, title, page_count, file_size, NULL as cover_thumbnail,
-  date_added, last_page, last_location, last_percent, last_read, media_type
+  date_added, last_page, last_location, last_percent, last_read, media_type, missing_at
 `;
+
+/**
+ * Cover-presence + version-token SQL fragments shared by every list query that
+ * reports "does this comic have a cover".
+ *
+ * Covers moved to the `comic_covers` table (P0-3), so a comic "has a cover"
+ * when EITHER the new table has a row for it OR the legacy `cover_thumbnail`
+ * column still holds data (pre-backfill). `thumbnail_version` is the stored
+ * blob length — a cheap cache-buster — preferring the covers table.
+ *
+ * Both reference the alias `c` (`FROM comics c`).
+ */
+export const HAS_COVER_SQL =
+  `(c.cover_thumbnail IS NOT NULL OR EXISTS (SELECT 1 FROM comic_covers cc WHERE cc.comic_id = c.id))`;
+export const THUMBNAIL_VERSION_SQL =
+  `COALESCE((SELECT length(cc.data) FROM comic_covers cc WHERE cc.comic_id = c.id), length(c.cover_thumbnail), 0)`;
 
 /**
  * SELECT column list for a comic *list* row (no cover BLOB).
@@ -97,9 +117,9 @@ export const COMIC_NO_BLOB_COLUMNS = `
  */
 export const COMIC_LIST_COLUMNS = `
   c.id, c.file_path, c.title, c.page_count, c.file_size,
-  CASE WHEN c.cover_thumbnail IS NULL THEN 0 ELSE 1 END as has_thumbnail,
-  COALESCE(length(c.cover_thumbnail), 0) as thumbnail_version,
-  c.date_added, c.last_page, c.last_location, c.last_percent, c.last_read, c.media_type
+  CASE WHEN ${HAS_COVER_SQL} THEN 1 ELSE 0 END as has_thumbnail,
+  ${THUMBNAIL_VERSION_SQL} as thumbnail_version,
+  c.date_added, c.last_page, c.last_location, c.last_percent, c.last_read, c.media_type, c.missing_at
 `;
 
 /**

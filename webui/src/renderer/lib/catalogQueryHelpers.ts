@@ -33,6 +33,8 @@ export type CatalogFilterState = {
   fileExt?: FileExtension | string;
   readStatus?: ReadStatus | '';
   favoritesOnly?: boolean;
+  /** When true, only include records whose file is missing from disk (P1-8). */
+  missingOnly?: boolean;
 };
 
 /**
@@ -116,6 +118,7 @@ export function comicQueryOptionsFromFilters(
     fileExt: filters.fileExt || undefined,
     readStatus: filters.readStatus || undefined,
     favoritesOnly: filters.favoritesOnly || undefined,
+    missing: filters.missingOnly || undefined,
   });
 }
 

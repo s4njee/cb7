@@ -23,6 +23,9 @@ typedoc-warnings.log
 .pnpm-store/
 .claude/
 
+# Local Docker runtime bind mounts (cache, uploads, sample libraries).
+.docker-runtime/
+
 # Local comic libraries — never part of the repo.
 /Marvel Omnibus*/
 /comics/

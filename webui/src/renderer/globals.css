@@ -288,8 +288,9 @@
   color: hsl(var(--muted-foreground));
   border: 1px solid hsl(var(--border));
   border-radius: 6px;
-  width: 34px;
-  height: 34px;
+  /* P3-3: mobile tap-target minimum (was 34px). */
+  width: 44px;
+  height: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -388,3 +389,37 @@
   background: #0d0b0a;
 }
 #pdf-canvas { display: block; max-width: 100%; }
+
+/* ---------------------------------------------------------------------------
+   Accessibility (P2-2)
+   --------------------------------------------------------------------------- */
+
+/* Honor prefers-reduced-motion: collapse comic page-slides, EPUB page-turn
+   cues, zoom transitions, and spinner animations to near-instant. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* High-contrast mapping on top of the Folio theme set: brighten text tokens
+   and borders so foregrounds separate from the near-black surfaces. */
+@media (prefers-contrast: more) {
+  :root {
+    --foreground: 40 60% 95%;
+    --muted-foreground: 35 30% 72%;
+    --section-label: 35 25% 64%;
+    --faint: 35 26% 54%;
+    --placeholder: 35 26% 56%;
+    --reading-text: 39 45% 92%;
+    --border: 32 26% 26%;
+    --input: 32 26% 26%;
+    --popover-border: 32 28% 28%;
+    --card: 18 16% 10%;
+    --secondary: 29 27% 14%;
+    --muted: 29 27% 14%;
+  }
+}

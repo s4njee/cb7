@@ -4,8 +4,7 @@
  * Engine-specific navigation lives in `readiumZip.ts` / `readiumView.ts`.
  * This module only fetches bytes and normalizes TOC.
  */
-import { localDownload, localSupported, mediaUrl } from "./transport";
-import { localFilePath } from "./localSource";
+import { fileByteLength, localFileLength, localReadRange, mediaUrl, readFileRange } from "./transport";
 import type { WebComicRecord } from "./api";
 
 export interface EpubTocItem {
@@ -14,38 +13,54 @@ export interface EpubTocItem {
   subitems?: EpubTocItem[];
 }
 
+/** Random-access byte source for a book, resolved without downloading it.
+ *  `read` is a half-open `[begin, end)` byte range. */
+export interface BookByteSource {
+  /** Total size of the file in bytes. */
+  size: number;
+  read(begin: number, end: number): Promise<ArrayBuffer>;
+}
+
 /**
- * Read a book's bytes, copying a server book into the local library on the way.
+ * Resolve a book to a byte source, streaming server books instead of
+ * downloading them.
  *
- * The whole file is fetched to open it either way — the bytes land on this
- * device regardless. Making that the library means opening a book once is
- * enough to own it: it joins your shelf and reopens with the network off.
+ * A **server book** is read on demand in ranges straight from the server, so
+ * opening it transfers only the bytes the reader actually needs (EPUB: the zip
+ * central directory plus the current chapter; PDF: page objects). Nothing is
+ * written to the local library — owning the book is now an explicit choice
+ * ("Save to device" on its detail sheet), not a side effect of opening.
  *
- * `local_download` dedupes on origin, so a reopen is a catalog lookup rather
- * than a second transfer. A failed copy never costs you the book: it falls
- * through to reading over the network exactly as before.
+ * A **local book** reads ranges straight from disk, so it still opens with the
+ * network off.
  */
 export async function loadBookData(
   record: Pick<WebComicRecord, "id" | "source" | "title" | "fileExt" | "mediaType" | "pageCount">,
-): Promise<{ data: ArrayBuffer; localId: number | null }> {
+): Promise<{ source: BookByteSource; localId: number | null }> {
   if (record.source === "local") {
-    return { data: await readAll(mediaUrl(localFilePath(record.id))), localId: record.id };
+    return { source: await diskSource(record.id), localId: record.id };
   }
 
-  if (localSupported) {
-    const book = await localDownload({
-      comicId: record.id,
-      title: record.title,
-      ext: record.fileExt || "epub",
-      mediaType: record.mediaType,
-      pageCount: record.pageCount,
-    }).catch(() => null);
-    if (book) {
-      return { data: await readAll(mediaUrl(localFilePath(book.id))), localId: book.id };
-    }
+  const filePath = `/api/comics/${record.id}/file`;
+  const size = await fileByteLength(filePath).catch(() => null);
+  if (size != null && size > 0) {
+    return {
+      source: { size, read: (b, e) => readFileRange(filePath, b, e) },
+      localId: null,
+    };
   }
 
-  return { data: await readAll(mediaUrl(`/api/comics/${record.id}/file`)), localId: null };
+  // No range support (never the case for CB8): fall back to a whole-file read.
+  const data = await readAll(mediaUrl(filePath));
+  return {
+    source: { size: data.byteLength, read: async (b, e) => data.slice(b, e) },
+    localId: null,
+  };
+}
+
+/** Byte source for an owned local-library book: disk ranges, offline-capable. */
+async function diskSource(id: number): Promise<BookByteSource> {
+  return { size: await localFileLength(id), read: (b, e) => localReadRange(id, b, e) };
 }
 
 async function readAll(url: string): Promise<ArrayBuffer> {

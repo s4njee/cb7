@@ -91,6 +91,52 @@ async function scanCache(root: string): Promise<CachedFile[]> {
   return out;
 }
 
+/** One cache's on-disk footprint, for the admin cache-controls UI. */
+export interface CacheStats {
+  path: string;
+  sizeBytes: number;
+  fileCount: number;
+}
+
+async function summarizeCache(root: string): Promise<CacheStats> {
+  const files = await scanCache(root);
+  return {
+    path: root,
+    sizeBytes: files.reduce((acc, f) => acc + f.size, 0),
+    fileCount: files.length,
+  };
+}
+
+/**
+ * Footprint of both on-disk caches (resized page images + GPU-upscaled pages).
+ * Both are regenerable, so the admin UI can show and clear them freely.
+ */
+export async function getCacheStats(): Promise<{ imageCache: CacheStats; upscaleCache: CacheStats }> {
+  const [imageCache, upscaleCache] = await Promise.all([
+    summarizeCache(cacheRoot()),
+    summarizeCache(upscaleCacheRoot()),
+  ]);
+  return { imageCache, upscaleCache };
+}
+
+/**
+ * Empty both caches. Keeps the root directories; every file is regenerated on
+ * demand (and the LRU eviction counters reset so the next read re-scans).
+ */
+export async function clearImageCaches(): Promise<void> {
+  const [imageFiles, upscaleFiles] = await Promise.all([
+    scanCache(cacheRoot()),
+    scanCache(upscaleCacheRoot()),
+  ]);
+  await Promise.all(
+    [...imageFiles, ...upscaleFiles].map((f) => fsp.unlink(f.absPath).catch(() => { /* gone already */ })),
+  );
+  trackedBytes = -1;
+  upscaleTrackedBytes = -1;
+  evictionInFlight = false;
+  upscaleEvictionInFlight = false;
+}
+
 async function evictIfOverBudget(root: string): Promise<void> {
   if (evictionInFlight) return;
   if (trackedBytes >= 0 && trackedBytes <= CACHE_BUDGET_BYTES) return;
@@ -164,28 +210,30 @@ export async function getCachedOrResize(
     } catch { /* miss */ }
   }
   const orig = await getOriginal();
-  const resized = await resizeImage(orig.buffer, w);
   const outExt = '.webp';
   const outPath = cachePath(comicId, page, w, outExt);
   try {
-    await ensureDir(path.dirname(outPath));
-    // Re-encode to webp for space if not already; sharp default preserves format.
-    // We used resize without setting format, so use webp explicitly.
     const webpBuf = await getSharp()(orig.buffer).resize({ width: w, withoutEnlargement: true }).webp({ quality: 82 }).toBuffer();
-    await fsp.writeFile(outPath, webpBuf);
-    // Track size and evict in the background if we're over budget. Errors in
-    // eviction are non-fatal — the cache is best-effort.
-    if (trackedBytes < 0) {
-      // Lazy init — the first write in this process triggers a full scan so
-      // we pick up files carried over from prior sessions.
-      void evictIfOverBudget(cacheRoot());
-    } else {
-      trackedBytes += webpBuf.length;
-      if (trackedBytes > CACHE_BUDGET_BYTES) void evictIfOverBudget(cacheRoot());
+    try {
+      await ensureDir(path.dirname(outPath));
+      await fsp.writeFile(outPath, webpBuf);
+      // Track size and evict in the background if we're over budget. Errors in
+      // eviction are non-fatal — the cache is best-effort.
+      if (trackedBytes < 0) {
+        // Lazy init — the first write in this process triggers a full scan so
+        // we pick up files carried over from prior sessions.
+        void evictIfOverBudget(cacheRoot());
+      } else {
+        trackedBytes += webpBuf.length;
+        if (trackedBytes > CACHE_BUDGET_BYTES) void evictIfOverBudget(cacheRoot());
+      }
+    } catch {
+      // Disk write / cache tracking failed, still return the generated buffer
     }
     return { buffer: webpBuf, ext: 'webp' };
   } catch {
-    // If caching failed, still return the resized buffer
+    // If WebP encode failed, fall back to basic resize
+    const resized = await resizeImage(orig.buffer, w);
     return { buffer: resized, ext: orig.ext };
   }
 }

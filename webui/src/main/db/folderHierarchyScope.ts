@@ -3,6 +3,7 @@ import {
   addSharedReadStatusFilter,
   addUserReadStatusFilter,
 } from './comicQueryHelpers';
+import { comicVisibilityCondition } from './libraryAccess';
 import type { SqlParam } from './types';
 
 /**
@@ -25,6 +26,8 @@ import type { SqlParam } from './types';
 /** Query options for a folder-hierarchy listing, including a favorites filter. */
 export type FolderHierarchyOptions = QueryOptions & {
   favorites?: boolean;
+  /** Admins bypass per-user library access (P1-1) and see the whole catalog. */
+  admin?: boolean;
 };
 
 /**
@@ -80,6 +83,14 @@ export function buildHierarchyScope(
 
   if (options.favorites) {
     conditions.push(userId != null ? 'uf.comic_id IS NOT NULL' : '1 = 0');
+  }
+
+  // Per-user library access (P1-1): non-admins only see comics they're entitled
+  // to, so series/volume/chapter groups never leak restricted books.
+  if (options.admin !== true) {
+    const visibility = comicVisibilityCondition(userId);
+    conditions.push(visibility.sql);
+    condParams.push(...visibility.params);
   }
 
   return {

@@ -22,7 +22,7 @@ export interface ArchiveEntry {
 /** Metadata about an opened archive plus its ordered page entries. */
 export interface ArchiveHandle {
   filePath: string;
-  format: 'cbz' | 'cbr';
+  format: 'cbz' | 'cbr' | 'cb7' | 'folder';
   entries: ArchiveEntry[];
   pageCount: number;
 }
@@ -51,6 +51,8 @@ export interface MediaRecord {
   lastPercent: number | null;
   lastRead: string | null;
   mediaType: 'comic' | 'book';
+  /** Stamped with the UTC scan timestamp when the file is missing from disk; null when present (P1-8). */
+  missingAt?: string | null;
 }
 
 /**
@@ -71,6 +73,8 @@ export interface QueryOptions {
   mediaType?: 'comic' | 'book';
   fileExt?: string;
   readStatus?: 'unread' | 'in-progress' | 'completed';
+  /** Filter to only missing (`true`) or only present (`false`) items (P1-8). */
+  missing?: boolean;
 }
 
 /** A user's saved filter + sort choices, persisted to `localStorage`. */

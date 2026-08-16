@@ -9,23 +9,28 @@ import { Button } from '@/components/ui/button';
 import { showToast } from '@/hooks/useToast';
 import { ArrowLeft } from 'lucide-react';
 import {
-  AutoRescanSection,
+  BackupSection,
+  CacheSection,
   ConnectReaderSection,
   DangerZoneSection,
+  DuplicatesSection,
   GuestAccessSection,
+  JobsAndErrorsSection,
+  MissingFilesSection,
   PairDeviceSection,
+  ReaderDefaultsSection,
+  ServerInfoSection,
   TemporaryPasswordSection,
   ThemePickerSection,
 } from './SettingsPanelSections';
+import { WatchedRootsSection } from './WatchedRootsSection';
 import {
   PAIR_TOKEN_REFRESH_MS,
   THEME_LIST,
-  autoRescanSavedMessage,
   buildPairPayload,
   clearLibraryRemovedMessage,
   pairOriginCandidates,
   pairOriginWarning,
-  parseAutoRescanMinutes,
 } from './settingsPanelHelpers';
 
 interface SettingsPanelProps {
@@ -48,10 +53,6 @@ export default function SettingsPanel({ onBack, onClose }: SettingsPanelProps) {
   // Temporary password state
   const [tempPassword, setTempPassword] = useState<string | null>(null);
   const [clearingTempPass, setClearingTempPass] = useState(false);
-
-  // Auto-rescan interval
-  const [rescanInterval, setRescanInterval] = useState('0');
-  const [savingRescan, setSavingRescan] = useState(false);
 
   // Clear library state
   const [clearingLibrary, setClearingLibrary] = useState(false);
@@ -151,10 +152,6 @@ export default function SettingsPanel({ onBack, onClose }: SettingsPanelProps) {
         }
       })
       .catch(() => {});
-
-    api.fetchAutoRescanInterval()
-      .then(({ minutes }) => setRescanInterval(String(minutes)))
-      .catch(() => {});
   }, []);
 
   // OPDS catalog URL for external reader apps (same origin as the web UI)
@@ -184,24 +181,6 @@ export default function SettingsPanel({ onBack, onClose }: SettingsPanelProps) {
       showToast(errorMessage(err, 'Failed to clear temporary password'));
     } finally {
       setClearingTempPass(false);
-    }
-  };
-
-  const handleSaveRescanInterval = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const minutes = parseAutoRescanMinutes(rescanInterval);
-    if (minutes == null) {
-      showToast('Enter a number of minutes (0 to disable).');
-      return;
-    }
-    setSavingRescan(true);
-    try {
-      await api.setAutoRescanInterval(minutes);
-      showToast(autoRescanSavedMessage(minutes));
-    } catch (err) {
-      showToast(errorMessage(err, 'Failed to save interval'));
-    } finally {
-      setSavingRescan(false);
     }
   };
 
@@ -249,6 +228,10 @@ export default function SettingsPanel({ onBack, onClose }: SettingsPanelProps) {
 
       <ThemePickerSection themes={THEME_LIST} activeTheme={activeTheme} onSelect={setTheme} />
 
+      <ServerInfoSection />
+
+      <ReaderDefaultsSection />
+
       <PairDeviceSection
         origins={pairOrigins}
         selectedOrigin={selectedPairOrigin}
@@ -264,18 +247,23 @@ export default function SettingsPanel({ onBack, onClose }: SettingsPanelProps) {
 
       {isAdmin && (
         <>
+          <JobsAndErrorsSection />
+
           <GuestAccessSection
             enabled={session?.guestAccess === true}
             pending={guestAccessMutation.isPending}
             onChange={(checked) => guestAccessMutation.mutate(checked)}
           />
 
-          <AutoRescanSection
-            rescanInterval={rescanInterval}
-            savingRescan={savingRescan}
-            onIntervalChange={setRescanInterval}
-            onSubmit={handleSaveRescanInterval}
-          />
+          <WatchedRootsSection />
+
+          <DuplicatesSection />
+
+          <MissingFilesSection />
+
+          <CacheSection />
+
+          <BackupSection />
 
           <DangerZoneSection clearingLibrary={clearingLibrary} onClearLibrary={handleClearLibrary} />
         </>

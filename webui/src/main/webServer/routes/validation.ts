@@ -29,7 +29,9 @@ export function requireCurrentUser(ctx: RequestContext): ResolvedUser | null {
 
 export async function requireComic(ctx: RequestContext, comicId: number): Promise<MediaRecord | null> {
   const comic = await ctx.db.getComic(comicId);
-  if (comic) return comic;
+  if (comic && (ctx.currentUser?.isAdmin || (await ctx.db.isComicVisible(comicId, ctx.currentUser?.id ?? null)))) {
+    return comic;
+  }
   sendError(ctx.res, 404, 'Comic not found');
   return null;
 }
@@ -41,7 +43,9 @@ export async function requireComic(ctx: RequestContext, comicId: number): Promis
  */
 export async function requireComicLite(ctx: RequestContext, comicId: number): Promise<MediaRecord | null> {
   const comic = await ctx.db.getComicLite(comicId);
-  if (comic) return comic;
+  if (comic && (ctx.currentUser?.isAdmin || (await ctx.db.isComicVisible(comicId, ctx.currentUser?.id ?? null)))) {
+    return comic;
+  }
   sendError(ctx.res, 404, 'Comic not found');
   return null;
 }

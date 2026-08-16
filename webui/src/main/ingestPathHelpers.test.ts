@@ -36,7 +36,9 @@ describe('ingestPathHelpers', () => {
   });
 
   it('returns dotted extension sets for scans', () => {
-    expect(dottedExtensionsForMediaType('comic')).toEqual(new Set(['.cbz', '.cbr']));
-    expect(dottedExtensionsForMediaType('book')).toEqual(new Set(['.pdf', '.epub', '.mobi']));
+    expect(dottedExtensionsForMediaType('comic')).toEqual(new Set(['.cbz', '.cbr', '.cb7']));
+    // .mobi is deliberately excluded — it was accepted but never readable, so
+    // it is de-supported (see shared/mediaTypes.ts).
+    expect(dottedExtensionsForMediaType('book')).toEqual(new Set(['.pdf', '.epub']));
   });
 });

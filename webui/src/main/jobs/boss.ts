@@ -75,6 +75,10 @@ async function ensureQueues(b: PgBoss): Promise<void> {
     // dies, re-delivery after the lease is safe — handlers are idempotent.
     [QUEUE.ingestScan, { policy: 'exclusive', retryLimit: 2, retryDelay: 30, retryBackoff: true, expireInSeconds: 2 * 60 * 60 }],
     [QUEUE.searchBackfill, { policy: 'exclusive', retryLimit: 1, expireInSeconds: 23 * 60 * 60 }],
+    // Cover refresh is idempotent (re-extract = re-write); a retry only redos a
+    // couple of seconds of archive work per item. Lease is generous so a big
+    // all-missing sweep can run without being re-delivered mid-run.
+    [QUEUE.coverRefresh, { policy: 'exclusive', retryLimit: 1, retryDelay: 30, retryBackoff: true, expireInSeconds: 6 * 60 * 60 }],
     // FUTURE: OCR jobs are long and checkpoint per page; a generous lease lets a
     // healthy job run while still detecting a dead worker within a few hours.
     [QUEUE.ocrIndex, { policy: 'exclusive', retryLimit: 3, retryDelay: 60, retryBackoff: true, expireInSeconds: 6 * 60 * 60 }],

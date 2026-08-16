@@ -1,6 +1,7 @@
 import type { SqlParam, ComicListRow, CountRow, LibraryRow } from './types';
-import { SORT_COLUMN_MAP } from './types';
+import { HAS_COVER_SQL, SORT_COLUMN_MAP, THUMBNAIL_VERSION_SQL } from './types';
 import { rowToListRecord } from './comics';
+import { comicVisibilityCondition, libraryVisibilityCondition } from './libraryAccess';
 import type { Db, PgDatabase } from './pg';
 import type { QueryOptions, QueryResult } from '../../shared/types';
 
@@ -37,11 +38,25 @@ export async function deleteLibrary(db: Db, id: number): Promise<void> {
 export async function getAllLibraries(
   db: Db,
   mediaType?: 'comic' | 'book',
-): Promise<{ id: number; name: string; comicCount: number; mediaType: 'comic' | 'book' }[]> {
-  const where = mediaType ? 'WHERE l.media_type = ?' : '';
-  const params = mediaType ? [mediaType] : [];
+  userId?: number | null,
+  admin?: boolean,
+): Promise<{ id: number; name: string; comicCount: number; mediaType: 'comic' | 'book'; everyone: boolean }[]> {
+  const conditions: string[] = [];
+  const params: SqlParam[] = [];
+  if (mediaType) {
+    conditions.push('l.media_type = ?');
+    params.push(mediaType);
+  }
+  // Per-user library access (P1-1): non-admins only see public collections plus
+  // the ones they're a member of. Guests (userId null) see public ones.
+  if (admin !== true) {
+    const visibility = libraryVisibilityCondition(userId ?? null);
+    conditions.push(visibility.sql);
+    params.push(...visibility.params);
+  }
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   const rows = await db.all<LibraryRow>(
-    `SELECT l.id, l.name, l.media_type, COUNT(lc.comic_id) as comic_count
+    `SELECT l.id, l.name, l.media_type, l.everyone, COUNT(lc.comic_id) as comic_count
      FROM libraries l
      LEFT JOIN library_comics lc ON l.id = lc.library_id
      ${where}
@@ -54,7 +69,44 @@ export async function getAllLibraries(
     name: r.name,
     comicCount: r.comic_count,
     mediaType: (r.media_type === 'book' ? 'book' : 'comic') as 'comic' | 'book',
+    everyone: r.everyone,
   }));
+}
+
+/**
+ * Set a collection's access: whether every user (and guest) sees it, and the
+ * explicit member list when restricted (P1-1). Replaces the member set in one
+ * transaction so a partial write never leaves a stale membership.
+ * @param db The database handle.
+ * @param libraryId The collection to configure.
+ * @param everyone When true the collection is public and members are ignored.
+ * @param memberIds User ids allowed to see a restricted collection.
+ */
+export async function setLibraryAccess(
+  db: PgDatabase,
+  libraryId: number,
+  everyone: boolean,
+  memberIds: number[],
+): Promise<void> {
+  await db.tx(async (tx) => {
+    await tx.run('UPDATE libraries SET everyone = ? WHERE id = ?', [everyone ? 1 : 0, libraryId]);
+    await tx.run('DELETE FROM library_members WHERE library_id = ?', [libraryId]);
+    for (const userId of Array.from(new Set(memberIds))) {
+      await tx.run(
+        'INSERT INTO library_members (user_id, library_id) VALUES (?, ?) ON CONFLICT (user_id, library_id) DO NOTHING',
+        [userId, libraryId],
+      );
+    }
+  });
+}
+
+/** The member user ids of a collection, for the admin access editor. */
+export async function getLibraryMemberIds(db: Db, libraryId: number): Promise<number[]> {
+  const rows = await db.all<{ user_id: number }>(
+    'SELECT user_id FROM library_members WHERE library_id = ? ORDER BY user_id',
+    [libraryId],
+  );
+  return rows.map((r) => r.user_id);
 }
 
 export async function addComicsToLibrary(db: PgDatabase, libraryId: number, comicIds: number[]): Promise<void> {
@@ -90,9 +142,19 @@ export async function queryComicsByLibrary(
   db: Db,
   libraryId: number,
   options: QueryOptions = {},
+  userId?: number | null,
+  admin?: boolean,
 ): Promise<QueryResult> {
   const conditions: string[] = ['c.id IN (SELECT comic_id FROM library_comics WHERE library_id = ?)'];
   const params: SqlParam[] = [libraryId];
+
+  // Per-user library access (P1-1): a non-member of a restricted collection
+  // gets no comics from it (and the route 404s the collection itself).
+  if (admin !== true) {
+    const visibility = comicVisibilityCondition(userId ?? null);
+    conditions.push(visibility.sql);
+    params.push(...visibility.params);
+  }
 
   if (options.mediaType) {
     conditions.push('c.media_type = ?');
@@ -133,8 +195,8 @@ export async function queryComicsByLibrary(
 
   const rows = await db.all<ComicListRow>(
     `SELECT c.id, c.file_path, c.title, c.page_count, c.file_size,
-            CASE WHEN c.cover_thumbnail IS NULL THEN 0 ELSE 1 END as has_thumbnail,
-            COALESCE(length(c.cover_thumbnail), 0) as thumbnail_version,
+            CASE WHEN ${HAS_COVER_SQL} THEN 1 ELSE 0 END as has_thumbnail,
+            ${THUMBNAIL_VERSION_SQL} as thumbnail_version,
             c.date_added, c.last_page, c.last_location, c.last_percent, c.last_read, c.media_type
      FROM comics c ${where}
      ORDER BY ${sortCol} ${sortDir}

@@ -56,26 +56,26 @@ async fn login_session_library_and_media_roundtrip() {
         .json()
         .await
         .expect("login json");
-    assert_eq!(login.get("ok"), Some(&serde_json::Value::Bool(true)), "login failed: {login}");
+    assert_eq!(
+        login.get("ok"),
+        Some(&serde_json::Value::Bool(true)),
+        "login failed: {login}"
+    );
 
     // 3. Cookie store now holds the session token; round-trip it through the
     //    same serde the app uses for cookies.json persistence.
     let serialized = {
         let store = cookies.lock().unwrap();
         let mut buf = Vec::new();
-        cookie_store::serde::json::save_incl_expired_and_nonpersistent(
-            &store,
-            &mut BufWriter::new(&mut buf),
-        )
-        .expect("save cookies");
+        cookie_store::serde::json::save_incl_expired_and_nonpersistent(&store, &mut BufWriter::new(&mut buf))
+            .expect("save cookies");
         buf
     };
     assert!(
         String::from_utf8_lossy(&serialized).contains("session_token"),
         "session cookie not captured"
     );
-    let restored =
-        cookie_store::serde::json::load_all(BufReader::new(serialized.as_slice())).expect("reload");
+    let restored = cookie_store::serde::json::load_all(BufReader::new(serialized.as_slice())).expect("reload");
     let cookies2 = Arc::new(CookieStoreMutex::new(restored));
     let client2 = build_client(cookies2);
 
