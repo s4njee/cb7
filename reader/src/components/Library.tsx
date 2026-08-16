@@ -73,6 +73,8 @@ export default function Library() {
   const [shelfChoice, setShelfChoice] = useState<Shelf | null>(null);
   const [importing, setImporting] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  /** Record ids selected for bulk operations (Cmd/Ctrl-click on cards). */
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const [sheet, setSheet] = useState<{ record: api.WebComicRecord; anchor: CardActionAnchor } | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -241,6 +243,31 @@ export default function Library() {
     return paged.data?.pages.flatMap((p) => p.records) ?? [];
   }, [onServer, localBooks, isSeries, seriesQuery.data, paged.data, clientParams]);
 
+  // Bulk selection: toggle on Cmd/Ctrl-click, Escape to clear, and reset when
+  // the visible scope changes so stale ids can't linger across shelves.
+  const toggleSelect = useCallback((id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+  useEffect(() => {
+    setSelected(new Set());
+  }, [shelfChoice, scope, filter, search]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelected(new Set());
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const selectedRecords = useMemo(
+    () => records.filter((r) => selected.has(r.id)),
+    [records, selected],
+  );
+
   const loadedCount = records.length;
   const totalCount =
     !onServer || isSeries ? loadedCount : paged.data?.pages[0]?.totalCount ?? loadedCount;
@@ -366,6 +393,11 @@ export default function Library() {
     removeOfflineDownload,
     addBooks,
     addFolder,
+    bulkMarkRead,
+    bulkMarkUnread,
+    bulkFavorite,
+    bulkClearProgress,
+    bulkRemoveLocal,
   } = useLibraryActions(showToast, downloadsQuery.data, setShelfChoice, setImporting);
 
   const openActions = useCallback(
@@ -677,6 +709,39 @@ export default function Library() {
             )
           ) : (
             <>
+              {selected.size > 0 && (
+                <div className="bulk-bar" role="toolbar" aria-label="Bulk actions">
+                  <span className="bulk-count">
+                    {selected.size} selected
+                    <button
+                      type="button"
+                      className="bulk-clear"
+                      onClick={() => setSelected(new Set())}
+                    >
+                      Clear (Esc)
+                    </button>
+                  </span>
+                  <span className="bulk-actions">
+                    <button type="button" onClick={() => bulkMarkRead(selectedRecords)}>
+                      Mark read
+                    </button>
+                    <button type="button" onClick={() => bulkMarkUnread(selectedRecords)}>
+                      Mark unread
+                    </button>
+                    <button type="button" onClick={() => bulkFavorite(selectedRecords)}>
+                      Favorite
+                    </button>
+                    <button type="button" onClick={() => bulkClearProgress(selectedRecords)}>
+                      Clear progress
+                    </button>
+                    {!onServer && (
+                      <button type="button" onClick={() => bulkRemoveLocal(selectedRecords)}>
+                        Remove local copy
+                      </button>
+                    )}
+                  </span>
+                </div>
+              )}
               <div className="grid">
                 {records.map((r) => (
                   <CoverCard
@@ -685,6 +750,8 @@ export default function Library() {
                     onOpen={open}
                     onToggleFavorite={signedIn || !onServer ? toggleFavorite : undefined}
                     onActions={signedIn || !onServer ? openActions : undefined}
+                    selected={selected.has(r.id)}
+                    onToggleSelect={() => toggleSelect(r.id)}
                   />
                 ))}
               </div>

@@ -91,9 +91,17 @@ with a 500-book folder.
   hashes the finalized file so downloads dedupe too. TS `LocalBook` carries the
   field. Test: `content_hash` is stable and detects changes (62 Rust tests).
   Verified: clippy clean, iOS target compiles, `pnpm typecheck` passes.
-- [ ] **Bulk operations — M.** Multi-select in the library grid
+- [x] **Bulk operations — M.** Multi-select in the library grid
   (Cmd/Ctrl-click, Shift-click, marquee optional) with bulk mark-read,
   favorite, tag, delete-local-copy, and re-scan metadata.
+  → Implemented 2026-08-16 (v2 commit `…`). Cmd/Ctrl-click toggles a card's
+  selection (ring + check overlay); a bulk bar above the grid offers Mark
+  read / Mark unread / Favorite / Clear progress / Remove local copy (local
+  shelf only), applied via one `Promise.allSettled` per action then a single
+  invalidation. Escape or a scope/filter change clears the selection. Tag and
+  re-scan metadata are deliberately not in the bar yet — they depend on the
+  local tags/metadata model (areas 1.5 / 2); the bar slots are trivial to add
+  once those land. Verified: `pnpm typecheck` + `pnpm build` pass.
 - [ ] **Local collections, series, and tags — L.** The scope-chip browsing UI
   exists for server libraries; give local books the same model: a
   series/volume field on the catalog record, user-defined collections, and

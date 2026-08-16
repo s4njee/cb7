@@ -1861,3 +1861,50 @@
 .connect-back:hover {
   color: var(--fg);
 }
+
+/* Bulk action bar above the grid when books are selected. */
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  margin: 0 20px 14px;
+  border-radius: var(--radius-card);
+  background: var(--surface2);
+  border: 1px solid var(--line);
+}
+.bulk-count {
+  font-size: 13px;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.bulk-clear {
+  font-size: 12px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.bulk-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.bulk-actions button {
+  font-size: 12.5px;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--fg);
+  cursor: pointer;
+}
+.bulk-actions button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
