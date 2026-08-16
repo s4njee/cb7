@@ -80,6 +80,9 @@ pub struct AppState {
     /// results are never cached here across windows (a stale IP is worse than a
     /// rescan).
     pub discovery: Mutex<Option<DiscoveryHandle>>,
+    /// Flip to stop a large recursive import after the current file. Cleared
+    /// at the start of each `local_import` batch.
+    pub import_cancel: AtomicBool,
 }
 
 /// Shared handle for one in-flight cache fill. Waiters park on `notify` and
@@ -146,6 +149,7 @@ impl AppState {
             catalog_write: Mutex::new(()),
             cache_inflight: Mutex::new(HashMap::new()),
             discovery: Mutex::new(None),
+            import_cancel: AtomicBool::new(false),
         })
     }
 

@@ -291,6 +291,92 @@ pub struct ImportNote {
     pub reason: String,
 }
 
+/// Live progress of a batch import, emitted per file.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportProgress {
+    pub done: u64,
+    pub total: u64,
+    pub current: String,
+}
+
+/// Depth cap for recursive folder scans. Deep enough for real trees, shallow
+/// enough that an accidental giant folder doesn't hang the import.
+const SCAN_MAX_DEPTH: usize = 8;
+/// Hard cap on files collected by a scan, so a folder with tens of thousands of
+/// entries surfaces a "too many" preview instead of walking everything.
+const SCAN_MAX_FILES: usize = 2000;
+
+/// Result of scanning a directory for books (the recursive-import preview).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderScan {
+    /// Supported book files found, in walk order.
+    pub supported: Vec<String>,
+    /// Files found that aren't a supported format.
+    pub unsupported: Vec<String>,
+    /// Whether the walk hit the depth or file cap (preview may be partial).
+    pub truncated: bool,
+}
+
+/// Walk a directory tree collecting supported book files (no import — this is
+/// the "Found 214 supported files, 3 unsupported" preview).
+fn walk_folder(root: &Path) -> FolderScan {
+    let mut supported = Vec::new();
+    let mut unsupported = Vec::new();
+    let mut truncated = false;
+    let mut stack: Vec<(PathBuf, usize)> = vec![(root.to_path_buf(), 0)];
+    while let Some((dir, depth)) = stack.pop() {
+        if depth >= SCAN_MAX_DEPTH {
+            truncated = true;
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(ft) = entry.file_type() else { continue };
+            if ft.is_dir() {
+                if depth + 1 < SCAN_MAX_DEPTH {
+                    stack.push((path, depth + 1));
+                } else {
+                    truncated = true;
+                }
+            } else if ft.is_file() {
+                if supported.len() + unsupported.len() >= SCAN_MAX_FILES {
+                    truncated = true;
+                    break;
+                }
+                if is_supported_book_path(&path) {
+                    supported.push(path.to_string_lossy().into_owned());
+                } else {
+                    unsupported.push(path.to_string_lossy().into_owned());
+                }
+            }
+        }
+    }
+    FolderScan { supported, unsupported, truncated }
+}
+
+/// Preview a directory: list the supported book files a recursive import would
+/// add, plus what it would skip. The frontend shows this before confirming.
+#[tauri::command]
+pub async fn local_scan_folder(dir: String) -> Result<FolderScan, ApiError> {
+    let root = import_source_path(&dir);
+    if !root.is_dir() {
+        return Err(ApiError::local("Not a folder"));
+    }
+    tokio::task::spawn_blocking(move || walk_folder(&root))
+        .await
+        .map_err(|err| ApiError::local(format!("folder scan panicked: {err}")))
+}
+
+/// Ask the in-flight import to stop after the current file. Best-effort:
+/// an import that is already done ignores it.
+#[tauri::command]
+pub fn local_cancel_import(state: State<'_, AppState>) {
+    state.import_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
 /// Copy files into the library and catalog them.
 ///
 /// Copying (rather than referencing in place) is deliberate: an imported file
@@ -301,17 +387,40 @@ pub struct ImportNote {
 /// Per-file, never batch-fatal: an unsupported, unreadable, or corrupt file is
 /// reported in the result and skipped, while the rest still import. A file that
 /// fails never leaves a partial catalog row — it is not catalogued at all.
+/// Progress event name; payload is `{ done, total, current }`.
+const IMPORT_PROGRESS_EVENT: &str = "shelf://local-import-progress";
+
 #[tauri::command]
-pub async fn local_import(state: State<'_, AppState>, paths: Vec<String>) -> Result<ImportReport, ApiError> {
+pub async fn local_import<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+    paths: Vec<String>,
+) -> Result<ImportReport, ApiError> {
     tokio::fs::create_dir_all(books_dir(&state)).await?;
     tokio::fs::create_dir_all(covers_dir(&state)).await?;
+
+    // Fresh batch → clear any previous cancel so a stale flag can't abort it.
+    state.import_cancel.store(false, Ordering::SeqCst);
 
     let mut report = ImportReport {
         added: Vec::new(),
         skipped: Vec::new(),
         failed: Vec::new(),
     };
-    for raw in paths {
+    let total = paths.len();
+    for (done, raw) in paths.into_iter().enumerate() {
+        // Cooperatively cancel a large recursive import at a file boundary.
+        if state.import_cancel.load(Ordering::SeqCst) {
+            report.skipped.push(ImportNote {
+                path: "…".into(),
+                reason: "Import cancelled.".into(),
+            });
+            break;
+        }
+        let _ = app.emit(
+            IMPORT_PROGRESS_EVENT,
+            ImportProgress { done: done as u64, total: total as u64, current: raw.clone() },
+        );
         let src = import_source_path(&raw);
         let ext = ext_of(&src);
 
@@ -877,6 +986,73 @@ mod tests {
     use super::*;
     use crate::local_zip::{is_image, natural_cmp};
     use std::cmp::Ordering;
+
+    /// Build a temp tree of book files / unsupported files and return its root.
+    fn temp_library_tree() -> (PathBuf, Vec<PathBuf>) {
+        let dir = std::env::temp_dir().join(format!("cb8-folder-tree-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let a = dir.join("Series");
+        let b = dir.join("Series").join("Vol 02");
+        let c = dir.join("notes");
+        std::fs::create_dir_all(&b).unwrap();
+        std::fs::create_dir_all(&c).unwrap();
+        let mut files = Vec::new();
+        for p in [
+            dir.join("Top.epub"),
+            a.join("Issue 001.cbz"),
+            b.join("Deep.png"),
+            dir.join("readme.txt"),
+            c.join("notes.md"),
+        ] {
+            std::fs::write(&p, b"x").unwrap();
+            files.push(p);
+        }
+        (dir, files)
+    }
+
+    #[test]
+    fn walk_folder_collects_supported_recursively() {
+        let (root, files) = temp_library_tree();
+        let scan = walk_folder(&root);
+        // epub + cbz are supported; png/txt/md are not.
+        assert_eq!(scan.supported.len(), 2);
+        assert!(scan.supported.iter().all(|p| p.ends_with(".epub") || p.ends_with(".cbz")));
+        assert_eq!(scan.unsupported.len(), 3);
+        assert!(!scan.truncated);
+        let _ = files;
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn walk_folder_respects_depth_cap() {
+        let dir = std::env::temp_dir().join(format!("cb8-deep-tree-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // Build a chain deeper than SCAN_MAX_DEPTH with a book at the bottom.
+        let mut leaf = dir.clone();
+        for _ in 0..SCAN_MAX_DEPTH + 3 {
+            leaf = leaf.join("d");
+        }
+        std::fs::create_dir_all(&leaf).unwrap();
+        std::fs::write(leaf.join("deep.epub"), b"x").unwrap();
+        let scan = walk_folder(&dir);
+        assert!(scan.supported.is_empty(), "deep file should be truncated: {:?}", scan.supported);
+        assert!(scan.truncated, "depth cap should set truncated");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn walk_folder_caps_total_files() {
+        let dir = std::env::temp_dir().join(format!("cb8-many-tree-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for i in 0..SCAN_MAX_FILES + 50 {
+            std::fs::write(dir.join(format!("{i}.epub")), b"x").unwrap();
+        }
+        let scan = walk_folder(&dir);
+        assert!(scan.truncated, "file cap should set truncated");
+        assert!(scan.supported.len() <= SCAN_MAX_FILES);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn pages_sort_the_way_a_reader_counts() {

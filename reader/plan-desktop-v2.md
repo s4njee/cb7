@@ -68,11 +68,19 @@ with a 500-book folder.
   designs it properly: linked books are read-only sources, all app state
   (progress, annotations, covers cache) still lives in app storage keyed by
   content hash, so a re-found file reattaches its history.
-- [ ] **Recursive folder import — M.** For users who *do* want copies: allow
+- [x] **Recursive folder import — M.** For users who *do* want copies: allow
   dropping/picking a directory, walk it with a preview ("Found 214 supported
   files, 3 unsupported"), then run the existing per-file `local_import`
   pipeline with a progress UI and a per-file report. Bounded depth and a
   cancel button; still never silent.
+  → Implemented 2026-08-16 (v2 commit `…`). `local_scan_folder` walks a tree
+  (depth cap 8, 2000-file cap) returning `{ supported, unsupported,
+  truncated }`; the frontend shows a native confirm before importing.
+  `local_import` now emits per-file `shelf://local-import-progress` and honors
+  a cancel flag (`local_cancel_import`). Pickers get an "Add folder…" button;
+  dropping a folder routes through the same scan→confirm→import flow. Tests:
+  walk collects supported recursively, depth cap, file cap (61 Rust tests).
+  Verified: clippy clean, iOS target compiles, `pnpm build` passes.
 - [ ] **Duplicate detection — M.** Content-hash imported files (webui already
   hashes; reuse the approach) so re-importing the same book dedupes to the
   existing record instead of creating a second copy.

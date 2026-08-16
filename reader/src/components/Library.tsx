@@ -365,6 +365,7 @@ export default function Library() {
     removeLocalCopy,
     removeOfflineDownload,
     addBooks,
+    addFolder,
   } = useLibraryActions(showToast, downloadsQuery.data, setShelfChoice, setImporting);
 
   const openActions = useCallback(
@@ -655,9 +656,14 @@ export default function Library() {
                 </div>
                 <div className="empty-actions">
                   {api.localSupported && (
-                    <button className="btn-accent" onClick={addBooks} disabled={importing}>
-                      {importing ? "Adding…" : "Add books"}
-                    </button>
+                    <>
+                      <button className="btn-accent" onClick={addBooks} disabled={importing}>
+                        {importing ? "Adding…" : "Add books"}
+                      </button>
+                      <button className="btn-ghost" onClick={addFolder} disabled={importing}>
+                        Add folder…
+                      </button>
+                    </>
                   )}
                   {!serverReady && (
                     <button className="btn-ghost" onClick={changeServer}>

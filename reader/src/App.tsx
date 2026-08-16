@@ -33,6 +33,8 @@ export default function App() {
     bumpImport,
     requestReaderSettings,
     requestLibrarySearch,
+    importProgress,
+    setImportProgress,
   } = useSession();
   const toast = useSession((s) => s.toast);
   const dismissToast = useSession((s) => s.dismissToast);
@@ -170,9 +172,39 @@ export default function App() {
         showToast("Couldn't add that file.");
       } finally {
         importingOpen.current = false;
+        setImportProgress(null);
       }
     },
-    [finishImport, showToast],
+    [finishImport, showToast, setImportProgress],
+  );
+
+  // A dropped path may be a single book *or* a folder. Folders go through the
+  // scan → confirm → recursive-import flow (preview, progress, cancel);
+  // individual files use the plain import pipeline.
+  const importDropped = useCallback(
+    async (paths: string[]) => {
+      if (importingOpen.current) return;
+      const dirs: string[] = [];
+      const files: string[] = [];
+      await Promise.all(
+        paths.map(async (p) => {
+          const isDir = await api.pathIsDirectory(p);
+          (isDir ? dirs : files).push(p);
+        }),
+      );
+      try {
+        if (files.length) await importPaths(files, { open: false });
+        for (const dir of dirs) {
+          const report = await api.importFolderAtPath(dir);
+          if (report.added.length || report.skipped.length || report.failed.length) {
+            await finishImport(report, { open: false });
+          }
+        }
+      } finally {
+        setImportProgress(null);
+      }
+    },
+    [importPaths, finishImport, setImportProgress],
   );
 
   // Native menu "Add Books…" routes through the same picker as the shelf.
@@ -197,6 +229,7 @@ export default function App() {
     let unlistenOpened: (() => void) | undefined;
     let unlistenMenu: (() => void) | undefined;
     let unlistenDrop: (() => void) | undefined;
+    let unlistenProgress: (() => void) | undefined;
     let cancelled = false;
     void (async () => {
       try {
@@ -245,10 +278,18 @@ export default function App() {
         // practice; the helper gates on Tauri, and `isDesktop()` is not reliable
         // here (platform info may still be resolving during boot).
         unlistenDrop = await api.onFileDrop(setDropActive, (paths) => {
-          void importPaths(paths, { open: false });
+          void importDropped(paths);
         });
       } catch {
         /* drag/drop is best-effort */
+      }
+      try {
+        // Live progress of batch/folder imports → the overlay + cancel button.
+        unlistenProgress = await api.onLocalImportProgress((p) => {
+          setImportProgress(p);
+        });
+      } catch {
+        /* progress is best-effort */
       }
     })();
 
@@ -257,6 +298,7 @@ export default function App() {
       unlistenOpened?.();
       unlistenMenu?.();
       unlistenDrop?.();
+      unlistenProgress?.();
     };
   }, [importPaths]);
 
@@ -286,6 +328,30 @@ export default function App() {
       )}
 
       <div className="dim-overlay" style={{ opacity: dim }} />
+
+      {/* Live batch/folder import progress with a cancel button. */}
+      {importProgress && (
+        <div className="import-progress" role="status">
+          <div className="import-progress-label">
+            Importing {importProgress.done + 1} of {importProgress.total}
+          </div>
+          <div className="import-progress-track">
+            <div
+              className="import-progress-fill"
+              style={{ width: `${(importProgress.done / Math.max(1, importProgress.total)) * 100}%` }}
+            />
+          </div>
+          <button
+            className="btn-ghost"
+            onClick={() => {
+              void api.localCancelImport();
+              setImportProgress(null);
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
 
       {toast && (
         <div className="toast" role="status" onClick={dismissToast}>

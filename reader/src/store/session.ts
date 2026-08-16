@@ -40,6 +40,9 @@ interface SessionState extends PersistedSession {
   /** Monotonic counter bumped by external import entry points (native menu,
    *  drag/drop). Library flips to the local shelf when it changes. */
   importTick: number;
+  /** Live progress of a batch/folder import, or null when none is running.
+   *  App renders a small overlay with a Cancel button while set. */
+  importProgress: { done: number; total: number; current: string } | null;
   /** Monotonic counter bumped when the native menu asks the reader to open its
    *  settings drawer (Reader watches it, mirroring `importTick`). */
   readerSettingsTick: number;
@@ -53,6 +56,7 @@ interface SessionState extends PersistedSession {
   /** Signal that a book was imported from outside the library screen (native
    *  menu, drag/drop). Library watches this to switch to the local shelf. */
   bumpImport: () => void;
+  setImportProgress: (p: { done: number; total: number; current: string } | null) => void;
   /** Ask the reader to open its settings drawer (native View > Reader Settings). */
   requestReaderSettings: () => void;
   /** Focus the library search box (native Edit > Find in Library…, Cmd/Ctrl+F). */
@@ -93,10 +97,12 @@ export const useSession = create<SessionState>()(
       importTick: 0,
       readerSettingsTick: 0,
       librarySearchTick: 0,
+      importProgress: null,
 
       setBooting: () => set({ screen: "boot" }),
       enterLibrary: () => set({ screen: "library" }),
       bumpImport: () => set((s) => ({ importTick: s.importTick + 1 })),
+      setImportProgress: (importProgress) => set({ importProgress }),
       requestReaderSettings: () =>
         set((s) => ({ readerSettingsTick: s.readerSettingsTick + 1 })),
       requestLibrarySearch: () =>

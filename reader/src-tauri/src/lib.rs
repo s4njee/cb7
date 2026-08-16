@@ -117,6 +117,8 @@ pub fn run() {
             discovery::stop_discovery,
             local::local_list,
             local::local_import,
+            local::local_scan_folder,
+            local::local_cancel_import,
             local::local_delete,
             local::local_download,
             local::local_file_length,

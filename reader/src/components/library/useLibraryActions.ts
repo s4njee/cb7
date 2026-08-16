@@ -9,6 +9,7 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import * as api from "../../lib/api";
 import { importReportMessage } from "../../lib/format";
 import { useDeviceTransfer } from "../../lib/deviceTransfer";
+import { useSession } from "../../store/session";
 import { invalidateLibrary, patchLibraryCaches } from "./libraryData";
 
 export function useLibraryActions(
@@ -176,6 +177,34 @@ export function useLibraryActions(
       .finally(() => setImporting(false));
   }, [qc, showToast, setShelfChoice, setImporting]);
 
+  const addFolder = useCallback(() => {
+    setImporting(true);
+    const clear = useSession.getState().setImportProgress;
+    api
+      .pickAndImportFolder()
+      .then(({ report }) => {
+        qc.invalidateQueries({ queryKey: ["local"] });
+        const { added, skipped, failed } = report;
+        if (added.length) {
+          setShelfChoice("local");
+          showToast(
+            added.length === 1
+              ? `Added “${added[0].title}”.`
+              : `Added ${added.length} books.`,
+          );
+        } else if (skipped.length || failed.length) {
+          showToast(importReportMessage(report));
+        } else {
+          showToast("Nothing to add.");
+        }
+      })
+      .catch(() => showToast("Couldn't add that folder."))
+      .finally(() => {
+        setImporting(false);
+        clear(null);
+      });
+  }, [qc, showToast, setShelfChoice, setImporting]);
+
   return {
     invalidateAll,
     toggleFavorite,
@@ -187,6 +216,7 @@ export function useLibraryActions(
     removeOfflineDownload,
     downloadOffline,
     addBooks,
+    addFolder,
   };
 }
 

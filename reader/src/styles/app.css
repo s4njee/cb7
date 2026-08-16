@@ -56,6 +56,46 @@
   color: var(--muted);
 }
 
+/* Live batch/folder import progress — small card bottom-center, cancel button. */
+.import-progress {
+  position: fixed;
+  left: 50%;
+  bottom: calc(84px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 70;
+  width: min(340px, calc(100vw - 40px));
+  padding: 14px 18px;
+  border-radius: var(--radius-card);
+  background: var(--surface2);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+}
+
+.import-progress-label {
+  font-size: 13px;
+  color: var(--fg);
+  margin-bottom: 8px;
+}
+
+.import-progress-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--progress-track);
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.import-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 120ms ease-out;
+}
+
+.import-progress button {
+  font-size: 12.5px;
+}
+
 /* ---------------------------------------------------------------- Connect */
 
 .connect {

@@ -279,6 +279,91 @@ export function localImport(paths: string[]): Promise<ImportReport> {
   return invoke<ImportReport>("local_import", { paths });
 }
 
+/** Preview of a recursive folder import: supported files + what it would skip. */
+export interface FolderScan {
+  supported: string[];
+  unsupported: string[];
+  truncated: boolean;
+}
+
+/** Scan a directory (no import) to preview a recursive folder import. */
+export function localScanFolder(dir: string): Promise<FolderScan> {
+  if (!isTauri) return Promise.resolve({ supported: [], unsupported: [], truncated: false });
+  return invoke<FolderScan>("local_scan_folder", { dir });
+}
+
+/** Ask the in-flight import to stop after the current file. */
+export function localCancelImport(): Promise<void> {
+  if (!isTauri) return Promise.resolve();
+  return invoke<void>("local_cancel_import").catch(() => {});
+}
+
+export interface ImportProgress {
+  done: number;
+  total: number;
+  current: string;
+}
+
+/** Live progress of a batch import (per file). */
+export async function onLocalImportProgress(
+  cb: (p: ImportProgress) => void,
+): Promise<() => void> {
+  if (!isTauri) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<ImportProgress>("shelf://local-import-progress", (event) => cb(event.payload));
+}
+
+/**
+ * Import every supported book inside `folder` recursively, with a preview
+ * confirmation ("Found N books, M skipped") and live progress. `report.added`
+ * is empty when the user cancels or nothing was found.
+ */
+export async function importFolderAtPath(folder: string): Promise<ImportReport> {
+  if (!isTauri) return { added: [], skipped: [], failed: [] };
+  const scan = await localScanFolder(folder).catch(() => null);
+  if (!scan) return { added: [], skipped: [], failed: [] };
+
+  const { confirm } = await import("@tauri-apps/plugin-dialog");
+  const unsupportedNote = scan.unsupported.length
+    ? `\n${scan.unsupported.length} unsupported file${scan.unsupported.length === 1 ? "" : "s"} skipped.`
+    : "";
+  const truncNote = scan.truncated ? "\nPreview was capped — the largest supported files are listed first." : "";
+  const ok = await confirm(
+    `Import ${scan.supported.length} book${scan.supported.length === 1 ? "" : "s"} from this folder?${unsupportedNote}${truncNote}`,
+    { title: "Add folder", kind: "info" },
+  );
+  if (!ok || scan.supported.length === 0) {
+    return { added: [], skipped: [], failed: [] };
+  }
+  return localImport(scan.supported);
+}
+
+/**
+ * Pick a *folder* and import every supported book inside it recursively, with a
+ * preview confirmation and a progress UI + cancel. Returns `folder: null` when
+ * the user cancels the picker or the confirm dialog.
+ */
+export async function pickAndImportFolder(): Promise<{
+  report: ImportReport;
+  folder: string | null;
+}> {
+  if (!isTauri) return { report: { added: [], skipped: [], failed: [] }, folder: null };
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const picked = await open({ directory: true, multiple: false });
+  if (!picked || Array.isArray(picked)) return { report: { added: [], skipped: [], failed: [] }, folder: null };
+  const folder = String(picked);
+  const report = await importFolderAtPath(folder);
+  return { report, folder };
+}
+
+/** Whether a dropped/open path is a directory (vs a single book file). */
+export function pathIsDirectory(path: string): Promise<boolean> {
+  if (!isTauri) return Promise.resolve(false);
+  return localScanFolder(path)
+    .then(() => true)
+    .catch(() => false);
+}
+
 /**
  * Drain filesystem paths delivered by Open In / share sheet / Files before the
  * webview was ready (cold start). Returns `[]` when nothing is pending.
