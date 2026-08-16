@@ -36,6 +36,8 @@ jobs:
           cache-dependency-path: reader/pnpm-lock.yaml
       - name: Install
         run: pnpm install --frozen-lockfile
+      - name: Version sync (package.json / tauri.conf.json / Cargo.toml)
+        run: node scripts/check-version.mjs
       - name: Typecheck
         run: pnpm typecheck
       - name: Unit tests (vector suites)

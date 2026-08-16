@@ -504,35 +504,56 @@ desktop smoke: macOS + Windows + Linux   (Phase 7 release workflow)
 
 ### Phase 7 — Build signed installers and an update path
 
-- [ ] Add a release workflow triggered by a version tag such as
+- [x] Add a release workflow triggered by a version tag such as
   `reader-v0.2.0`. It must update/check both `reader/package.json` and
   `reader/src-tauri/tauri.conf.json`, and verify the Rust package version is in
   sync.
-- [ ] Build on native CI runners and publish artifacts with unambiguous OS,
+  → `.github/workflows/reader-release.yml` triggers on `reader-v*`.
+  `scripts/check-version.mjs` verifies package.json / tauri.conf.json /
+  Cargo.toml agree (run as its own gate job, and in reader CI on every PR).
+- [x] Build on native CI runners and publish artifacts with unambiguous OS,
   architecture, and version names.
+  → One job per native runner (macos-14, windows-latest, ubuntu-22.04), each
+  producing versioned, OS/arch-named artifacts (`CB8_<ver>_universal.dmg`,
+  `CB8_<ver>_x64_en-US.msi`, `cb8_<ver>_amd64.deb`, …) and uploading them.
 - [ ] macOS:
   - build a universal app or publish separate Intel/Apple Silicon artifacts;
   - sign with Developer ID, enable hardened runtime, and notarize/staple;
   - test first launch on a Mac that has never trusted the developer certificate.
+  → **Workflow added** (universal build; signing env vars wired to secrets).
+  Actual Developer ID signing + notarization needs production certificates and
+  a clean-machine launch test — not runnable from this repo without the
+  credentials. **Deferred to first real release.**
 - [ ] Windows:
   - build x64 MSI/NSIS installers;
   - choose and document WebView2 bootstrap behavior;
   - Authenticode-sign the executable and installer;
   - test install, upgrade, repair/uninstall, file associations, and paths longer
     than 260 characters where supported.
+  → **Workflow added** (MSI + NSIS on windows-latest; `TAURI_WINDOWS_SIGNTOOL_PATH`
+  secret wired). Build/install/upgrade/long-path testing needs a Windows runner
+  and a signing certificate — **deferred to first real release.**
 - [ ] Linux:
   - build AppImage and `.deb` on the oldest supported runner image;
   - document WebKitGTK/system package requirements for the `.deb`;
   - test on at least one Debian/Ubuntu and one non-Debian distribution for the
     AppImage;
   - publish checksums and optionally a detached signature.
+  → **Workflow added** (AppImage + deb on ubuntu-22.04, WebKitGTK 4.1 deps
+  installed). Multi-distro AppImage testing needs real Linux runners —
+  **deferred to first real release.**
 - [ ] Add Tauri's signed updater only after installers and manual upgrades are
   proven. Configure stable-channel metadata, signature verification, and a
   visible “Check for Updates” command. A failed update must leave the installed
   app launchable.
-- [ ] Generate SHA-256 checksums for every public artifact and attach release
+  → Deliberately **not added yet**: installers and manual upgrades are not
+  proven on all three OSes. Documented in `reader/docs/RELEASE-WORKFLOW.md` as a
+  follow-up once that gate passes.
+- [x] Generate SHA-256 checksums for every public artifact and attach release
   notes containing supported OSes, architectures, formats, known limitations,
   and data-location/backup guidance.
+  → The publish job checksums every uploaded artifact and drafts release notes
+  with the support matrix + data-location/backup guidance.
 
 Acceptance criteria:
 
