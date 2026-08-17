@@ -21,6 +21,8 @@ export interface BookmarkItem {
   title: string;
   label: string;
   target: string | number; // cfi (epub) or page index
+  /** User note attached to the bookmark (plan §5). */
+  note: string | null;
 }
 
 export interface HighlightItem {
@@ -30,6 +32,8 @@ export interface HighlightItem {
   /** Excerpt of the highlighted text, for the drawer list. */
   text: string;
   target: string; // cfi
+  /** User note attached to the highlight (plan §5). */
+  note: string | null;
 }
 
 /** One in-book text-search result, as a reader reports it to the shell. */
@@ -85,6 +89,9 @@ export interface ReaderApi {
   goToPercent: (pct: number) => void;
   goToHighlight?: (item: HighlightItem) => void;
   removeHighlight?: (key: string) => void;
+  /** Set or clear the note on a bookmark / highlight (plan §5). */
+  setBookmarkNote?: (item: BookmarkItem, note: string) => void;
+  setHighlightNote?: (item: HighlightItem, note: string) => void;
   /** In-book text search. Resolves to a list of per-section/page hits.
    *  Implemented by the EPUB and PDF readers; comics return []. */
   search?: (query: string) => Promise<SearchHit[]>;

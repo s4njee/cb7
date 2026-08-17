@@ -244,10 +244,36 @@ Windows-safe replacement semantics tested). Local commands:
 | `local_import` | `{ paths: string[] }` | `ImportReport { added, skipped, failed }` — per-file verdicts; directories and unsupported formats are skipped with a reason, a corrupt archive fails without leaving a catalog row, and one bad file never blocks the rest. |
 | `local_delete` | `{ id }` | bytes freed |
 | `local_download` | `{ comicId, title, ext, mediaType, pageCount }` | downloads a server book into the local library |
+
+## OPDS catalogs (acquisition)
+
+User-added OPDS catalogs are an acquisition source, not a second shelf. Rust
+owns every request (isolated `reqwest` client, no CB8 cookie jar). Feeds are
+normalized from **OPDS 2 JSON** and **OPDS 1 Atom**. Downloads stream to a
+`.part` file, then land in the local library via the same catalog insert as
+`local_import` (content-hash dedupe, `acquiredFrom` recorded).
+
+Catalogs persist in `<app_data>/opds.json` (not `config.json`), so
+`get_config` never serializes passwords. List commands strip the password and
+return `hasAuth` instead.
+
+| command | args | returns |
+|---|---|---|
+| `opds_list_catalogs` | — | `{ id, name, url, username?, hasAuth }[]` |
+| `opds_add_catalog` | `{ name, url, username?, password? }` | probes the feed, persists, returns the catalog info |
+| `opds_remove_catalog` | `{ id }` | — |
+| `opds_browse` | `{ catalogId, href? }` | `OpdsFeed` (`href` omitted = catalog root) |
+| `opds_search` | `{ catalogId, query, template }` | `OpdsFeed` (template contains `{searchTerms}` or `{query}`) |
+| `opds_download` | `{ catalogId, href, title, mime?, coverHref?, progressId }` | `{ book: LocalBook, alreadyOwned }` |
+
+`opds_download` emits `shelf://local-download-progress` with the caller-chosen
+`progressId` so the existing Save-to-device banner can track it. Acquisition
+URLs must be `http`/`https`; other schemes are rejected. Only EPUB/PDF/CBZ/CBR
+are imported.
 | `local_read_range` / `local_file_length` | `{ id, begin, end }` / `{ id }` | ranged reads for local PDFs |
 | `local_page_count` / `local_set_progress` / `local_clear_progress` / `local_set_favorite` / `local_size` / `save_local_cover` | — | library bookkeeping |
 
-Formats: EPUB, PDF, CBZ, and **CBR on desktop** (RAR via the `unrar` crate —
+Formats: EPUB, DRM-free MOBI/AZW3 (converted to EPUB at import), PDF, CBZ, and **CBR on desktop** (RAR via the `unrar` crate —
 MIT/Apache wrapper around RARLAB's UnRAR C library; desktop-only Cargo `cfg`).
 Comic pages are listed and extracted **on demand** through one bounded
 abstraction (`local_zip::page_names` / `entry_bytes`), natural-sorted and
@@ -289,7 +315,7 @@ Default port **8008** (`CB8_PORT`); docker compose publishes **4218**.
 - `GET /api/continue-reading?limit=&mediaType=` and `GET /api/recently-read?...` → **bare array** of records (in-progress-only / any).
 - `WebComicRecord` (exact): `{ id, title, pageCount, fileSize, dateAdded, tags: string[], lastPage: number|null (0-based), lastLocation: string|null (EPUB CFI), lastPercent: number|null (0-100, EPUB), lastRead: string|null, mediaType: 'comic'|'book', thumbnailUrl: string, fileExt: string, favorited: boolean }`.
 - **There is no author/series field on the record.** UI shows `FILEEXT · N pages` style metadata instead.
-- `mediaType === 'comic'` (cbz/cbr) ⇒ has page images; `'book'` (epub/pdf/mobi) ⇒ has `/file`.
+- `mediaType === 'comic'` (cbz/cbr/cb7, or linked image folder) ⇒ has page images; `'book'` (epub/pdf/mobi) ⇒ has `/file`.
 
 ### Media
 - Cover: record's `thumbnailUrl` (`/api/comics/:id/thumbnail?v=<ms>`), append `&width=NNN` for a resize. JPEG.
@@ -304,9 +330,16 @@ Default port **8008** (`CB8_PORT`); docker compose publishes **4218**.
 - Read back via `lastPage`/`lastLocation`/`lastPercent` on any record fetch.
 - History (optional): `POST /api/history` `{ comicId, action: 'opened'|'closed', page }`.
 
-### Bookmarks (server-side, comics **and** EPUB; auth required)
+### Bookmarks (local-first; comics, PDFs, **and** EPUB)
 A bookmark is anchored by **exactly one** of `page` (fixed-layout: comics/PDFs) or
 `location` (an EPUB CFI, for reflowable books). The unused field is always `null`.
+
+The reader stores bookmarks **on the device first** (`shelf.bookmarks.v2`, keyed
+by `l:<localId>` or `s:<serverUrl>:<user|guest>:<comicId>`). A signed-in session
+merges the server list (union by page/CFI), POSTs local-only rows, and DELETEs
+tombstones. Offline, guest, and local-only books never wait on the network.
+Legacy EPUB `shelf.bookmarks.<server>.<id>` entries are imported into the store
+on first list. Server API (unchanged):
 
 - `GET /api/comics/:id/bookmarks` →
   `[{ id, page: int|null (0-based), location: string|null (CFI), note: string|null, createdAt }]`
@@ -320,8 +353,9 @@ A bookmark is anchored by **exactly one** of `page` (fixed-layout: comics/PDFs) 
 - List order: page-anchored first in ascending page order, then CFI-anchored ones
   (`NULLS LAST`), ties broken by `id`. CFIs are not ordered relative to each other —
   sort them client-side if you need reading order.
-- **EPUB bookmarks are now server-side.** The old localStorage workaround (`{ cfi, label,
-  createdAt }` keyed by server+book id) is obsolete — POST the CFI as `location` instead.
+- The old localStorage workaround (`{ cfi, label, createdAt }` keyed by
+  server+book id) is imported into `shelf.bookmarks.v2` and then POSTed as
+  `location` when a session is available.
 
 ### Other
 - `POST/DELETE /api/comics/:id/favorite`; list favorites via `?favorites=true`.

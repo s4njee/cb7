@@ -97,6 +97,12 @@ export const COMIC_SCROLL_EST_WIDTH = 460;
 export const COMIC_SCROLL_EST_HEIGHT = Math.round(460 * 1.5);
 export const COMIC_SCROLL_GAP = 14;
 
+/** Comic continuous mode: dynamic ~1.5 aspect estimate based on container width with generous margins. */
+export function comicScrollEstHeight(containerWidth: number): number {
+  const slotW = Math.min(720, Math.max(280, (containerWidth || 720) - 48));
+  return Math.max(120, Math.round(slotW * 1.5));
+}
+
 /** PDF continuous mode: width-driven, ~1.3 aspect placeholder (PdfReader). */
 export function pdfScrollEstHeight(containerWidth: number): number {
   return Math.max(120, Math.round(containerWidth * 1.3));

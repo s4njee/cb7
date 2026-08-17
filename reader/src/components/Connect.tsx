@@ -13,7 +13,9 @@ import { useSession } from "../store/session";
 import GuestSyncPrompt from "./flows/GuestSyncPrompt";
 import DiscoveryList from "./connect/DiscoveryList";
 import ScanButton from "./connect/ScanButton";
+import OpdsPanel from "./opds/OpdsPanel";
 import "../styles/connect.css";
+import "../styles/opds.css";
 
 /** One friendly, non-technical line per rejection reason (QR-3). The user is
  *  holding a phone at a screen; "bad-url" is not a sentence. */
@@ -46,6 +48,7 @@ export default function Connect() {
     enterAsUser,
     enterAsGuest,
     cancelConnect,
+    bumpImport,
   } = useSession();
 
   const [server, setServer] = useState(serverUrl || "");
@@ -56,6 +59,7 @@ export default function Connect() {
   // We hold on the connect screen (session already authenticated) to run the
   // sync, then enter the library — see GuestSyncPrompt.
   const [pendingSync, setPendingSync] = useState<{ user: api.User; serverUrl: string } | null>(null);
+  const [opdsOpen, setOpdsOpen] = useState(false);
 
   async function resolveServerUrl(): Promise<string> {
     const cfg = await api.getConfig();
@@ -89,6 +93,7 @@ export default function Connect() {
   /** Shared tail of every real sign-in (credentials or pairing token): offer to
    *  upload anything captured while browsing as a guest, then enter. */
   function finishSignIn(user: api.User, resolved: string) {
+    void api.syncBookmarksOutbox();
     const hasGuestProgress = Object.keys(allGuestProgress(resolved)).length > 0;
     if (hasGuestProgress) {
       setPendingSync({ user, serverUrl: resolved });
@@ -250,6 +255,22 @@ export default function Connect() {
                 {busy ? "Connecting…" : "Continue"}
               </button>
             </form>
+            {api.opdsSupported && (
+              <div className="opds-connect">
+                <div className="field-label">Or get books from a catalog</div>
+                <div className="opds-connect-sub">
+                  Standard Ebooks, Project Gutenberg, Calibre-Web, or a CB8 OPDS feed.
+                </div>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={() => setOpdsOpen(true)}
+                  disabled={busy}
+                >
+                  Add OPDS catalog
+                </button>
+              </div>
+            )}
           </>
         ) : (
           <form onSubmit={submitSignin}>
@@ -299,6 +320,16 @@ export default function Connect() {
           </form>
         )}
       </div>
+      {opdsOpen && (
+        <div className="sheet-backdrop" onClick={() => setOpdsOpen(false)}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <OpdsPanel
+              onClose={() => setOpdsOpen(false)}
+              onImported={() => bumpImport()}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

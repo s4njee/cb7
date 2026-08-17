@@ -73,7 +73,8 @@ verified; unchecked items are the roadmap.
       unproven on hardware: a simulator has no taptic engine
 
 ## Annotations & Marks
-- [x] Bookmarks — comics (server-synced), EPUB (local)
+- [x] Bookmarks — comics, PDF, and EPUB; local-first on device, synced when a
+      signed-in server session is available
 - [x] **EPUB bookmarks synced to server** (CFI `location` anchors; server endpoint added to webui)
 - [x] Text highlights with colors (EPUB)
 - [ ] Notes attached to highlights/bookmarks
@@ -126,7 +127,9 @@ verified; unchecked items are the roadmap.
 - [ ] Multiple saved servers / fast server switching
 - [ ] Multiple user profiles on one device
 - [ ] Self-signed certificate trust flow (HTTPS with private CAs)
-- [ ] OPDS catalog browsing as a secondary source (server exposes `/api/opds`)
+- [x] OPDS catalog browsing as a secondary source (server exposes `/api/opds`;
+      desktop also adds Standard Ebooks / Gutenberg / Calibre-Web as
+      user-added catalogs)
 - [ ] Change-password screen (admin creates accounts; password change is in webui only)
 
 ## Platform Integration (iOS/Android)

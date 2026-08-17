@@ -1,5 +1,5 @@
 /** Comic reader — single / two-page / continuous-scroll layouts backed by real
- *  page images, with preloading, a thumbnail strip, and server-side progress + bookmarks. */
+ *  page images, with preloading, a thumbnail strip, and local-first bookmarks. */
 import {
   forwardRef,
   useCallback,
@@ -11,6 +11,7 @@ import {
 } from "react";
 import * as api from "../lib/api";
 import {
+  comicScrollEstHeight,
   COMIC_SCROLL_EST_HEIGHT,
   COMIC_SCROLL_GAP,
   computeVirtualWindow,
@@ -33,6 +34,7 @@ function PageImage({
   aspect,
   width,
   scrollSlot,
+  estHeight,
 }: {
   record: api.WebComicRecord;
   index: number;
@@ -44,6 +46,7 @@ function PageImage({
   width?: number;
   /** Continuous mode: reserve estimated height for virtual-window spacers. */
   scrollSlot?: boolean;
+  estHeight?: number;
 }) {
   const [loaded, setLoaded] = useState(false);
   const [errored, setErrored] = useState(false);
@@ -79,7 +82,7 @@ function PageImage({
       style={{
         ...(wide ? { aspectRatio: String(aspect) } : undefined),
         ...(scrollSlot
-          ? { minHeight: COMIC_SCROLL_EST_HEIGHT, boxSizing: "border-box" as const }
+          ? { minHeight: estHeight || COMIC_SCROLL_EST_HEIGHT, boxSizing: "border-box" as const }
           : undefined),
         position: "relative",
       }}
@@ -159,7 +162,13 @@ const ComicReader = forwardRef<ReaderApi, ComicReaderProps>(function ComicReader
   const thumbStripRef = useRef<HTMLDivElement | null>(null);
   const activeThumbRef = useRef<HTMLButtonElement | null>(null);
   const firstProgress = useRef(true);
-  const [scrollOffset, setScrollOffset] = useState(0);
+  const initialScrollOffset =
+    mode === "scroll"
+      ? initialPage *
+        (comicScrollEstHeight(typeof window !== "undefined" ? window.innerWidth : 1024) +
+          COMIC_SCROLL_GAP)
+      : 0;
+  const [scrollOffset, setScrollOffset] = useState(initialScrollOffset);
   const [scrollViewH, setScrollViewH] = useState(
     typeof window !== "undefined" ? window.innerHeight : 800,
   );
@@ -232,13 +241,21 @@ const ComicReader = forwardRef<ReaderApi, ComicReaderProps>(function ComicReader
     [mode, isWide],
   );
 
+  const itemH = comicScrollEstHeight(stage.w);
+
   const seek = useCallback(
     (p: number) => {
       const a = anchorFor(clamp(p, 0, total - 1));
       bounds.current = [a];
       setPage(a);
+      if (mode === "scroll" && scrollRef.current) {
+        const stride = itemH + COMIC_SCROLL_GAP;
+        const target = a * stride;
+        scrollRef.current.scrollTop = target;
+        setScrollOffset(target);
+      }
     },
-    [anchorFor, total],
+    [anchorFor, total, mode, itemH],
   );
 
   // `seek` re-identifies whenever a probe lands; the thumb strip is one button
@@ -249,6 +266,16 @@ const ComicReader = forwardRef<ReaderApi, ComicReaderProps>(function ComicReader
 
   const step = useCallback(
     (dir: 1 | -1) => {
+      if (mode === "scroll") {
+        const root = scrollRef.current;
+        if (root) {
+          root.scrollBy({
+            top: dir * (root.clientHeight || 600) * 0.85,
+            behavior: "smooth",
+          });
+        }
+        return;
+      }
       if (mode !== "spread") {
         setPage((p) => clamp(p + dir, 0, total - 1));
         return;
@@ -370,6 +397,7 @@ const ComicReader = forwardRef<ReaderApi, ComicReaderProps>(function ComicReader
       goToChapter: () => {},
       goToBookmark: (item) => seek(Number(item.target)),
       toggleBookmark: () => void toggleBookmark(),
+      setBookmarkNote,
       getPosition: () => page,
       goTo: (target) => seek(Number(target)),
       goToPage: (n) => seek(n - 1),
@@ -380,7 +408,7 @@ const ComicReader = forwardRef<ReaderApi, ComicReaderProps>(function ComicReader
     [step, seek, rtl, total, bookmarks, page],
   );
 
-  // Load bookmarks once (server-side, or the on-device list for a local book).
+  // Load bookmarks once (local-first; a connected session merges the server).
   useEffect(() => {
     let alive = true;
     api
@@ -454,9 +482,21 @@ const ComicReader = forwardRef<ReaderApi, ComicReaderProps>(function ComicReader
           [...bm, created].sort((a, b) => (a.page ?? 0) - (b.page ?? 0)),
         );
       } catch {
-        /* guest write — silent */
+        /* local write already landed; a failed sync is retried later */
       }
     }
+  }
+
+  function setBookmarkNote(item: BookmarkItem, note: string) {
+    const id = Number(item.key);
+    api
+      .setBookmarkNote(record, id, note)
+      .then((updated) => {
+        if (updated) setBookmarks((bm) => bm.map((b) => (b.id === id ? updated : b)));
+      })
+      .catch(() => {
+        /* local write already landed; a failed PUT is retried on the next edit */
+      });
   }
 
   const isBookmarked = bookmarks.some((b) => b.page === page);
@@ -481,6 +521,7 @@ const ComicReader = forwardRef<ReaderApi, ComicReaderProps>(function ComicReader
           title: record.title,
           label: `Page ${b.page + 1}`,
           target: b.page,
+          note: b.note ?? null,
         })),
     [bookmarks, record.title],
   );
@@ -557,11 +598,11 @@ const ComicReader = forwardRef<ReaderApi, ComicReaderProps>(function ComicReader
         total,
         scrollOffset,
         viewportSize: scrollViewH,
-        itemSize: COMIC_SCROLL_EST_HEIGHT,
+        itemSize: itemH,
         gap: COMIC_SCROLL_GAP,
         overscan: 3,
       }),
-    [total, scrollOffset, scrollViewH],
+    [total, scrollOffset, scrollViewH, itemH],
   );
 
   useEffect(() => {
@@ -573,7 +614,7 @@ const ComicReader = forwardRef<ReaderApi, ComicReaderProps>(function ComicReader
       setScrollViewH(root.clientHeight);
       const next = pageAtScroll(
         root.scrollTop,
-        COMIC_SCROLL_EST_HEIGHT,
+        itemH,
         COMIC_SCROLL_GAP,
         total,
       );
@@ -582,20 +623,20 @@ const ComicReader = forwardRef<ReaderApi, ComicReaderProps>(function ComicReader
     setScrollViewH(root.clientHeight);
     root.addEventListener("scroll", onScroll, { passive: true });
     return () => root.removeEventListener("scroll", onScroll);
-  }, [mode, total]);
+  }, [mode, total, itemH]);
 
-  // Seek/jump in scroll mode: position the virtual window near the target page.
+  // Mode switch / initial position in scroll mode: position virtual window at current page.
   useEffect(() => {
     if (mode !== "scroll") return;
     const root = scrollRef.current;
     if (!root) return;
-    const stride = COMIC_SCROLL_EST_HEIGHT + COMIC_SCROLL_GAP;
+    const stride = itemH + COMIC_SCROLL_GAP;
     const target = page * stride;
-    if (Math.abs(root.scrollTop - target) > stride * 2) {
+    if (Math.abs(root.scrollTop - target) > stride * 1.5) {
       root.scrollTop = target;
       setScrollOffset(target);
     }
-  }, [mode, page]);
+  }, [mode, itemH]);
 
   // Report state up whenever anything relevant changes.
   useEffect(() => {
@@ -649,8 +690,10 @@ const ComicReader = forwardRef<ReaderApi, ComicReaderProps>(function ComicReader
             key={i}
             record={record}
             index={i}
+            aspect={aspects[i]}
             width={pageWidth(i)}
             scrollSlot
+            estHeight={itemH}
           />
         ))}
         {scrollWin.afterPx > 0 && (

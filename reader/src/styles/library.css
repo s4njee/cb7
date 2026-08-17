@@ -913,3 +913,20 @@
   border-color: var(--danger);
   color: var(--danger);
 }
+.local-search-results {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  right: 44px;
+  width: min(420px, calc(100vw - 32px));
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 18px 45px rgb(0 0 0 / 24%);
+}
+.local-search-label { padding: 6px 10px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+.local-search-hit { display: grid; gap: 3px; width: 100%; padding: 9px 10px; border: 0; border-radius: 9px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.local-search-hit:hover { background: var(--surface-2); }
+.local-search-hit-title { font-weight: 650; }
+.local-search-hit-snippet { overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }

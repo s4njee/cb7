@@ -40,7 +40,9 @@ import {
   windowIndices,
 } from "../lib/virtualWindow";
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
+import { TextLayer } from "pdfjs-dist";
 import { usePrefs } from "../store/prefs";
+import { useSession } from "../store/session";
 import { StatusOverlay } from "./ui/StatusView";
 import type {
   BookmarkItem,
@@ -48,6 +50,18 @@ import type {
   ReaderApi,
   ReaderReportedState,
 } from "./readerTypes";
+import HighlightPopover, { type HighlightPopoverState } from "./HighlightPopover";
+import { type PopoverAnchor } from "./EpubPopover";
+import {
+  excerpt,
+  loadPdfHighlights,
+  savePdfHighlights,
+  withPdfHighlightNote,
+  swatchColor,
+  type PdfHighlightRect,
+  type StoredPdfHighlight,
+  type SwatchId,
+} from "../lib/highlights";
 
 interface PdfReaderProps {
   record: api.WebComicRecord;
@@ -95,7 +109,10 @@ async function paintPage(
   const pdfPage = await doc.getPage(pageIndex + 1);
   const unscaled = pdfPage.getViewport({ scale: 1 });
   const dpr = window.devicePixelRatio || 1;
-  const fit = Math.min(boxW / unscaled.width, boxH / unscaled.height);
+  const fit =
+    boxH === Infinity || !Number.isFinite(boxH)
+      ? boxW / unscaled.width
+      : Math.min(boxW / unscaled.width, boxH / unscaled.height);
   const viewport = pdfPage.getViewport({ scale: fit * dpr });
 
   canvas.width = Math.max(1, Math.floor(viewport.width));
@@ -106,6 +123,88 @@ async function paintPage(
   const task = pdfPage.render({ canvas, viewport });
   await task.promise;
   return task;
+}
+
+function PdfTextLayer({
+  doc,
+  pageIndex,
+  width,
+  height,
+  highlights,
+  onSelect,
+}: {
+  doc: PDFDocumentProxy;
+  pageIndex: number;
+  width: number;
+  height: number;
+  highlights: StoredPdfHighlight[];
+  onSelect: (page: number, text: string, rects: PdfHighlightRect[], anchor: PopoverAnchor) => void;
+}) {
+  const layerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    let layer: TextLayer | null = null;
+    void (async () => {
+      if (!layerRef.current || width <= 0 || height <= 0) return;
+      const page = await doc.getPage(pageIndex + 1);
+      const base = page.getViewport({ scale: 1 });
+      const fit =
+        height === Infinity || !Number.isFinite(height)
+          ? width / base.width
+          : Math.min(width / base.width, height / base.height);
+      const viewport = page.getViewport({ scale: fit });
+      const textContent = await page.getTextContent();
+      if (cancelled || !layerRef.current) return;
+      layer = new TextLayer({ textContentSource: textContent, container: layerRef.current, viewport });
+      await layer.render();
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+      layer?.cancel();
+      if (layerRef.current) layerRef.current.replaceChildren();
+    };
+  }, [doc, pageIndex, width, height]);
+
+  const onMouseUp = useCallback(() => {
+    const root = layerRef.current;
+    const selection = window.getSelection();
+    if (!root || !selection || selection.isCollapsed || !selection.rangeCount) return;
+    if (!root.contains(selection.anchorNode) || !root.contains(selection.focusNode)) return;
+    const text = selection.toString().trim();
+    if (!text) return;
+    const rootRect = root.getBoundingClientRect();
+    const rects = Array.from(selection.getRangeAt(0).getClientRects())
+      .map((r) => ({
+        left: (r.left - rootRect.left) / rootRect.width,
+        top: (r.top - rootRect.top) / rootRect.height,
+        width: r.width / rootRect.width,
+        height: r.height / rootRect.height,
+      }))
+      .filter((r) => r.width > 0 && r.height > 0);
+    if (!rects.length) return;
+    onSelect(pageIndex, text, rects, {
+      x: rootRect.left + rootRect.width / 2,
+      y: Math.max(20, rootRect.top + Math.min(rootRect.height, 120)),
+    });
+    selection.removeAllRanges();
+  }, [onSelect, pageIndex]);
+
+  return (
+    <div className="pdf-text-layer-wrap" style={{ width: "100%", height: "100%" }}>
+      <div className="pdf-highlight-layer" aria-hidden="true">
+        {highlights.filter((h) => h.page === pageIndex).flatMap((h) =>
+          h.rects.map((r, i) => (
+            <span
+              key={`${h.id}-${i}`}
+              className="pdf-highlight-rect"
+              style={{ left: `${r.left * 100}%`, top: `${r.top * 100}%`, width: `${r.width * 100}%`, height: `${r.height * 100}%`, background: swatchColor(h.color, "light") }}
+            />
+          )),
+        )}
+      </div>
+      <div ref={layerRef} className="pdf-text-layer" onMouseUp={onMouseUp} onTouchEnd={onMouseUp} />
+    </div>
+  );
 }
 
 const PdfReader = forwardRef<ReaderApi, PdfReaderProps>(function PdfReader(
@@ -119,6 +218,9 @@ const PdfReader = forwardRef<ReaderApi, PdfReaderProps>(function PdfReader(
   const [pageCount, setPageCount] = useState<number | null>(null);
   const [outline, setOutline] = useState<PdfOutlineEntry[]>([]);
   const [bookmarks, setBookmarks] = useState<api.ServerBookmark[]>([]);
+  const [highlights, setHighlights] = useState<StoredPdfHighlight[]>(() =>
+    loadPdfHighlights(useSession.getState().serverUrl ?? "", record.id),
+  );
   const [load, setLoad] = useState<LoadState>(() =>
     loadingState(LOAD_MESSAGES.loadingPdf),
   );
@@ -126,6 +228,8 @@ const PdfReader = forwardRef<ReaderApi, PdfReaderProps>(function PdfReader(
   const [reloadNonce, setReloadNonce] = useState(0);
   const hasDoc = doc != null;
   const [box, setBox] = useState({ width: 0, height: 0 });
+  const [hlPop, setHlPop] = useState<HighlightPopoverState | null>(null);
+  const pendingHighlight = useRef<{ page: number; text: string; rects: PdfHighlightRect[] } | null>(null);
 
   const [page, setPage] = useState(() =>
     record.lastPage != null ? Math.max(0, record.lastPage) : 0,
@@ -147,16 +251,44 @@ const PdfReader = forwardRef<ReaderApi, PdfReaderProps>(function PdfReader(
   const firstProgress = useRef(true);
   const modeRef = useRef(mode);
   modeRef.current = mode;
-  const [scrollOffset, setScrollOffset] = useState(0);
-  const [scrollViewH, setScrollViewH] = useState(
-    typeof window !== "undefined" ? window.innerHeight : 800,
-  );
-  const memBudget = useMemo(() => pdfMemoryBudget(box.width || undefined), [box.width]);
-
   const total = Math.max(1, pageCount ?? record.pageCount);
   const step = mode === "spread" ? 2 : 1;
   const isScroll = mode === "scroll";
   const isSpread = mode === "spread";
+  const memBudget = useMemo(() => pdfMemoryBudget(box.width || undefined), [box.width]);
+  const scrollSlotW = Math.min(840, Math.max(280, (box.width || 400) - 32));
+  const itemH = pdfScrollEstHeight(isScroll ? scrollSlotW : box.width || 400);
+  const initialScrollOffset =
+    mode === "scroll" ? page * (itemH + PDF_SCROLL_GAP) : 0;
+  const [scrollOffset, setScrollOffset] = useState(initialScrollOffset);
+  const [scrollViewH, setScrollViewH] = useState(
+    typeof window !== "undefined" ? window.innerHeight : 800,
+  );
+
+  const persistHighlights = useCallback((next: StoredPdfHighlight[]) => {
+    setHighlights(next);
+    savePdfHighlights(useSession.getState().serverUrl ?? "", record.id, next);
+  }, [record.id]);
+
+  const selectPdfText = useCallback((pageIndex: number, text: string, rects: PdfHighlightRect[], anchor: PopoverAnchor) => {
+    const id = `pdf:${pageIndex}:${Date.now()}`;
+    pendingHighlight.current = { page: pageIndex, text, rects };
+    setHlPop({ anchor, cfiRange: id, existing: highlights.find((h) => h.id === id)?.color ?? null });
+  }, [highlights]);
+
+  const addPdfHighlight = useCallback((color: SwatchId) => {
+    const pending = pendingHighlight.current;
+    if (!pending || !hlPop) return;
+    const next: StoredPdfHighlight = { id: hlPop.cfiRange, ...pending, text: excerpt(pending.text), color, note: null, createdAt: Date.now() };
+    persistHighlights([...highlights.filter((h) => h.id !== next.id), next]);
+    pendingHighlight.current = null;
+    setHlPop(null);
+  }, [hlPop, highlights, persistHighlights]);
+
+  const removePdfHighlight = useCallback((id: string) => {
+    persistHighlights(highlights.filter((h) => h.id !== id));
+    setHlPop(null);
+  }, [highlights, persistHighlights]);
 
   const goToIndex = useCallback(
     (i: number) => {
@@ -167,6 +299,13 @@ const PdfReader = forwardRef<ReaderApi, PdfReaderProps>(function PdfReader(
         setPage(next - (next % 2));
       } else {
         setPage(next);
+      }
+      if (modeRef.current === "scroll" && scrollRef.current) {
+        const estH = pdfScrollEstHeight(containerRef.current?.clientWidth || 400);
+        const stride = estH + PDF_SCROLL_GAP;
+        const target = next * stride;
+        scrollRef.current.scrollTop = target;
+        setScrollOffset(target);
       }
     },
     [total],
@@ -269,10 +408,12 @@ const PdfReader = forwardRef<ReaderApi, PdfReaderProps>(function PdfReader(
       setPage((p) => p - (p % 2));
     }
     if (mode === "scroll" && scrollRef.current) {
-      const el = scrollCanvasRefs.current.get(pageRef.current)?.parentElement;
-      el?.scrollIntoView({ block: "start" });
+      const stride = itemH + PDF_SCROLL_GAP;
+      const target = pageRef.current * stride;
+      scrollRef.current.scrollTop = target;
+      setScrollOffset(target);
     }
-  }, [mode]);
+  }, [mode, itemH]);
 
   /* ----------------------------------------------- paged render (1 / 2) */
 
@@ -320,7 +461,6 @@ const PdfReader = forwardRef<ReaderApi, PdfReaderProps>(function PdfReader(
     };
   }, [doc, page, box, isScroll, isSpread, total]);
 
-  const itemH = pdfScrollEstHeight(box.width || 400);
   const scrollWin = useMemo(
     () =>
       computeVirtualWindow({
@@ -336,11 +476,28 @@ const PdfReader = forwardRef<ReaderApi, PdfReaderProps>(function PdfReader(
 
   /* ----------------------------------------------- scroll: virtual + paint */
 
+  // Attach scroll listener in scroll mode (independent of paint triggers).
+  useEffect(() => {
+    if (!isScroll) return;
+    const root = scrollRef.current;
+    if (!root) return;
+    const onScroll = () => {
+      setScrollOffset(root.scrollTop);
+      setScrollViewH(root.clientHeight);
+      const current = pageAtScroll(root.scrollTop, itemH, PDF_SCROLL_GAP, total);
+      if (current !== pageRef.current) setPage(current);
+    };
+    setScrollViewH(root.clientHeight);
+    root.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      root.removeEventListener("scroll", onScroll);
+    };
+  }, [isScroll, itemH, total]);
+
+  // Paint visible pages in virtual window.
   useEffect(() => {
     if (!doc || !isScroll || box.width === 0) return;
     let cancelled = false;
-    const root = scrollRef.current;
-    if (!root) return;
 
     const releaseOutside = (keep: Set<number>) => {
       const drop = pagesToRelease(
@@ -371,12 +528,11 @@ const PdfReader = forwardRef<ReaderApi, PdfReaderProps>(function PdfReader(
         }
         try {
           const prev = scrollTasks.current.get(i) ?? null;
-          const estH = itemH;
-          const task = await paintPage(doc, i, canvas, box.width, estH, prev);
+          const task = await paintPage(doc, i, canvas, scrollSlotW, Infinity, prev);
           if (cancelled) return;
           if (task) scrollTasks.current.set(i, task);
           canvas.dataset.painted = "1";
-          canvas.dataset.w = String(box.width);
+          canvas.dataset.w = String(scrollSlotW);
           paintedPages.current.add(i);
         } catch (err) {
           if (cancelled || isRenderCancelled(err)) continue;
@@ -387,32 +543,17 @@ const PdfReader = forwardRef<ReaderApi, PdfReaderProps>(function PdfReader(
     };
 
     void paintVisible();
-    const onScroll = () => {
-      setScrollOffset(root.scrollTop);
-      setScrollViewH(root.clientHeight);
-      const current = pageAtScroll(root.scrollTop, itemH, PDF_SCROLL_GAP, total);
-      if (current !== pageRef.current) setPage(current);
-    };
-    root.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       cancelled = true;
-      root.removeEventListener("scroll", onScroll);
     };
-  }, [doc, isScroll, box, total, scrollWin, itemH, memBudget.maxPaintedPages]);
-
-  // When jumping to a page in scroll mode, position via estimated stride so we
-  // do not depend on every slot being mounted.
-  useEffect(() => {
-    if (!isScroll) return;
-    const root = scrollRef.current;
-    if (!root) return;
-    const stride = itemH + PDF_SCROLL_GAP;
-    const target = page * stride;
-    if (Math.abs(root.scrollTop - target) > stride * 1.5) {
-      root.scrollTop = target;
-      setScrollOffset(target);
-    }
-  }, [page, isScroll, itemH]);
+  }, [
+    doc,
+    isScroll,
+    box.width,
+    scrollWin.start,
+    scrollWin.end,
+    memBudget.maxPaintedPages,
+  ]);
 
   /* ---------------------------------------------------- bookmarks / progress */
 
@@ -460,10 +601,29 @@ const PdfReader = forwardRef<ReaderApi, PdfReaderProps>(function PdfReader(
           [...bm, created].sort((a, b) => (a.page ?? 0) - (b.page ?? 0)),
         );
       } catch {
-        /* guest write — silent */
+        /* local write already landed; a failed sync is retried later */
       }
     }
   }, [bookmarks, record.id]);
+
+  const setBookmarkNote = useCallback(
+    (item: BookmarkItem, note: string) => {
+      const id = Number(item.key);
+      api
+        .setBookmarkNote(record, id, note)
+        .then((updated) => {
+          if (updated) setBookmarks((bm) => bm.map((b) => (b.id === id ? updated : b)));
+        })
+        .catch(() => {
+          /* local write already landed; a failed PUT is retried on the next edit */
+        });
+    },
+    [record],
+  );
+
+  const setHighlightNote = useCallback((item: import("./readerTypes").HighlightItem, note: string) => {
+    persistHighlights(withPdfHighlightNote(highlights, item.key, note));
+  }, [highlights, persistHighlights]);
 
   // Search walks every page's text content via pdf.js and collapses the matches
   // into one hit per page. Bounded: pages are read one at a time (the text layer
@@ -504,8 +664,32 @@ const PdfReader = forwardRef<ReaderApi, PdfReaderProps>(function PdfReader(
   useImperativeHandle(
     ref,
     (): ReaderApi => ({
-      next: () => setPage((p) => clamp(p + step, 0, total - 1)),
-      prev: () => setPage((p) => clamp(p - step, 0, total - 1)),
+      next: () => {
+        if (modeRef.current === "scroll") {
+          const root = scrollRef.current;
+          if (root) {
+            root.scrollBy({
+              top: (root.clientHeight || 600) * 0.85,
+              behavior: "smooth",
+            });
+          }
+          return;
+        }
+        setPage((p) => clamp(p + step, 0, total - 1));
+      },
+      prev: () => {
+        if (modeRef.current === "scroll") {
+          const root = scrollRef.current;
+          if (root) {
+            root.scrollBy({
+              top: -(root.clientHeight || 600) * 0.85,
+              behavior: "smooth",
+            });
+          }
+          return;
+        }
+        setPage((p) => clamp(p - step, 0, total - 1));
+      },
       toggleBookmark: () => void toggleBookmark(),
       goToChapter: (target) => goToIndex(Number(target)),
       goToBookmark: (item) => goToIndex(Number(item.target)),
@@ -513,9 +697,13 @@ const PdfReader = forwardRef<ReaderApi, PdfReaderProps>(function PdfReader(
       goTo: (target) => goToIndex(Number(target)),
       goToPage: (n) => goToIndex(n - 1),
       goToPercent: (pct) => goToIndex((clamp(pct, 0, 100) / 100) * (total - 1)),
+      setBookmarkNote,
+      goToHighlight: (item) => goToIndex(Number(item.target)),
+      removeHighlight: removePdfHighlight,
+      setHighlightNote,
       search: (query) => searchPdf(query),
     }),
-    [total, goToIndex, toggleBookmark, step, searchPdf],
+    [total, goToIndex, toggleBookmark, setBookmarkNote, removePdfHighlight, setHighlightNote, step, searchPdf],
   );
 
   const isBookmarked = bookmarks.some((b) => b.page === page);
@@ -549,9 +737,18 @@ const PdfReader = forwardRef<ReaderApi, PdfReaderProps>(function PdfReader(
           title: record.title,
           label: `Page ${(b.page as number) + 1}`,
           target: b.page as number,
+          note: b.note ?? null,
         })),
     [bookmarks, record.title],
   );
+
+  const highlightItems = useMemo(() => highlights.map((h) => ({
+    key: h.id,
+    color: h.color,
+    text: h.text,
+    target: String(h.page),
+    note: h.note ?? null,
+  })), [highlights]);
 
   useEffect(() => {
     onState({
@@ -561,7 +758,7 @@ const PdfReader = forwardRef<ReaderApi, PdfReaderProps>(function PdfReader(
       hasContents: chapters.length > 0,
       isBookmarked,
       bookmarks: bookmarkItems,
-      highlights: [],
+      highlights: highlightItems,
       pageCount: total,
       pageNumber: page + 1,
       canSeek: true,
@@ -575,6 +772,7 @@ const PdfReader = forwardRef<ReaderApi, PdfReaderProps>(function PdfReader(
     chapters,
     isBookmarked,
     bookmarkItems,
+    highlightItems,
     total,
     page,
     rightPage,
@@ -608,10 +806,13 @@ const PdfReader = forwardRef<ReaderApi, PdfReaderProps>(function PdfReader(
               data-page={i + 1}
               style={{ minHeight: itemH, width: "100%" }}
             >
-              <canvas
-                className="pdf-canvas"
-                ref={(el) => setScrollCanvas(i, el)}
-              />
+              <div className="pdf-page-stack">
+                <canvas
+                  className="pdf-canvas"
+                  ref={(el) => setScrollCanvas(i, el)}
+                />
+                {doc && <PdfTextLayer doc={doc} pageIndex={i} width={scrollSlotW} height={Infinity} highlights={highlights} onSelect={selectPdfText} />}
+              </div>
             </div>
           ))}
           {scrollWin.afterPx > 0 && (
@@ -624,9 +825,15 @@ const PdfReader = forwardRef<ReaderApi, PdfReaderProps>(function PdfReader(
         </div>
       ) : (
         <div className="pdf-viewport" ref={containerRef}>
-          <canvas ref={canvasARef} className="pdf-canvas" />
+          <div className="pdf-page-stack">
+            <canvas ref={canvasARef} className="pdf-canvas" />
+            {doc && <PdfTextLayer doc={doc} pageIndex={page} width={box.width} height={box.height} highlights={highlights} onSelect={selectPdfText} />}
+          </div>
           {isSpread && rightPage != null && (
-            <canvas ref={canvasBRef} className="pdf-canvas" />
+            <div className="pdf-page-stack">
+              <canvas ref={canvasBRef} className="pdf-canvas" />
+              {doc && <PdfTextLayer doc={doc} pageIndex={rightPage} width={box.width} height={box.height} highlights={highlights} onSelect={selectPdfText} />}
+            </div>
           )}
         </div>
       )}
@@ -644,6 +851,14 @@ const PdfReader = forwardRef<ReaderApi, PdfReaderProps>(function PdfReader(
           }
           percent={downloadPct}
           onRetry={() => setReloadNonce((n) => n + 1)}
+        />
+      )}
+      {hlPop && (
+        <HighlightPopover
+          state={hlPop}
+          onPick={addPdfHighlight}
+          onRemove={() => removePdfHighlight(hlPop.cfiRange)}
+          onClose={() => setHlPop(null)}
         />
       )}
     </div>

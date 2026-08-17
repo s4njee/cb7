@@ -35,8 +35,7 @@
 
 /* Continuous vertical scroll (webtoon-style for PDFs). */
 .pdf-wrap.pdf-scroll-mode {
-  padding-left: max(4px, env(safe-area-inset-left));
-  padding-right: max(4px, env(safe-area-inset-right));
+  padding: 0;
 }
 .pdf-scroll {
   flex: 1;
@@ -48,12 +47,13 @@
   flex-direction: column;
   align-items: center;
   gap: 16px;
+  padding: 80px 16px 100px;
   -webkit-overflow-scrolling: touch;
 }
 .pdf-scroll-page {
-  /* Continuous mode is width-driven: the page renders at the container width,
-     so a fixed cap here is a direct cap on page size. Let it fill. */
+  /* Continuous mode is width-driven: center the page and keep a readable measure. */
   width: 100%;
+  max-width: min(840px, 100%);
   display: flex;
   justify-content: center;
   /* Placeholder height until the canvas paints; avoids layout thrash. */
@@ -70,6 +70,56 @@
   background: var(--surface);
   border: 1px solid var(--line);
   animation: rIn var(--duration-med) var(--ease-standard);
+}
+
+.pdf-page-stack {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+.pdf-text-layer-wrap,
+.pdf-highlight-layer,
+.pdf-text-layer {
+  position: absolute;
+  inset: 0;
+}
+.pdf-highlight-layer {
+  z-index: 1;
+  pointer-events: none;
+}
+.pdf-highlight-rect {
+  position: absolute;
+  border-radius: 2px;
+  opacity: .75;
+}
+.pdf-text-layer {
+  z-index: 2;
+  overflow: hidden;
+  user-select: text;
+  line-height: normal;
+  --total-scale-factor: 1;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+}
+.pdf-text-layer > :not(.markedContent),
+.pdf-text-layer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size));
+}
+.pdf-text-layer span,
+.pdf-text-layer br {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  transform-origin: 0% 0%;
+  cursor: text;
+}
+.pdf-text-layer ::selection {
+  background: rgb(80 130 220 / 35%);
 }
 .pdf-scroll .pdf-canvas {
   max-height: none;

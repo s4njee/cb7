@@ -108,6 +108,23 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
   const [panel, setPanel] = useState<Panel>(null);
   const [tocTab, setTocTab] = useState<TocTab>(isComic ? "bookmarks" : "contents");
   const [rstate, setRstate] = useState<ReaderReportedState>(EMPTY_READER_STATE);
+
+  // Live position tracking so mode switches remount at the exact current position
+  const liveRecord = useMemo(() => {
+    const base = record ?? listRecord;
+    const pNum = rstate.pageNumber;
+    const pIdx = pNum != null ? pNum - 1 : base.lastPage;
+    const loc =
+      typeof rstate.pageNumber === "number"
+        ? null
+        : (apiRef.current?.getPosition() as string | null);
+    return {
+      ...base,
+      ...(pIdx != null ? { lastPage: pIdx } : {}),
+      ...(loc ? { lastLocation: loc } : {}),
+      ...(rstate.percent != null ? { lastPercent: rstate.percent } : {}),
+    };
+  }, [record, listRecord, rstate.pageNumber, rstate.percent]);
   const [seekOpen, setSeekOpen] = useState(false);
 
   // Native menu "View > Reader Settings…" bumps this tick; open the drawer.
@@ -175,11 +192,13 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shown.id]);
 
-  // Offline progress outbox: retry when the network returns or the app wakes.
+  // Offline progress + bookmark outboxes: retry when the network returns or
+  // the app wakes. Bookmarks also flush leftover guest rows after a sign-in.
   useEffect(() => {
-    if (guest || shown.source === "local") return;
+    if (shown.source === "local") return;
     const kick = () => {
-      void api.syncProgressOutbox();
+      if (!guest) void api.syncProgressOutbox();
+      void api.syncBookmarksOutbox();
     };
     const onVis = () => {
       if (document.visibilityState === "visible") kick();
@@ -330,6 +349,19 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
     if (pos != null) apiRef.current?.goTo(pos);
   }, []);
 
+  const onStageClick = useCallback((e: React.MouseEvent) => {
+    if (!scrollMode) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest("button, a, input, select, textarea, [role='button'], .pdf-text-layer, .status-overlay")) {
+      return;
+    }
+    const sel = typeof window !== "undefined" ? window.getSelection() : null;
+    if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) {
+      return;
+    }
+    toggleChrome();
+  }, [scrollMode, toggleChrome]);
+
   /* --------------------------------------------------------------- paging */
 
   useEffect(() => {
@@ -338,15 +370,22 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
 
-      if (e.key === "ArrowRight") {
+      if (
+        e.key === "ArrowRight" ||
+        (scrollMode && (e.key === "ArrowDown" || e.key === "PageDown"))
+      ) {
         e.preventDefault();
         next();
-      } else if (e.key === "ArrowLeft") {
+      } else if (
+        e.key === "ArrowLeft" ||
+        (scrollMode && (e.key === "ArrowUp" || e.key === "PageUp"))
+      ) {
         e.preventDefault();
         prev();
       } else if (e.key === " ") {
         e.preventDefault();
-        next();
+        if (e.shiftKey) prev();
+        else next();
       } else if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) {
         // Cmd/Ctrl+F while reading opens in-book search (not library search).
         e.preventDefault();
@@ -358,7 +397,7 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [next, prev]);
+  }, [next, prev, scrollMode]);
 
   // Swipe paging (paged modes only).
   const touchStart = useRef<{ x: number; y: number } | null>(null);
@@ -459,7 +498,7 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
     <div className="reader">
       <div
         className="reader-stage"
-        onClick={scrollMode ? toggleChrome : undefined}
+        onClick={scrollMode ? onStageClick : undefined}
         onTouchStart={paged ? onTouchStart : undefined}
         onTouchEnd={paged ? onTouchEnd : undefined}
       >
@@ -482,14 +521,25 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
               }
             >
               {format === "comic" ? (
-                <ComicReader ref={apiRef} record={record} onState={report} />
+                <ComicReader
+                  key={`comic-${comicMode}`}
+                  ref={apiRef}
+                  record={liveRecord}
+                  onState={report}
+                />
               ) : format === "pdf" ? (
-                <PdfReader ref={apiRef} record={record} onState={report} />
+                <PdfReader
+                  key={`pdf-${comicMode}`}
+                  ref={apiRef}
+                  record={liveRecord}
+                  onState={report}
+                />
               ) : (
                 // EPUB via Readium TS Toolkit (see lib/readiumZip.ts).
                 <TextReader
+                  key={`epub-${flow}`}
                   ref={apiRef}
-                  record={record}
+                  record={liveRecord}
                   onState={report}
                   onToggleChrome={toggleChrome}
                 />
@@ -549,18 +599,13 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
             >
               ☰
             </button>
-            {/* Bookmarks are a server write; a guest session can't persist them
-                (every write 401s), so the affordance is hidden rather than left
-                to fail on tap. */}
-            {!guest && (
-              <button
-                className={`nav-btn${rstate.isBookmarked ? " active" : ""}`}
-                onClick={() => apiRef.current?.toggleBookmark()}
-                aria-label="Toggle bookmark"
-              >
-                <RibbonIcon size={15} />
-              </button>
-            )}
+            <button
+              className={`nav-btn${rstate.isBookmarked ? " active" : ""}`}
+              onClick={() => apiRef.current?.toggleBookmark()}
+              aria-label="Toggle bookmark"
+            >
+              <RibbonIcon size={15} />
+            </button>
             <button
               className={`nav-btn serif${panel === "settings" ? " active" : ""}`}
               onClick={() => openPanel("settings")}
@@ -734,6 +779,12 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
                   closePanel();
                 }}
                 onRemoveHighlight={(key) => apiRef.current?.removeHighlight?.(key)}
+                onEditBookmarkNote={(item, note) =>
+                  apiRef.current?.setBookmarkNote?.(item, note)
+                }
+                onEditHighlightNote={(item, note) =>
+                  apiRef.current?.setHighlightNote?.(item, note)
+                }
                 onClose={closePanel}
               />
             )}

@@ -37,10 +37,13 @@ sha2 = "0.10"
 hex = "0.4"
 thiserror = "2"
 url = "2"
+roxmltree = "0.20"
+mobi = "0.8"
 log = "0.4"
 tauri-plugin-log = "2"
 mdns-sd = "0.20.2"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+sevenz-rust = "0.6"
 tauri-plugin-dialog = "2.7.2"
 
 # Camera scanning and haptics only exist on phones; keeping them off desktop

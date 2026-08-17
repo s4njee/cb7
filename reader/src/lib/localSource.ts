@@ -17,6 +17,9 @@ import {
   type LocalBook,
 } from "./transport";
 import type { WebComicRecord } from "./api";
+import { forgetLocalBookmarks } from "./bookmarks";
+
+export { forgetLocalBookmarks };
 
 /** Turn a catalog entry into the record shape the whole UI already speaks. */
 export function toRecord(book: LocalBook): WebComicRecord {
@@ -24,6 +27,11 @@ export function toRecord(book: LocalBook): WebComicRecord {
     id: book.id,
     source: "local",
     title: book.title,
+    authors: book.authors ?? [],
+    description: book.description ?? null,
+    language: book.language ?? null,
+    publisher: book.publisher ?? null,
+    publishedAt: book.publishedAt ?? null,
     pageCount: book.pageCount,
     fileSize: book.bytes,
     dateAdded: new Date(book.addedAt).toISOString(),
@@ -63,82 +71,6 @@ export function localPagePath(id: number, index: number): string {
 
 export function localFilePath(id: number): string {
   return `/local/${id}/file`;
-}
-
-/* -------------------------------------------------------------- bookmarks */
-
-/** Local bookmarks live in `localStorage`, not the catalog.
- *
- *  A bookmark is a handful of bytes attached to a book you already own, and the
- *  catalog is rewritten atomically on every change — putting bookmarks there
- *  would mean rewriting the whole library index on every tap of the ribbon. The
- *  storage is the same one the session and prefs already trust. */
-const BOOKMARK_KEY = "shelf.local.bookmarks";
-
-interface StoredBookmark {
-  id: number;
-  page: number | null;
-  location: string | null;
-  note: string | null;
-  createdAt: string;
-}
-
-type BookmarkMap = Record<string, StoredBookmark[]>;
-
-function readAll(): BookmarkMap {
-  try {
-    const raw = localStorage.getItem(BOOKMARK_KEY);
-    const parsed = raw ? (JSON.parse(raw) as BookmarkMap) : {};
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeAll(map: BookmarkMap): void {
-  try {
-    localStorage.setItem(BOOKMARK_KEY, JSON.stringify(map));
-  } catch {
-    /* storage full or unavailable — the bookmark is lost, reading is not */
-  }
-}
-
-export function listLocalBookmarks(bookId: number): StoredBookmark[] {
-  return readAll()[String(bookId)] ?? [];
-}
-
-export function createLocalBookmark(
-  bookId: number,
-  body: { page?: number; location?: string; note?: string },
-): StoredBookmark {
-  const map = readAll();
-  const list = map[String(bookId)] ?? [];
-  const bookmark: StoredBookmark = {
-    // Ids only have to be unique within one book's list.
-    id: list.reduce((max, b) => Math.max(max, b.id), 0) + 1,
-    page: body.page ?? null,
-    location: body.location ?? null,
-    note: body.note ?? null,
-    createdAt: new Date().toISOString(),
-  };
-  map[String(bookId)] = [...list, bookmark];
-  writeAll(map);
-  return bookmark;
-}
-
-export function deleteLocalBookmark(bookId: number, bookmarkId: number): void {
-  const map = readAll();
-  const list = map[String(bookId)];
-  if (!list) return;
-  map[String(bookId)] = list.filter((b) => b.id !== bookmarkId);
-  writeAll(map);
-}
-
-/** Drop a deleted book's bookmarks, so its ids can't haunt a future book. */
-export function forgetLocalBookmarks(bookId: number): void {
-  const map = readAll();
-  delete map[String(bookId)];
-  writeAll(map);
 }
 
 /** Write a reading position to the catalog. Same silent-fail contract as the

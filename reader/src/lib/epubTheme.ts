@@ -61,7 +61,17 @@ export function epubDocumentCss(opts: EpubStyleOpts): string {
     : "";
   return `
 ${fontFaceCss(opts.fontId)}
-html { background: ${c.bg} !important; font-size: ${opts.fontSizePercent}% !important; }
+html {
+  background: ${c.bg} !important;
+  font-size: ${opts.fontSizePercent}% !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+html::-webkit-scrollbar, body::-webkit-scrollbar, *::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
 body {
   background: ${c.bg} !important;
   color: ${c.fg} !important;
@@ -69,6 +79,8 @@ body {
   line-height: ${opts.lineHeight} !important;
   ${scrolledBodyGeometry}
   text-wrap: pretty;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
 }
 p, div, span, section, article, li, blockquote, h1, h2, h3, h4, h5, h6, td, th, em, strong, i, b, figcaption {
   color: ${c.fg} !important;

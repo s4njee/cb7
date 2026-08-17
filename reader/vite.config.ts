@@ -13,9 +13,6 @@ export default defineConfig(async () => ({
     include: [
       "@readium/shared",
       "@readium/navigator",
-      "@readium/navigator-html-injectables",
-      "@readium/decorator",
-      "@readium/helpers",
       "@zip.js/zip.js",
     ],
   },

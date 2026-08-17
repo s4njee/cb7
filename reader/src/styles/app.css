@@ -899,10 +899,33 @@
 .epub-wrap.two-col .epub-viewport {
   max-width: min(1100px, 100%);
 }
+.epub-wrap.scrolled {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
 .epub-wrap.scrolled .epub-viewport {
-  /* The iframe owns scrolling, so it must cover the whole reading surface.
-     Text measure and margins move inside its section documents instead. */
-  max-width: none;
+  max-width: min(840px, 100%);
+  width: 100%;
+  margin: 0 auto;
+}
+.epub-wrap.scrolled .epub-measure {
+  padding-top: 70px;
+  padding-bottom: 90px;
+  box-sizing: border-box;
+}
+.epub-wrap.scrolled,
+.epub-wrap.scrolled .epub-viewport,
+.epub-wrap.scrolled .epub-measure,
+.epub-wrap.scrolled .epub-host,
+.epub-wrap.scrolled iframe {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+.epub-wrap.scrolled::-webkit-scrollbar,
+.epub-wrap.scrolled *::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 .reader-message {
   position: absolute;
@@ -982,16 +1005,23 @@
   flex-direction: column;
   align-items: center;
   gap: 14px;
-  padding: 80px 0 100px;
+  padding: 70px 0 90px;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+.comic-scroll::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 .comic-scroll .comic-page {
-  width: 460px;
-  max-width: 80%;
+  width: 100%;
+  max-width: 100%;
   height: auto;
   max-height: none;
   flex: none;
-  border: 1px solid var(--line);
+  border: none;
   animation: none;
 }
 .comic-scroll .comic-page img {
@@ -1703,11 +1733,18 @@
   text-align: left;
   padding: 13px 12px;
   border-radius: 10px;
+  /* The row is a div (it carries its own note control), so restore the
+     button-ish defaults a <button> would have had. */
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
 }
 .bm-row:hover {
   background: var(--surface2);
 }
 .bm-texts {
+  flex: 1;
   min-width: 0;
 }
 .bm-title {
@@ -1723,6 +1760,80 @@
   font-size: 12px;
   color: var(--muted);
   margin-top: 1px;
+}
+.bm-note {
+  display: block;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--fg);
+  margin-top: 5px;
+  padding-left: 8px;
+  border-left: 2px solid var(--line);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.bm-edit {
+  flex: 0 0 auto;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--muted);
+  padding: 4px 6px;
+}
+.bm-edit:hover {
+  color: var(--fg);
+}
+
+/* Inline note editor inside the annotations drawer. */
+.note-editor {
+  padding: 10px 12px;
+}
+.note-editor-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg);
+  background: var(--surface2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.note-editor-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.note-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.note-editor-spacer {
+  flex: 1;
+}
+.note-editor-actions button {
+  font: inherit;
+  font-size: 12.5px;
+  border-radius: 7px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.note-save {
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+}
+.note-cancel {
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.note-remove {
+  background: none;
+  border: 0;
+  color: var(--danger);
 }
 .bm-empty {
   padding: 56px 20px;

@@ -247,8 +247,12 @@
   margin-top: 5px;
 }
 
-.hl-text {
+.hl-texts {
   flex: 1;
+  min-width: 0;
+}
+
+.hl-text {
   font-family: var(--font-serif);
   font-size: 13px;
   line-height: 1.5;
@@ -258,6 +262,29 @@
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.hl-note {
+  display: block;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--fg);
+  margin-top: 5px;
+  padding-left: 8px;
+  border-left: 2px solid var(--line);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.hl-edit {
+  flex: 0 0 auto;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--muted);
+  padding: 2px 4px;
+}
+.hl-edit:hover {
+  color: var(--fg);
 }
 
 .hl-row-x {

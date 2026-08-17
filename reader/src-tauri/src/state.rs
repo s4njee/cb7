@@ -15,6 +15,20 @@ use crate::downloads::PinnedManifest;
 use crate::error::{ApiError, ApiResult};
 use crate::local::Catalog;
 
+/// One user-added OPDS catalog. Passwords stay in `opds.json` and are never
+/// returned by list commands (the frontend only sees `hasAuth`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpdsCatalogStored {
+    pub id: String,
+    pub name: String,
+    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+}
+
 /// Persisted app configuration (server connection).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Config {
@@ -40,10 +54,17 @@ pub struct DiscoveryHandle {
 
 pub struct AppState {
     pub client: reqwest::Client,
+    /// Dedicated OPDS client: no CB8 cookie jar (so a third-party catalog
+    /// cannot leak the session) and a long enough timeout for large files.
+    pub opds_client: reqwest::Client,
     pub cookies: Arc<CookieStoreMutex>,
     pub config: RwLock<Config>,
     pub config_path: PathBuf,
     pub cookies_path: PathBuf,
+    /// Persisted OPDS catalogs (`opds.json`). Kept off `config.json` so
+    /// `get_config` never serializes catalog passwords to the webview.
+    pub opds_path: PathBuf,
+    pub opds_catalogs: Mutex<Vec<OpdsCatalogStored>>,
     pub cache_dir: PathBuf,
     /// Approximate media-cache size in bytes; `None` until first scanned.
     pub cache_size: Mutex<Option<u64>>,
@@ -111,8 +132,14 @@ impl AppState {
 
         let config_path = data_dir.join("config.json");
         let cookies_path = data_dir.join("cookies.json");
+        let opds_path = data_dir.join("opds.json");
 
         let config: Config = fs::read(&config_path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default();
+
+        let opds_catalogs: Vec<OpdsCatalogStored> = fs::read(&opds_path)
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
@@ -133,12 +160,24 @@ impl AppState {
             .timeout(std::time::Duration::from_secs(120))
             .build()?;
 
+        // Separate from the CB8 session client: no cookie jar, longer body
+        // timeout (Gutenberg EPUBs are large), still scheme-restricted by
+        // the OPDS commands themselves.
+        let opds_client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(15))
+            .timeout(std::time::Duration::from_secs(30 * 60))
+            .redirect(reqwest::redirect::Policy::limited(10))
+            .build()?;
+
         Ok(Self {
             client,
+            opds_client,
             cookies,
             config: RwLock::new(config),
             config_path,
             cookies_path,
+            opds_path,
+            opds_catalogs: Mutex::new(opds_catalogs),
             cache_dir,
             cache_size: Mutex::new(None),
             pinned_dir,
@@ -192,6 +231,17 @@ impl AppState {
             store.clear();
         }
         self.save_cookies()
+    }
+
+    /// Persist the OPDS catalog list atomically (`.tmp` + rename).
+    pub async fn save_opds(&self) -> ApiResult<()> {
+        let catalogs = self.opds_catalogs.lock().await.clone();
+        let bytes = serde_json::to_vec_pretty(&catalogs)
+            .map_err(|err| ApiError::local(format!("serialize OPDS catalogs: {err}")))?;
+        let tmp = self.opds_path.with_extension("tmp");
+        tokio::fs::write(&tmp, bytes).await?;
+        tokio::fs::rename(&tmp, &self.opds_path).await?;
+        Ok(())
     }
 }
 

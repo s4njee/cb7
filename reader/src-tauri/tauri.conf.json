@@ -52,6 +52,13 @@
         "rank": "Alternate"
       },
       {
+        "ext": ["mobi", "azw3"],
+        "mimeType": "application/x-mobipocket-ebook",
+        "name": "Kindle Book",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
         "ext": ["cbz"],
         "mimeType": "application/vnd.comicbook+zip",
         "name": "Comic Book Archive",
@@ -60,6 +67,17 @@
         "exportedType": {
           "identifier": "com.cb8.shelf.cbz",
           "conformsTo": ["public.zip-archive", "public.data"]
+        }
+      },
+      {
+        "ext": ["cb7"],
+        "mimeType": "application/x-7z-compressed",
+        "name": "Comic Book 7z",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.cb8.shelf.cb7",
+          "conformsTo": ["public.data"]
         }
       },
       {

@@ -7,9 +7,13 @@ mod error;
 #[cfg(desktop)]
 mod linked_watch;
 mod local;
+mod local_search;
 mod local_zip;
 #[cfg(desktop)]
 mod menu;
+mod metadata;
+mod mobi_import;
+mod opds;
 mod opens;
 mod platform;
 mod proxy;
@@ -143,6 +147,17 @@ pub fn run() {
             local::local_locate_linked_book,
             local::local_size,
             local::save_local_cover,
+            local::local_set_cover_from_path,
+            local_search::local_search,
+            local_search::local_search_settings,
+            local_search::local_set_search_enabled,
+            local_search::local_reindex_search,
+            opds::opds_list_catalogs,
+            opds::opds_add_catalog,
+            opds::opds_remove_catalog,
+            opds::opds_browse,
+            opds::opds_search,
+            opds::opds_download,
             opens::take_opened_paths,
             platform::platform_info,
             #[cfg(desktop)]

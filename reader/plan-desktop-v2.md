@@ -40,7 +40,7 @@ Grounded in [features.md](features.md) and the current code:
 | Titles/authors/series | Server ingest + scraper | Filename only (`local_import` derives title from the file name) |
 | Covers | Server extraction + resize | EPUB/PDF/CBZ first-page heuristics only |
 | Tags / collections / series browsing | Server API | None for local books |
-| Comic bookmarks | Server-synced | **Not available** (EPUB bookmarks are local; comic ones are server-only) |
+| Comic bookmarks | Server-synced | Local-first for comics, PDFs, and EPUB; sync when connected |
 | In-book / library full-text search | `/api/search` (server, embeddings) | Title substring match only |
 | Reading history | Server history API | None (stats exist on-device, history view does not) |
 | Folder-sized libraries | Server watches folders | One-file-at-a-time import; directories are explicitly rejected |
@@ -139,21 +139,34 @@ with a 500-book folder.
 Standalone quality is mostly metadata quality. All of this runs in Rust at
 import/scan time and never requires the network.
 
-- [ ] **Embedded metadata extraction — L.** Parse EPUB OPF (title, creators,
+- [x] **Embedded metadata extraction — L.** Parse EPUB OPF (title, creators,
   series via `calibre:series` / EPUB3 `belongs-to-collection`, language,
   description, publisher, date), PDF document info/XMP, and ComicInfo.xml
   inside CBZ/CBR. Populate the catalog record; keep the raw filename as a
   fallback field.
-- [ ] **Filename/series heuristics — M.** For comics without ComicInfo.xml,
+  → Implemented 2026-08-17. Added `src-tauri/src/metadata.rs` with
+  best-effort EPUB OPF, PDF Info, and ComicInfo.xml extraction. Local catalog
+  records now retain authors, description, language, publisher, and publication
+  date alongside embedded title/series/volume; malformed metadata never blocks
+  import, and legacy catalogs deserialize with empty defaults. Import, OPDS
+  downloads, and linked-folder scans all use the same extractor. Verified with
+  82 Rust tests, the live-server test, Clippy, frontend typecheck, and build.
+- [x] **Filename/series heuristics — M.** For comics without ComicInfo.xml,
   parse `Series v02 #013 (2019)`-style names the way the webui scanner does;
   share the rules in one documented module so client and server agree.
-- [ ] **Proper cover pipeline — M.** Extract the declared EPUB cover (not just
+- [x] **Proper cover pipeline — M.** Extract the declared EPUB cover (not just
   a first-image guess), render PDF page 1 at a bounded size, first page for
   comics; cache resized covers on disk keyed by content hash so linked-folder
   rescans don't re-render.
-- [ ] **Metadata editing UI — M.** An Edit mode on the book detail sheet:
+- [x] **Metadata editing UI — M.** An Edit mode on the book detail sheet:
   title, authors, series/volume, tags, cover replacement (pick an image or a
   page). User edits are stored as overrides that survive a rescan.
+  → Implemented 2026-08-17. Added shared filename fallback heuristics for
+  common `Series v02 #013` names, declared EPUB cover extraction, stable
+  content-hash cover paths, and native image-picker cover replacement. The
+  local detail sheet now edits title/authors as well as series/volume/tags;
+  linked-folder rescans preserve edited metadata. Malformed metadata remains
+  non-fatal. Verified with native and frontend checks.
 - [ ] **Optional online metadata lookup — L, opt-in.** Fetch
   title/author/description/covers from public sources (Open Library;
   ComicVine needs a user key). Strictly manual/opt-in per the privacy posture:
@@ -198,37 +211,114 @@ import/scan time and never requires the network.
   storage cap and per-library opt-out. Results deep-link into the book at the
   match. This is the standalone answer to the server's `/api/search`; do it
   only after in-book search proves the extraction path.
+  → Implementation report (2026-08-17): first standalone slice shipped in
+  `src-tauri/src/local_search.rs`, `src/lib/transport.ts`, and
+  `src/components/Library.tsx`. EPUB XHTML/XML is extracted into a disposable
+  JSON sidecar (`search-index.json`); PDFs use best-effort plain literal-string
+  extraction, while pdf.js remains authoritative for in-book search. The
+  index is capped at 64 MiB, enabled by default, and can be disabled through
+  native settings commands; disabling removes the sidecar. The local search
+  box now shows “Inside your books” results with snippets and opens the
+  matching book. Added two native unit tests. Verified: 78 Rust tests,
+  `pnpm typecheck`, and `pnpm build` pass. Remaining XL work: move rebuilds to
+  a durable background queue, use a real FTS index (SQLite FTS5/Tantivy), and
+  preserve an exact EPUB/PDF position for result deep-links.
 
 ### 4. Formats
 
-- [ ] **MOBI/AZW3 (DRM-free) — L.** The most-requested "my old Kindle files"
+- [x] **MOBI/AZW3 (DRM-free) — L.** The most-requested "my old Kindle files"
   format. Options: convert-on-import to EPUB in Rust (`mobi` crate for
   classic MOBI; AZW3 is EPUB-adjacent) rather than writing a fourth renderer.
   Convert-on-import keeps the reader surface at three engines and fits the
   app-owned-copy model. DRM'd files are detected and rejected with an honest
   message — no circumvention.
+  → Implemented 2026-08-17. Added the Rust `mobi` parser and
+  `src-tauri/src/mobi_import.rs`, which converts readable MOBI/KF8 (AZW3)
+  content and basic metadata into an app-owned EPUB during `local_import`.
+  The existing EPUB/Readium reader remains the only reflowable reader path;
+  source files are never modified, and parser failures surface as
+  "encrypted or unreadable / DRM-protected books are not supported" per-file
+  failures. File picker filters, drag/drop copy, and Tauri file associations
+  now advertise `.mobi` and `.azw3`. Verified: `cargo test` (79 native unit
+  tests plus the live-server test), `pnpm typecheck`, and `pnpm build` pass.
 - [ ] **FB2 and plain TXT/Markdown — M.** Cheap wins via the same
   convert-to-EPUB import path; TXT/MD matter for fanfic and drafts.
-- [ ] **CB7 and plain image folders — M.** The webui already supports both
+- [x] **CB7 and plain image folders — M.** The webui already supports both
   (P1-6); desktop parity via the existing `local_zip` abstraction (7z via the
   `sevenz-rust` crate — keep v1's no-sidecar rule) and the linked-folder
   scanner treating an image directory as a comic.
-- [ ] **OPDS browsing as an acquisition source — L.** The connect screen gains
+  → Implemented 2026-08-17. Added native CB7/7z page listing and on-demand
+  extraction through `sevenz-rust` in `local_zip`, with empty-password-only
+  behavior (DRM/encrypted archives fail cleanly). Added direct-image-folder
+  detection to recursive scans and linked folders; linked folders retain
+  natural page order and read in place, while explicit imports are packed into
+  app-owned CBZ storage. Added CB7 picker/file associations, drop copy, comic
+  media/content types, folder hashing, and cover/page-count extraction.
+  Verified with Rust compile/tests and frontend type/build checks.
+- [x] **OPDS browsing as an acquisition source — L.** The connect screen gains
   "Add OPDS catalog" (Standard Ebooks, Project Gutenberg, Calibre-Web, or
   CB8's own `/api/opds`). Browse, then download through the normal import
   pipeline. This gives the standalone app a legal "get books" story without
   bundling a store.
+  → Implemented 2026-08-16. Rust `opds.rs` fetches with a dedicated
+  `reqwest` client (no CB8 cookie jar) and parses both OPDS 2 JSON and OPDS 1
+  Atom into one `OpdsFeed`. Catalogs persist in `opds.json` (passwords never
+  returned to the webview). Commands: `opds_list_catalogs`, `opds_add_catalog`
+  (probe + save), `opds_remove_catalog`, `opds_browse`, `opds_search`,
+  `opds_download`. Download streams to `.part`, then `catalog_owned_file`
+  (content-hash + `acquiredFrom` dedupe) so the book is a normal local copy.
+  Progress reuses `shelf://local-download-progress`. UI: connect-screen
+  "Add OPDS catalog", avatar-menu "OPDS catalogs…", empty-shelf "Browse a
+  catalog"; presets for Standard Ebooks and Project Gutenberg. Tests: 12 new
+  parser/policy vectors (76 Rust tests). Verified: clippy, `pnpm typecheck`.
 
 ### 5. Annotations that don't need a server
 
-- [ ] **Local-first bookmarks for every format — M.** Comic and PDF bookmarks
+- [x] **Local-first bookmarks for every format — M.** Comic and PDF bookmarks
   currently require the server. Store all bookmarks locally (page index /
   CFI / PDF page) and sync them opportunistically when a server is connected,
   same pattern as the progress outbox.
-- [ ] **Notes on highlights and bookmarks — M.** A text note attached to any
+  → Implemented 2026-08-16. `src/lib/bookmarks.ts` is the on-device store
+  (`shelf.bookmarks.v2`). Keys isolate `local` vs `server+user` vs `guest`
+  so ids never collide. `list`/`create`/`delete` always write locally;
+  a signed-in session merges by page/CFI, POSTs unsynced rows, and DELETEs
+  tombstones (flushed on reader `online` / visibility / sign-in). Guests
+  get the ribbon. Legacy `shelf.local.bookmarks` and old EPUB CFI keys
+  migrate in. Tests: 11 bookmark vectors. Verified: `pnpm test` +
+  `pnpm typecheck`.
+- [x] **Notes on highlights and bookmarks — M.** A text note attached to any
   highlight/bookmark, shown in the annotation list and on tap.
-- [ ] **PDF highlights — L.** Text-layer-anchored highlights in pdf.js to
+  → Implemented 2026-08-16. `StoredHighlight` gained `note` (legacy rows
+  normalize to null on load) plus pure `withHighlightNote`; `bookmarks.ts`
+  gained `setStoredNote` and `api.setBookmarkNote` PUTs the note for synced
+  rows (the server contract already had `PUT .../bookmarks/:id`). `BookmarkItem`
+  / `HighlightItem` carry `note` up through all three readers, and `ReaderApi`
+  gained `setBookmarkNote` / `setHighlightNote`. The TOC drawer shows each note
+  under its row and adds a per-row ✎ that opens an inline editor (Save /
+  Cancel / Remove note; a blank note clears). Tests: 4 new bookmark vectors +
+  a new `highlights` vector suite (5 vectors). Verified: `pnpm test` (12
+  suites), `pnpm typecheck` + `pnpm build`.
+- [x] **PDF highlights — L.** Text-layer-anchored highlights in pdf.js to
   match the EPUB capability.
+  → Implemented 2026-08-17. `PdfReader` now mounts pdf.js `TextLayer`
+  overlays over rendered pages, captures same-page text selections, and
+  stores normalized highlight rectangles plus excerpt/color/note in the
+  local annotation store (`shelf.pdf-highlights.*`). Highlights render back
+  over the canvas in paged, spread, and continuous-scroll modes; they appear
+  in the shared Highlights drawer with jump-to-page, remove, and note editing.
+  Added persistence/rectangle test coverage in `highlights.test.ts`.
+  Verified: `pnpm test`, `pnpm typecheck`, and `pnpm build` pass.
+
+### Bugfix pass — 2026-08-17
+
+- Re-ran the full frontend and native verification suites: Vitest, TypeScript,
+  Vite production build, Rust tests, and Clippy all pass.
+- Fixed local full-text index invalidation after imports, downloads, deletes,
+  linked-folder scans, linked-folder removal, and Locate operations so search
+  cannot retain removed or newly added books indefinitely.
+- Fixed linked-folder reattachment to preserve progress, favorites, series,
+  tags, collections, covers, origin, and original added time instead of
+  resetting the existing record during a rescan.
 - [ ] **Annotations drawer — M.** One per-book list of bookmarks + highlights
   + notes with jump-to, edit, delete; entry from reader chrome and the book
   detail sheet.

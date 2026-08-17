@@ -26,7 +26,7 @@ use tauri::{AppHandle, Emitter, Runtime, State};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 use crate::error::{ApiError, ApiResult};
-use crate::local_zip::{entry_bytes, page_names};
+use crate::local_zip::{entry_bytes, folder_page_names, is_image_folder, pack_image_folder_to_zip, page_names};
 use crate::state::AppState;
 
 /// Progress event name; payload is {@link DownloadProgress}.
@@ -63,12 +63,23 @@ pub struct Progress {
 pub struct LocalBook {
     pub id: i64,
     pub title: String,
-    /// e.g. `books/9f2c….epub`
+    /// Embedded creator names, when the format provides them.
+    #[serde(default)]
+    pub authors: Vec<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub language: Option<String>,
+    #[serde(default)]
+    pub publisher: Option<String>,
+    #[serde(default)]
+    pub published_at: Option<String>,
+    /// e.g. `books/9f2c….epub`; linked image folders have an empty file path.
     pub file: String,
     /// e.g. `covers/9f2c….jpg`; null until a cover exists.
     #[serde(default)]
     pub cover: Option<String>,
-    /// Lowercase, no dot: `epub` | `pdf` | `cbz` | `cbr`.
+    /// Lowercase, no dot: `epub` | `pdf` | `mobi` | `azw3` | `cbz` | `cbr` | `cb7` | `folder`.
     pub ext: String,
     /// `book` | `comic`.
     pub media_type: String,
@@ -113,6 +124,10 @@ pub struct LocalBook {
     /// disk). Derived at list time — never persisted.
     #[serde(default, skip)]
     pub missing: bool,
+    /// Absolute acquisition URL when this book was fetched from an OPDS
+    /// catalog. Used to skip a second download of the same file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acquired_from: Option<String>,
 }
 
 /// A user-attached folder read in place (no copy). Books inside are
@@ -263,6 +278,32 @@ fn content_hash(path: &Path) -> ApiResult<String> {
     Ok(hex::encode(hasher.finalize()))
 }
 
+/// Stable hash for a linked image folder, independent of directory entry order.
+fn image_folder_hash(path: &Path) -> ApiResult<String> {
+    let mut hasher = Sha256::new();
+    for name in folder_page_names(path)? {
+        hasher.update(name.as_bytes());
+        let mut file = std::fs::File::open(path.join(&name))?;
+        let mut buf = [0u8; 64 * 1024];
+        loop {
+            let n = std::io::Read::read(&mut file, &mut buf)?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+        }
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
+fn display_title(path: &Path) -> String {
+    path.file_stem()
+        .or_else(|| path.file_name())
+        .and_then(|s| s.to_str())
+        .unwrap_or("Untitled")
+        .to_string()
+}
+
 /// Normalized, dotless, lowercase extension of a path (`""` when absent).
 fn ext_of(path: &Path) -> String {
     path.extension()
@@ -274,7 +315,7 @@ fn ext_of(path: &Path) -> String {
 /// Comics are page-addressed archives; everything else is a book.
 fn media_type_for(ext: &str) -> &'static str {
     match ext {
-        "cbz" | "cbr" | "zip" | "rar" => "comic",
+        "cbz" | "cbr" | "cb7" | "folder" | "zip" | "rar" => "comic",
         _ => "book",
     }
 }
@@ -291,6 +332,7 @@ pub fn content_type_for(ext: &str) -> &'static str {
         "epub" => "application/epub+zip",
         "pdf" => "application/pdf",
         "cbz" | "zip" => "application/zip",
+        "cb7" => "application/x-7z-compressed",
         _ => "application/octet-stream",
     }
 }
@@ -298,12 +340,13 @@ pub fn content_type_for(ext: &str) -> &'static str {
 /// What "Add books" will accept. CBR is included: it imports and shelves fine,
 /// and only *reading* it locally is unsupported (no unrar) — an honest message
 /// at open time beats refusing the file at the picker with no explanation.
-const IMPORTABLE_EXTS: [&str; 4] = ["epub", "pdf", "cbz", "cbr"];
+const IMPORTABLE_EXTS: [&str; 7] = ["epub", "pdf", "cbz", "cbr", "cb7", "mobi", "azw3"];
 
-/// Whether a path is a supported book **file** — used by the open-request
-/// pipeline (`opens.rs`) to filter what is worth importing. Directories are
-/// rejected here, not silently walked (v1 never recurses into folders).
+/// Whether a path is a supported book file or a plain image folder.
 pub fn is_supported_book_path(path: &std::path::Path) -> bool {
+    if path.is_dir() {
+        return is_image_folder(path);
+    }
     if !path.is_file() {
         return false;
     }
@@ -323,7 +366,7 @@ pub async fn local_list(state: State<'_, AppState>) -> Result<Vec<LocalBook>, Ap
             let exists = book
                 .external_path
                 .as_ref()
-                .map(|p| std::path::Path::new(p).is_file())
+                .map(|p| std::path::Path::new(p).exists())
                 .unwrap_or(false);
             book.missing = !exists;
         }
@@ -394,6 +437,13 @@ pub struct FolderScan {
 /// Walk a directory tree collecting supported book files (no import — this is
 /// the "Found 214 supported files, 3 unsupported" preview).
 fn walk_folder(root: &Path) -> FolderScan {
+    if is_image_folder(root) {
+        return FolderScan {
+            supported: vec![root.to_string_lossy().into_owned()],
+            unsupported: Vec::new(),
+            truncated: false,
+        };
+    }
     let mut supported = Vec::new();
     let mut unsupported = Vec::new();
     let mut truncated = false;
@@ -408,7 +458,13 @@ fn walk_folder(root: &Path) -> FolderScan {
             let path = entry.path();
             let Ok(ft) = entry.file_type() else { continue };
             if ft.is_dir() {
-                if depth + 1 < SCAN_MAX_DEPTH {
+                if is_image_folder(&path) {
+                    if supported.len() + unsupported.len() < SCAN_MAX_FILES {
+                        supported.push(path.to_string_lossy().into_owned());
+                    } else {
+                        truncated = true;
+                    }
+                } else if depth + 1 < SCAN_MAX_DEPTH {
                     stack.push((path, depth + 1));
                 } else {
                     truncated = true;
@@ -504,12 +560,11 @@ pub async fn local_import<R: Runtime>(
         let src = import_source_path(&raw);
         let ext = ext_of(&src);
 
-        // Directories are rejected, not walked (v1 never recurses). Say so
-        // clearly rather than silently importing nothing.
-        if src.is_dir() {
+        let is_folder = src.is_dir() && is_image_folder(&src);
+        if src.is_dir() && !is_folder {
             report.skipped.push(ImportNote {
                 path: raw.clone(),
-                reason: "Folders can't be imported — choose the files inside.".into(),
+                reason: "Folder has no direct image pages.".into(),
             });
             continue;
         }
@@ -518,23 +573,25 @@ pub async fn local_import<R: Runtime>(
         if !IMPORTABLE_EXTS.contains(&ext.as_str()) {
             report.skipped.push(ImportNote {
                 path: raw.clone(),
-                reason: "Not a supported book format (EPUB, PDF, CBZ, CBR).".into(),
+                reason: "Not a supported book format (EPUB, PDF, CBZ, CBR, CB7, MOBI, AZW3) or image folder.".into(),
             });
             continue;
         }
-        let title = src
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("Untitled")
-            .to_string();
+        let title = display_title(&src);
 
         // Duplicate detection: hash the source (bounded memory) and skip if a
         // book with the same bytes is already in the catalog — re-importing the
         // same file must not create a second copy.
         let src_for_hash = src.clone();
-        let hash = tokio::task::spawn_blocking(move || content_hash(&src_for_hash))
-            .await
-            .map_err(|err| ApiError::local(format!("hash panicked: {err}")))?;
+        let hash = tokio::task::spawn_blocking(move || {
+            if is_folder {
+                image_folder_hash(&src_for_hash)
+            } else {
+                content_hash(&src_for_hash)
+            }
+        })
+        .await
+        .map_err(|err| ApiError::local(format!("hash panicked: {err}")))?;
         let hash = match hash {
             Ok(h) => h,
             Err(err) => {
@@ -557,12 +614,44 @@ pub async fn local_import<R: Runtime>(
         }
 
         let uid = new_uid();
-        let rel = format!("books/{uid}.{ext}");
+        // MOBI/KF8 is converted once at import time so the reader only needs
+        // to understand EPUB/PDF/comics. The original source is never
+        // modified and DRM is never bypassed.
+        let storage_ext = if is_folder {
+            "cbz"
+        } else if ext == "mobi" || ext == "azw3" {
+            "epub"
+        } else {
+            ext.as_str()
+        };
+        let rel = format!("books/{uid}.{storage_ext}");
         let dest = resolve(&state, &rel);
-        if let Err(err) = tokio::fs::copy(&src, &dest).await {
+        let write_result = if is_folder {
+            let source = src.clone();
+            let destination = dest.clone();
+            tokio::task::spawn_blocking(move || pack_image_folder_to_zip(&source, &destination))
+                .await
+                .map_err(|err| ApiError::local(format!("image-folder pack panicked: {err}")))?
+        } else if ext == "mobi" || ext == "azw3" {
+            let source = src.clone();
+            let converted = tokio::task::spawn_blocking(move || crate::mobi_import::to_epub(&source))
+                .await
+                .map_err(|err| ApiError::local(format!("MOBI conversion panicked: {err}")))?;
+            match converted {
+                Ok(bytes) => tokio::fs::write(&dest, bytes).await.map_err(ApiError::from),
+                Err(err) => Err(err),
+            }
+        } else {
+            tokio::fs::copy(&src, &dest).await.map(|_| ()).map_err(ApiError::from)
+        };
+        if let Err(err) = write_result {
             report.failed.push(ImportNote {
                 path: raw.clone(),
-                reason: format!("Could not copy the file: {err}"),
+                reason: if ext == "mobi" || ext == "azw3" {
+                    err.message
+                } else {
+                    format!("Could not copy the file: {err}")
+                },
             });
             continue;
         }
@@ -571,17 +660,22 @@ pub async fn local_import<R: Runtime>(
         let mut book = LocalBook {
             id: 0, // assigned below, under the lock
             title,
+            authors: Vec::new(),
+            description: None,
+            language: None,
+            publisher: None,
+            published_at: None,
             file: rel,
             cover: None,
-            ext: ext.clone(),
-            media_type: media_type_for(&ext).to_string(),
+            ext: storage_ext.to_string(),
+            media_type: media_type_for(storage_ext).to_string(),
             page_count: 0,
             bytes,
             added_at: now_ms(),
             origin: None,
             progress: Progress::default(),
             favorited: false,
-            content_hash: Some(hash),
+            content_hash: Some(hash.clone()),
             series: None,
             volume: None,
             tags: Vec::new(),
@@ -589,18 +683,63 @@ pub async fn local_import<R: Runtime>(
             source: None,
             external_path: None,
             missing: false,
+            acquired_from: None,
         };
+
+        let heuristic = crate::metadata::filename_heuristics(&raw);
+        if heuristic.volume.is_some() {
+            if let Some(title) = heuristic.title {
+                book.title = title;
+            }
+            book.series = heuristic.series;
+            book.volume = heuristic.volume;
+        }
+
+        let metadata_path = dest.clone();
+        let metadata_ext = storage_ext.to_string();
+        if let Ok(Ok(metadata)) =
+            tokio::task::spawn_blocking(move || crate::metadata::extract(&metadata_path, &metadata_ext)).await
+        {
+            if let Some(title) = metadata.title {
+                book.title = title;
+            }
+            book.authors = metadata.authors;
+            book.description = metadata.description;
+            book.language = metadata.language;
+            book.publisher = metadata.publisher;
+            book.published_at = metadata.published_at;
+            if book.series.is_none() {
+                book.series = metadata.series;
+            }
+            if book.volume.is_none() {
+                book.volume = metadata.volume;
+            }
+        }
+
+        if storage_ext == "epub" {
+            let cover_path = dest.clone();
+            if let Ok(Ok(Some((cover_bytes, cover_ext)))) =
+                tokio::task::spawn_blocking(move || crate::metadata::extract_epub_cover(&cover_path)).await
+            {
+                let rel_cover = format!("covers/{}.{}", hash, cover_ext);
+                if tokio::fs::write(resolve(&state, &rel_cover), cover_bytes).await.is_ok() {
+                    book.cover = Some(rel_cover);
+                }
+            }
+        }
 
         // A CBZ/CBR carries its own cover and page count; extract both now so
         // the shelf is complete the moment the import finishes. EPUB and PDF
         // covers are rendered client-side later (see `save_local_cover`) —
         // keeping those renderers out of Rust is the whole reason this split
         // exists. RAR (CBR) reads only page headers + the cover entry on demand.
-        if book.media_type == "comic" && (ext == "cbz" || (ext == "cbr" && cfg!(desktop))) {
+        if book.media_type == "comic"
+            && (storage_ext == "cbz" || storage_ext == "cb7" || (storage_ext == "cbr" && cfg!(desktop)))
+        {
             let path = dest.clone();
-            let uid2 = uid.clone();
+            let hash2 = hash.clone();
             let covers = covers_dir(&state);
-            let ext = ext.clone();
+            let ext = storage_ext.to_string();
             let extracted = tokio::task::spawn_blocking(move || -> ApiResult<(i64, Option<String>)> {
                 let names = page_names(&path, &ext)?;
                 let count = names.len() as i64;
@@ -609,8 +748,8 @@ pub async fn local_import<R: Runtime>(
                         let bytes = entry_bytes(&path, &ext, first)?;
                         let cext = ext_of(Path::new(first));
                         let cext = if cext.is_empty() { "jpg".into() } else { cext };
-                        std::fs::write(covers.join(format!("{uid2}.{cext}")), bytes)?;
-                        Some(format!("covers/{uid2}.{cext}"))
+                        std::fs::write(covers.join(format!("{hash2}.{cext}")), bytes)?;
+                        Some(format!("covers/{hash2}.{cext}"))
                     }
                     None => None,
                 };
@@ -643,6 +782,7 @@ pub async fn local_import<R: Runtime>(
             book.clone()
         })
         .await?;
+        crate::local_search::invalidate_index(&state);
         report.added.push(pushed);
     }
 
@@ -676,6 +816,7 @@ pub async fn local_delete(state: State<'_, AppState>, id: i64) -> Result<u64, Ap
         }
         let _ = tokio::fs::remove_file(&path).await;
     }
+    crate::local_search::invalidate_index(&state);
     Ok(freed)
 }
 
@@ -806,6 +947,11 @@ pub async fn local_download<R: Runtime>(
     let mut book = LocalBook {
         id: 0,
         title,
+        authors: Vec::new(),
+        description: None,
+        language: None,
+        publisher: None,
+        published_at: None,
         file: rel,
         cover,
         ext: ext.clone(),
@@ -828,6 +974,7 @@ pub async fn local_download<R: Runtime>(
         source: None,
         external_path: None,
         missing: false,
+        acquired_from: None,
     };
 
     // Hash the finalized file so a download dedupes against a locally-imported
@@ -843,7 +990,7 @@ pub async fn local_download<R: Runtime>(
     // A downloaded CBZ/CBR's real page count comes from the archive; the
     // server's number is a fine default but the local reader pages the file
     // itself. CBR count is desktop-only (no RAR backend on mobile).
-    if book.ext == "cbz" || (book.ext == "cbr" && cfg!(desktop)) {
+    if book.ext == "cbz" || book.ext == "cb7" || (book.ext == "cbr" && cfg!(desktop)) {
         let path = dest.clone();
         let ext = book.ext.clone();
         if let Ok(Ok(names)) = tokio::task::spawn_blocking(move || page_names(&path, &ext)).await {
@@ -908,6 +1055,169 @@ async fn fetch_cover(state: &AppState, server: &str, comic_id: i64, uid: &str) -
     let rel = format!("covers/{uid}.{ext}");
     tokio::fs::write(state.library_dir.join(&rel), &bytes).await.ok()?;
     Some(rel)
+}
+
+/// Destination for an incoming app-owned file (`books/<uid>.<ext>`).
+pub(crate) async fn prepare_owned_dest(state: &AppState, ext: &str) -> ApiResult<(String, PathBuf)> {
+    tokio::fs::create_dir_all(books_dir(state)).await?;
+    tokio::fs::create_dir_all(covers_dir(state)).await?;
+    let uid = new_uid();
+    let rel = format!("books/{uid}.{ext}");
+    let dest = resolve(state, &rel);
+    Ok((rel, dest))
+}
+
+/// Write cover bytes into the covers dir. Failures are cosmetic.
+pub(crate) async fn write_cover_bytes(state: &AppState, bytes: &[u8], ext: &str) -> Option<String> {
+    if bytes.is_empty() {
+        return None;
+    }
+    let uid = new_uid();
+    let ext = if ext.is_empty() { "jpg" } else { ext };
+    let rel = format!("covers/{uid}.{ext}");
+    tokio::fs::write(state.library_dir.join(&rel), bytes).await.ok()?;
+    Some(rel)
+}
+
+/// An already-on-disk app-owned file ready to be catalogued.
+pub(crate) struct OwnedIngest {
+    pub title: String,
+    pub ext: String,
+    pub rel: String,
+    pub dest: PathBuf,
+    pub bytes: u64,
+    pub cover: Option<String>,
+    pub acquired_from: Option<String>,
+}
+
+/// Result of cataloguing a downloaded/imported file.
+pub(crate) struct Ingested {
+    pub book: LocalBook,
+    pub already_owned: bool,
+}
+
+/// Catalog an already-written app-owned book. Dedupes by `acquired_from` and
+/// content hash: a match deletes the new copy and returns the existing record.
+pub(crate) async fn catalog_owned_file(state: &AppState, ingest: OwnedIngest) -> ApiResult<Ingested> {
+    let dest = ingest.dest;
+    let mut book = LocalBook {
+        id: 0,
+        title: ingest.title,
+        authors: Vec::new(),
+        description: None,
+        language: None,
+        publisher: None,
+        published_at: None,
+        file: ingest.rel,
+        cover: ingest.cover,
+        ext: ingest.ext.clone(),
+        media_type: media_type_for(&ingest.ext).to_string(),
+        page_count: 0,
+        bytes: ingest.bytes,
+        added_at: now_ms(),
+        origin: None,
+        progress: Progress::default(),
+        favorited: false,
+        content_hash: None,
+        series: None,
+        volume: None,
+        tags: Vec::new(),
+        collections: Vec::new(),
+        source: None,
+        external_path: None,
+        missing: false,
+        acquired_from: ingest.acquired_from.clone(),
+    };
+
+    let heuristic = crate::metadata::filename_heuristics(&book.title);
+    if heuristic.volume.is_some() {
+        book.series = heuristic.series;
+        book.volume = heuristic.volume;
+    }
+
+    let metadata_path = dest.clone();
+    let metadata_ext = book.ext.clone();
+    if let Ok(Ok(metadata)) =
+        tokio::task::spawn_blocking(move || crate::metadata::extract(&metadata_path, &metadata_ext)).await
+    {
+        if let Some(title) = metadata.title {
+            book.title = title;
+        }
+        book.authors = metadata.authors;
+        book.description = metadata.description;
+        book.language = metadata.language;
+        book.publisher = metadata.publisher;
+        book.published_at = metadata.published_at;
+        book.series = metadata.series;
+        book.volume = metadata.volume;
+    }
+
+    {
+        let path = dest.clone();
+        book.content_hash = tokio::task::spawn_blocking(move || content_hash(&path))
+            .await
+            .ok()
+            .and_then(Result::ok);
+    }
+
+    if book.ext == "cbz" || (book.ext == "cbr" && cfg!(desktop)) {
+        let path = dest.clone();
+        let ext = book.ext.clone();
+        if let Ok(Ok(names)) = tokio::task::spawn_blocking(move || page_names(&path, &ext)).await {
+            if !names.is_empty() {
+                book.page_count = names.len() as i64;
+            }
+        }
+    }
+
+    // Hash (or acquired-from) already in the catalog → drop the new copy.
+    {
+        let catalog = state.catalog.lock().await;
+        let existing = catalog.books.iter().find(|b| {
+            (book.content_hash.is_some() && b.content_hash == book.content_hash)
+                || (ingest.acquired_from.is_some() && b.acquired_from == ingest.acquired_from)
+        });
+        if let Some(existing) = existing {
+            let existing = existing.clone();
+            drop(catalog);
+            let _ = tokio::fs::remove_file(&dest).await;
+            if let Some(cover) = &book.cover {
+                let _ = tokio::fs::remove_file(resolve(state, cover)).await;
+            }
+            return Ok(Ingested {
+                book: existing,
+                already_owned: true,
+            });
+        }
+    }
+
+    let pushed = mutate_catalog(state, |catalog| {
+        book.id = catalog.next_id;
+        catalog.next_id += 1;
+        catalog.books.push(book.clone());
+        book.clone()
+    })
+    .await?;
+    crate::local_search::invalidate_index(state);
+    Ok(Ingested {
+        book: pushed,
+        already_owned: false,
+    })
+}
+
+pub(crate) async fn find_by_acquired_from(state: &AppState, href: &str) -> Option<LocalBook> {
+    state
+        .catalog
+        .lock()
+        .await
+        .books
+        .iter()
+        .find(|b| b.acquired_from.as_deref() == Some(href))
+        .cloned()
+}
+
+pub(crate) fn is_importable_ext(ext: &str) -> bool {
+    IMPORTABLE_EXTS.contains(&ext)
 }
 
 /// Byte length of a local book file — the first thing the PDF range reader asks.
@@ -1065,6 +1375,8 @@ pub async fn local_set_favorite(state: State<'_, AppState>, id: i64, favorited: 
 pub async fn local_set_metadata(
     state: State<'_, AppState>,
     id: i64,
+    title: Option<String>,
+    authors: Vec<String>,
     series: Option<String>,
     volume: Option<String>,
     tags: Vec<String>,
@@ -1074,8 +1386,17 @@ pub async fn local_set_metadata(
         .map(|t| t.trim().to_string())
         .filter(|t| !t.is_empty())
         .collect();
+    let cleaned_authors: Vec<String> = authors
+        .into_iter()
+        .map(|a| a.trim().to_string())
+        .filter(|a| !a.is_empty())
+        .collect();
     mutate_catalog(&state, |catalog| {
         if let Some(book) = catalog.books.iter_mut().find(|b| b.id == id) {
+            if let Some(title) = title.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+                book.title = title.to_string();
+            }
+            book.authors = cleaned_authors.clone();
             book.series = series.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
             book.volume = volume.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
             book.tags = cleaned.clone();
@@ -1142,24 +1463,39 @@ pub async fn local_add_linked_folder<R: Runtime>(
     let mut added = Vec::new();
     for file in &scan.supported {
         let file_path = file.clone();
-        let hash = tokio::task::spawn_blocking(move || content_hash(Path::new(&file_path)))
-            .await
-            .ok()
-            .and_then(Result::ok)
-            .unwrap_or_default();
+        let is_folder = Path::new(&file_path).is_dir();
+        let linked_ext = if is_folder {
+            "folder".to_string()
+        } else {
+            ext_of(Path::new(&file_path))
+        };
+        let hash = tokio::task::spawn_blocking(move || {
+            if is_folder {
+                image_folder_hash(Path::new(&file_path))
+            } else {
+                content_hash(Path::new(&file_path))
+            }
+        })
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .unwrap_or_default();
         let mut book = LocalBook {
             id: 0,
-            title: Path::new(&file)
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("Untitled")
-                .to_string(),
+            title: display_title(Path::new(&file)),
+            authors: Vec::new(),
+            description: None,
+            language: None,
+            publisher: None,
+            published_at: None,
             file: String::new(), // not app-owned
             cover: None,
-            ext: ext_of(Path::new(&file)),
-            media_type: media_type_for(&ext_of(Path::new(&file))).to_string(),
+            ext: linked_ext.clone(),
+            media_type: media_type_for(&linked_ext).to_string(),
             page_count: 0,
-            bytes: std::fs::metadata(file).map(|m| m.len()).unwrap_or(0),
+            bytes: std::fs::metadata(file)
+                .map(|m| if is_folder { 0 } else { m.len() })
+                .unwrap_or(0),
             added_at: now_ms(),
             origin: None,
             progress: Progress::default(),
@@ -1172,7 +1508,30 @@ pub async fn local_add_linked_folder<R: Runtime>(
             source: Some("linked".into()),
             external_path: Some(file.clone()),
             missing: false,
+            acquired_from: None,
         };
+        let heuristic = crate::metadata::filename_heuristics(file);
+        if heuristic.volume.is_some() {
+            book.series = heuristic.series;
+            book.volume = heuristic.volume;
+        }
+        let metadata_path = file.clone();
+        let metadata_ext = book.ext.clone();
+        if let Ok(Ok(metadata)) =
+            tokio::task::spawn_blocking(move || crate::metadata::extract(Path::new(&metadata_path), &metadata_ext))
+                .await
+        {
+            if let Some(title) = metadata.title {
+                book.title = title;
+            }
+            book.authors = metadata.authors;
+            book.description = metadata.description;
+            book.language = metadata.language;
+            book.publisher = metadata.publisher;
+            book.published_at = metadata.published_at;
+            book.series = metadata.series;
+            book.volume = metadata.volume;
+        }
         let pushed = mutate_catalog(&state, |catalog| {
             // Replace any existing linked book with the same external path so a
             // rescan never duplicates the same file.
@@ -1182,6 +1541,21 @@ pub async fn local_add_linked_folder<R: Runtime>(
                 .position(|b| b.external_path.as_deref() == book.external_path.as_deref())
             {
                 book.id = catalog.books[idx].id;
+                book.added_at = catalog.books[idx].added_at;
+                book.progress = catalog.books[idx].progress.clone();
+                book.favorited = catalog.books[idx].favorited;
+                book.title = catalog.books[idx].title.clone();
+                book.authors = catalog.books[idx].authors.clone();
+                book.description = catalog.books[idx].description.clone();
+                book.language = catalog.books[idx].language.clone();
+                book.publisher = catalog.books[idx].publisher.clone();
+                book.published_at = catalog.books[idx].published_at.clone();
+                book.series = catalog.books[idx].series.clone();
+                book.volume = catalog.books[idx].volume.clone();
+                book.tags = catalog.books[idx].tags.clone();
+                book.collections = catalog.books[idx].collections.clone();
+                book.cover = catalog.books[idx].cover.clone();
+                book.origin = catalog.books[idx].origin.clone();
                 let existing = &mut catalog.books[idx];
                 *existing = book.clone();
             } else {
@@ -1203,6 +1577,7 @@ pub async fn local_add_linked_folder<R: Runtime>(
         .await?;
         added.push(pushed);
     }
+    crate::local_search::invalidate_index(&state);
     Ok(added)
 }
 
@@ -1220,19 +1595,27 @@ pub async fn local_rescan_linked_folders(state: State<'_, AppState>) -> Result<u
             .map_err(|err| ApiError::local(format!("folder scan panicked: {err}")))?;
         for file in &scan.supported {
             let external = file.clone();
+            let linked_ext = if Path::new(&external).is_dir() {
+                "folder".to_string()
+            } else {
+                ext_of(Path::new(&external))
+            };
             let mut book = LocalBook {
                 id: 0,
-                title: Path::new(&external)
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("Untitled")
-                    .to_string(),
+                title: display_title(Path::new(&external)),
+                authors: Vec::new(),
+                description: None,
+                language: None,
+                publisher: None,
+                published_at: None,
                 file: String::new(),
                 cover: None,
-                ext: ext_of(Path::new(&external)),
-                media_type: media_type_for(&ext_of(Path::new(&external))).to_string(),
+                ext: linked_ext.clone(),
+                media_type: media_type_for(&linked_ext).to_string(),
                 page_count: 0,
-                bytes: std::fs::metadata(&external).map(|m| m.len()).unwrap_or(0),
+                bytes: std::fs::metadata(&external)
+                    .map(|m| if Path::new(&external).is_dir() { 0 } else { m.len() })
+                    .unwrap_or(0),
                 added_at: now_ms(),
                 origin: None,
                 progress: Progress::default(),
@@ -1245,13 +1628,43 @@ pub async fn local_rescan_linked_folders(state: State<'_, AppState>) -> Result<u
                 source: Some("linked".into()),
                 external_path: Some(external.clone()),
                 missing: false,
+                acquired_from: None,
             };
+            let heuristic = crate::metadata::filename_heuristics(&external);
+            if heuristic.volume.is_some() {
+                book.series = heuristic.series;
+                book.volume = heuristic.volume;
+            }
+            let metadata_path = external.clone();
+            let metadata_ext = book.ext.clone();
+            if let Ok(Ok(metadata)) =
+                tokio::task::spawn_blocking(move || crate::metadata::extract(Path::new(&metadata_path), &metadata_ext))
+                    .await
+            {
+                if let Some(title) = metadata.title {
+                    book.title = title;
+                }
+                book.authors = metadata.authors;
+                book.description = metadata.description;
+                book.language = metadata.language;
+                book.publisher = metadata.publisher;
+                book.published_at = metadata.published_at;
+                book.series = metadata.series;
+                book.volume = metadata.volume;
+            }
             let hash_path = external.clone();
-            let hash = tokio::task::spawn_blocking(move || content_hash(Path::new(&hash_path)))
-                .await
-                .ok()
-                .and_then(Result::ok)
-                .unwrap_or_default();
+            let is_folder = Path::new(&hash_path).is_dir();
+            let hash = tokio::task::spawn_blocking(move || {
+                if is_folder {
+                    image_folder_hash(Path::new(&hash_path))
+                } else {
+                    content_hash(Path::new(&hash_path))
+                }
+            })
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default();
             book.content_hash = Some(hash);
             let external_ref = external.clone();
             mutate_catalog(&state, |catalog| {
@@ -1265,6 +1678,12 @@ pub async fn local_rescan_linked_folders(state: State<'_, AppState>) -> Result<u
                     // Keep user metadata + progress; refresh size/hash.
                     existing.bytes = book.bytes;
                     existing.content_hash = book.content_hash.clone();
+                    existing.title = book.title.clone();
+                    existing.authors = book.authors.clone();
+                    existing.description = book.description.clone();
+                    existing.language = book.language.clone();
+                    existing.publisher = book.publisher.clone();
+                    existing.published_at = book.published_at.clone();
                 } else {
                     book.id = catalog.next_id;
                     catalog.next_id += 1;
@@ -1277,6 +1696,9 @@ pub async fn local_rescan_linked_folders(state: State<'_, AppState>) -> Result<u
         // Anything in this folder's linked set no longer on disk → the `missing`
         // flag is derived at list time; nothing is deleted, so the user can
         // Locate a book that merely moved.
+    }
+    if total > 0 {
+        crate::local_search::invalidate_index(&state);
     }
     Ok(total)
 }
@@ -1311,7 +1733,9 @@ pub async fn local_remove_linked_folder<R: Runtime>(
                 && b.external_path.as_deref().is_some_and(|p| p.starts_with(&folder.path)))
         });
     })
-    .await
+    .await?;
+    crate::local_search::invalidate_index(&state);
+    Ok(())
 }
 
 /// Re-point a missing linked book at a new file (Locate). Returns the updated
@@ -1334,6 +1758,7 @@ pub async fn local_locate_linked_book(
         }
     })
     .await?;
+    crate::local_search::invalidate_index(&state);
     updated.ok_or_else(|| ApiError::local("No such linked book"))
 }
 
@@ -1370,7 +1795,9 @@ pub async fn save_local_cover(
     }
     tokio::fs::create_dir_all(covers_dir(&state)).await?;
     let ext = ext.unwrap_or_else(|| "jpg".into()).to_ascii_lowercase();
-    let rel = format!("covers/{}.{ext}", new_uid());
+    let book = get_book(&state, id).await?;
+    let stem = book.content_hash.unwrap_or_else(new_uid);
+    let rel = format!("covers/{stem}.{ext}");
     tokio::fs::write(resolve(&state, &rel), &bytes).await?;
     mutate_catalog(&state, |catalog| {
         if let Some(book) = catalog.books.iter_mut().find(|b| b.id == id) {
@@ -1378,6 +1805,22 @@ pub async fn save_local_cover(
         }
     })
     .await
+}
+
+/// Replace a local cover from a user-selected image file. The picker supplies
+/// the path, but Rust performs the read and enforces the image/size boundary.
+#[tauri::command]
+pub async fn local_set_cover_from_path(state: State<'_, AppState>, id: i64, path: String) -> Result<(), ApiError> {
+    let source = PathBuf::from(path);
+    let ext = ext_of(&source);
+    if !source.is_file() || !["jpg", "jpeg", "png", "gif", "webp", "avif", "bmp"].contains(&ext.as_str()) {
+        return Err(ApiError::local("Choose a JPG, PNG, GIF, WebP, AVIF, or BMP image"));
+    }
+    let bytes = tokio::fs::read(&source).await?;
+    if bytes.len() > 50 * 1024 * 1024 {
+        return Err(ApiError::local("Cover image is larger than 50 MiB"));
+    }
+    save_local_cover(state, id, bytes, Some(ext)).await
 }
 
 /* ----------------------------------------------------------------- helpers */
@@ -1465,13 +1908,13 @@ mod tests {
     fn walk_folder_collects_supported_recursively() {
         let (root, files) = temp_library_tree();
         let scan = walk_folder(&root);
-        // epub + cbz are supported; png/txt/md are not.
-        assert_eq!(scan.supported.len(), 2);
+        // epub + cbz + the plain image folder are supported; txt/md are not.
+        assert_eq!(scan.supported.len(), 3);
         assert!(scan
             .supported
             .iter()
-            .all(|p| p.ends_with(".epub") || p.ends_with(".cbz")));
-        assert_eq!(scan.unsupported.len(), 3);
+            .all(|p| p.ends_with(".epub") || p.ends_with(".cbz") || p.ends_with("Vol 02")));
+        assert_eq!(scan.unsupported.len(), 2);
         assert!(!scan.truncated);
         let _ = files;
         let _ = std::fs::remove_dir_all(&root);
@@ -1536,7 +1979,7 @@ mod tests {
 
     #[test]
     fn only_book_formats_import() {
-        for ext in ["epub", "pdf", "cbz", "cbr"] {
+        for ext in ["epub", "pdf", "cbz", "cbr", "cb7", "mobi", "azw3"] {
             assert!(IMPORTABLE_EXTS.contains(&ext), "{ext} should import");
         }
         for ext in ["", "jpg", "txt", "mp3", "zip"] {
@@ -1548,6 +1991,8 @@ mod tests {
     fn archives_are_comics_and_everything_else_is_a_book() {
         assert_eq!(media_type_for("cbz"), "comic");
         assert_eq!(media_type_for("cbr"), "comic");
+        assert_eq!(media_type_for("cb7"), "comic");
+        assert_eq!(media_type_for("folder"), "comic");
         assert_eq!(media_type_for("epub"), "book");
         assert_eq!(media_type_for("pdf"), "book");
     }
@@ -1585,6 +2030,11 @@ mod tests {
         first.books.push(LocalBook {
             id: 1,
             title: "first".into(),
+            authors: Vec::new(),
+            description: None,
+            language: None,
+            publisher: None,
+            published_at: None,
             file: "books/a.epub".into(),
             cover: None,
             ext: "epub".into(),
@@ -1603,6 +2053,7 @@ mod tests {
             source: None,
             external_path: None,
             missing: false,
+            acquired_from: None,
         });
         write_catalog_snapshot(&path, &first).await.unwrap();
 
@@ -1614,6 +2065,11 @@ mod tests {
         second.books.push(LocalBook {
             id: 2,
             title: "second".into(),
+            authors: Vec::new(),
+            description: None,
+            language: None,
+            publisher: None,
+            published_at: None,
             file: "books/b.cbz".into(),
             cover: None,
             ext: "cbz".into(),
@@ -1632,6 +2088,7 @@ mod tests {
             source: None,
             external_path: None,
             missing: false,
+            acquired_from: None,
         });
         write_catalog_snapshot(&path, &second).await.unwrap();
 
@@ -1666,6 +2123,11 @@ mod tests {
         let mut linked = LocalBook {
             id: 1,
             title: "linked".into(),
+            authors: Vec::new(),
+            description: None,
+            language: None,
+            publisher: None,
+            published_at: None,
             file: "books/x.epub".into(),
             cover: None,
             ext: "epub".into(),
@@ -1684,6 +2146,7 @@ mod tests {
             source: Some("linked".into()),
             external_path: Some("/Books/x.epub".into()),
             missing: false,
+            acquired_from: None,
         };
         assert_eq!(
             book_disk_path_at(library_dir, &linked).unwrap(),
@@ -1696,6 +2159,11 @@ mod tests {
         let copy = LocalBook {
             id: 2,
             title: "copy".into(),
+            authors: Vec::new(),
+            description: None,
+            language: None,
+            publisher: None,
+            published_at: None,
             file: "books/y.epub".into(),
             cover: None,
             ext: "epub".into(),
@@ -1714,6 +2182,7 @@ mod tests {
             source: None,
             external_path: None,
             missing: false,
+            acquired_from: None,
         };
         assert_eq!(
             book_disk_path_at(library_dir, &copy).unwrap(),
@@ -1758,6 +2227,7 @@ mod tests {
         assert_eq!(catalog.books[0].series, None);
         assert_eq!(catalog.books[0].tags, Vec::<String>::new());
         assert_eq!(catalog.books[0].collections, Vec::<String>::new());
+        assert_eq!(catalog.books[0].acquired_from, None);
     }
 
     /// Concurrent progress + favorite + cover mutations must all land in the
@@ -1777,6 +2247,11 @@ mod tests {
         initial.books.push(LocalBook {
             id: 1,
             title: "T".into(),
+            authors: Vec::new(),
+            description: None,
+            language: None,
+            publisher: None,
+            published_at: None,
             file: "books/a.epub".into(),
             cover: None,
             ext: "epub".into(),
@@ -1795,6 +2270,7 @@ mod tests {
             source: None,
             external_path: None,
             missing: false,
+            acquired_from: None,
         });
         initial.next_id = 2;
         write_catalog_snapshot(&path, &initial).await.unwrap();

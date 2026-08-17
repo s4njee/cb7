@@ -236,6 +236,11 @@ export interface LocalProgress {
 export interface LocalBook {
   id: number;
   title: string;
+  authors?: string[];
+  description?: string | null;
+  language?: string | null;
+  publisher?: string | null;
+  publishedAt?: string | null;
   file: string;
   cover: string | null;
   ext: string;
@@ -263,6 +268,8 @@ export interface LocalBook {
   externalPath?: string | null;
   /** Linked book whose file has gone missing on disk. */
   missing?: boolean;
+  /** Acquisition URL when this book was fetched from an OPDS catalog. */
+  acquiredFrom?: string | null;
 }
 
 export interface LocalDownloadProgress {
@@ -275,6 +282,34 @@ export interface LocalDownloadProgress {
 export function localList(): Promise<LocalBook[]> {
   if (!isTauri) return Promise.resolve([]);
   return invoke<LocalBook[]>("local_list");
+}
+
+export interface LocalSearchHit {
+  id: number;
+  title: string;
+  snippet: string;
+  count: number;
+}
+
+export function localSearch(query: string): Promise<LocalSearchHit[]> {
+  if (!isTauri) return Promise.resolve([]);
+  return invoke<LocalSearchHit[]>("local_search", { query });
+}
+
+export interface LocalSearchSettings {
+  enabled: boolean;
+  indexedBytes: number;
+  indexedBooks: number;
+}
+
+export function localSearchSettings(): Promise<LocalSearchSettings> {
+  if (!isTauri) return Promise.resolve({ enabled: false, indexedBytes: 0, indexedBooks: 0 });
+  return invoke<LocalSearchSettings>("local_search_settings");
+}
+
+export function reindexLocalSearch(): Promise<LocalSearchSettings> {
+  if (!isTauri) return Promise.resolve({ enabled: false, indexedBytes: 0, indexedBooks: 0 });
+  return invoke<LocalSearchSettings>("local_reindex_search");
 }
 
 /** Per-file import outcome — every input file gets a verdict, and one bad file
@@ -460,12 +495,19 @@ export function localClearProgress(id: number): Promise<void> {
 /** Set series / volume / tags on a local book (tags replace the whole set). */
 export function localSetMetadata(
   id: number,
+  title: string | null,
+  authors: string[],
   series: string | null,
   volume: string | null,
   tags: string[],
 ): Promise<void> {
   if (!isTauri) return Promise.resolve();
-  return invoke<void>("local_set_metadata", { id, series, volume, tags });
+  return invoke<void>("local_set_metadata", { id, title, authors, series, volume, tags });
+}
+
+export async function localSetCoverFromPath(id: number, path: string): Promise<void> {
+  if (!isTauri) return;
+  await invoke<void>("local_set_cover_from_path", { id, path });
 }
 
 /** Add or remove a local book from a named collection. */
@@ -576,7 +618,7 @@ export async function pickAndImportBooks(): Promise<ImportReport> {
         // CBR is locally readable on desktop (RAR via the unrar crate), so the
         // picker advertises it; mobile has no RAR backend and stays unfiltered
         // anyway (custom UTIs).
-        { name: "Books", extensions: ["epub", "pdf", "cbz", "cbr"] },
+        { name: "Books", extensions: ["epub", "pdf", "mobi", "azw3", "cbz", "cbr", "cb7"] },
         { name: "All files", extensions: ["*"] },
       ]
     : undefined;
@@ -908,3 +950,113 @@ export function hapticTick(kind: HapticKind): void {
     }
   })();
 }
+
+/* -------------------------------------------------------------------- OPDS */
+
+/** OPDS browsing is a native capability (Rust owns the HTTP). Browser dev
+ *  has no catalog client, so the UI section stays absent there. */
+export const opdsSupported = isTauri;
+
+export interface OpdsCatalog {
+  id: string;
+  name: string;
+  url: string;
+  username?: string | null;
+  hasAuth: boolean;
+}
+
+export interface OpdsNavEntry {
+  title: string;
+  href: string;
+}
+
+export interface OpdsAcquisition {
+  href: string;
+  mime?: string | null;
+  ext?: string | null;
+}
+
+export interface OpdsPublication {
+  title: string;
+  authors: string[];
+  summary?: string | null;
+  identifier?: string | null;
+  coverHref?: string | null;
+  acquisitions: OpdsAcquisition[];
+}
+
+export interface OpdsFeed {
+  title: string;
+  href: string;
+  nextHref?: string | null;
+  searchTemplate?: string | null;
+  navigation: OpdsNavEntry[];
+  publications: OpdsPublication[];
+}
+
+export interface OpdsDownloadResult {
+  book: LocalBook;
+  alreadyOwned: boolean;
+}
+
+export function opdsListCatalogs(): Promise<OpdsCatalog[]> {
+  if (!isTauri) return Promise.resolve([]);
+  return invoke<OpdsCatalog[]>("opds_list_catalogs");
+}
+
+export function opdsAddCatalog(args: {
+  name: string;
+  url: string;
+  username?: string;
+  password?: string;
+}): Promise<OpdsCatalog> {
+  if (!isTauri) {
+    return Promise.reject({ status: 0, message: "Catalogs need the app" } as ApiError);
+  }
+  return invoke<OpdsCatalog>("opds_add_catalog", {
+    name: args.name,
+    url: args.url,
+    username: args.username || null,
+    password: args.password || null,
+  });
+}
+
+export function opdsRemoveCatalog(id: string): Promise<void> {
+  if (!isTauri) return Promise.resolve();
+  return invoke<void>("opds_remove_catalog", { id });
+}
+
+export function opdsBrowse(catalogId: string, href?: string | null): Promise<OpdsFeed> {
+  if (!isTauri) {
+    return Promise.reject({ status: 0, message: "Catalogs need the app" } as ApiError);
+  }
+  return invoke<OpdsFeed>("opds_browse", { catalogId, href: href ?? null });
+}
+
+export function opdsSearch(catalogId: string, query: string, template: string): Promise<OpdsFeed> {
+  if (!isTauri) {
+    return Promise.reject({ status: 0, message: "Catalogs need the app" } as ApiError);
+  }
+  return invoke<OpdsFeed>("opds_search", { catalogId, query, template });
+}
+
+export function opdsDownload(args: {
+  catalogId: string;
+  href: string;
+  title: string;
+  mime?: string | null;
+  coverHref?: string | null;
+  progressId: number;
+}): Promise<OpdsDownloadResult> {
+  if (!isTauri) {
+    return Promise.reject({ status: 0, message: "Downloads need the app" } as ApiError);
+  }
+  return invoke<OpdsDownloadResult>("opds_download", args);
+}
+
+/** Suggested public catalogs. Adding one still goes through the probe so a
+ *  dead or auth-gated feed is reported honestly rather than saved blindly. */
+export const OPDS_PRESETS: { name: string; url: string }[] = [
+  { name: "Standard Ebooks", url: "https://standardebooks.org/feeds/opds" },
+  { name: "Project Gutenberg", url: "https://www.gutenberg.org/ebooks.opds/" },
+];

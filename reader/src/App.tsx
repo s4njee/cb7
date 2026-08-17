@@ -325,7 +325,7 @@ export default function App() {
         <div className="drop-target" aria-hidden="true">
           <div className="drop-target-inner">
             <div className="drop-target-title">Add books</div>
-            <div className="drop-target-sub">Drop EPUB, PDF, or CBZ files</div>
+            <div className="drop-target-sub">Drop EPUB, MOBI, AZW3, PDF, CBZ, CB7, or image folders</div>
           </div>
         </div>
       )}

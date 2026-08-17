@@ -30,8 +30,9 @@ boot ─→ library (LOCAL, always)         ← no server required, ever
 connect (server) is reached from the library menu, never on the critical path
 ```
 
-An empty local shelf shows the empty state with two actions: **Add books** (file
-import) and **Connect a server** — not an error, an invitation.
+An empty local shelf shows the empty state with actions: **Add books** (file
+import), **Browse a catalog** (OPDS acquisition), and **Connect a server** —
+not an error, an invitation. OPDS downloads become ordinary local copies.
 
 ## Records
 
@@ -68,9 +69,14 @@ iOS may evict the cache directory; a library must not live there.
   "books": [{
     "id": 3,                       // local id, monotonic
     "title": "…",
+    "authors": ["…"],             // embedded creators, when available
+    "description": "…",           // embedded summary/subject, optional
+    "language": "en",              // embedded language, optional
+    "publisher": "…",             // embedded publisher, optional
+    "publishedAt": "…",            // embedded publication date, optional
     "file": "books/9f2c….epub",    // relative to <app_data>/library
     "cover": "covers/9f2c….jpg",   // relative; null until extracted
-    "ext": "epub",                 // epub | pdf | cbz | cbr
+    "ext": "epub",                 // epub | pdf | cbz | cbr | cb7 | folder
     "mediaType": "book",           // book | comic
     "pageCount": 0,                // comics: page count; books: 0 until known
     "bytes": 12345678,
@@ -88,9 +94,11 @@ downloaded twice and (later) progress can sync back.
 
 | Format | How |
 |---|---|
-| EPUB | whole-file bytes → epub.js (as today) |
+| EPUB | whole-file bytes → epub.js (as today); OPF metadata is extracted on import |
 | PDF | disk byte ranges → pdf.js (the path built for the 567 MB book) |
-| CBZ | **Rust unzips page N on demand** (`zip` crate); page list cached in the catalog |
+| CBZ | **Rust unzips page N on demand** (`zip` crate); page list and ComicInfo metadata are cached |
+| CB7 | **Rust reads page N on demand** (`sevenz-rust`); no sidecar or full extraction |
+| Image folder | Direct image files are a comic in natural filename order; linked folders read in place, imports become CBZ |
 | CBR | not supported locally (needs unrar). Say so plainly; offer the server copy when connected. |
 
 CBZ is the one genuinely new capability: a local comic can't ask the server to
@@ -113,7 +121,9 @@ under a server-first model, and this design supersedes it for CBZ only.
 2. **Import from Files / share sheet / Open In** — copy into `library/books/`
    (copy, so the app owns it; no security-scoped bookmarks on re-read).
    - Document types are declared in `tauri.conf.json` `bundle.fileAssociations`
-     (EPUB, PDF, CBZ, CBR). Tauri generates `CFBundleDocumentTypes` /
+     (EPUB, MOBI, AZW3, PDF, CBZ, CBR, CB7). Plain image folders are also
+     accepted by the folder picker. MOBI/AZW3 files are converted to EPUB
+     during import; Tauri generates `CFBundleDocumentTypes` /
      `UTExportedTypeDeclarations` for iOS and intent filters for Android.
    - `RunEvent::Opened` delivers URLs; Rust stores them for cold start
      (`take_opened_paths`) and emits `shelf://opened-files` for live opens.

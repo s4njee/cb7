@@ -58,6 +58,19 @@ Every way of adding a book funnels through the same importer:
 Unsupported files, folders, and corrupt archives are reported per-file without
 blocking the rest of the batch.
 
+### OPDS catalogs
+
+The connect screen and the library avatar menu have **Add OPDS catalog**. A
+catalog is a URL you choose — Standard Ebooks, Project Gutenberg, Calibre-Web,
+or a CB8 server's `/api/opds`. CB8 fetches the feed (OPDS 1 Atom or OPDS 2
+JSON), you browse folders and titles, and **Get** downloads a copy into the
+on-device library through the same importer as a file you picked yourself.
+
+This is opt-in and per-action: nothing is fetched until you add a catalog or
+open one. Optional HTTP Basic credentials stay on this device in `opds.json`
+and are never sent to the webview. Downloads are ordinary local copies — once
+saved, the book is readable offline with no further network.
+
 ## File associations
 
 CB8 registers EPUB, PDF, CBZ, and CBR. Double-clicking an associated file
@@ -85,8 +98,9 @@ position, and maximized state persist across launches; fullscreen does not.
 The app works fully offline with local books. To browse a server library,
 log in from the shelf: your server's address is discovered on the LAN, or you
 can enter it manually. Sign-in uses a session cookie that survives restarts.
-Connected, you get the remote catalog, downloads/offline pinning, bookmarks,
-and cross-device progress.
+Connected, you get the remote catalog, downloads/offline pinning, and
+cross-device progress. Bookmarks are local-first for every format (comic page,
+PDF page, EPUB CFI) and sync to the server when you are signed in.
 
 ## Updates
 

@@ -19,11 +19,15 @@ import { runPairVectors } from "./pair.test";
 import { runScrubPreviewVectors } from "./scrubPreview.test";
 import { runSearchTextVectors } from "./searchText.test";
 import { runVirtualWindowVectors } from "./virtualWindow.test";
+import { runBookmarkVectors } from "./bookmarks.test";
+import { runHighlightVectors } from "./highlights.test";
 
 const runners = [
+  ["bookmarks", runBookmarkVectors],
   ["bookContext", runBookContextVectors],
   ["downloadStatus", runDownloadStatusVectors],
   ["haptic", runHapticVectors],
+  ["highlights", runHighlightVectors],
   ["loadState", runLoadStateVectors],
   ["outbox", runOutboxVectors],
   ["pair", runPairVectors],

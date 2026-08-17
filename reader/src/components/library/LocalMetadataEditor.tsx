@@ -19,6 +19,8 @@ export default function LocalMetadataEditor({
 }) {
   const [series, setSeries] = useState(record.series ?? "");
   const [volume, setVolume] = useState(record.volume ?? "");
+  const [title, setTitle] = useState(record.title);
+  const [authors, setAuthors] = useState((record.authors ?? []).join(", "));
   const [tags, setTags] = useState((record.tags ?? []).join(", "));
   const [collection, setCollection] = useState("");
   const [busy, setBusy] = useState(false);
@@ -28,6 +30,8 @@ export default function LocalMetadataEditor({
     try {
       await api.localSetMetadata(
         record.id,
+        title.trim() || null,
+        authors.split(",").map((a) => a.trim()).filter(Boolean),
         series.trim() || null,
         volume.trim() || null,
         tags.split(",").map((t) => t.trim()).filter(Boolean),
@@ -38,6 +42,14 @@ export default function LocalMetadataEditor({
     } finally {
       setBusy(false);
     }
+  };
+
+  const replaceCover = async () => {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const picked = await open({ multiple: false, filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png", "gif", "webp", "avif", "bmp"] }] });
+    if (typeof picked !== "string") return;
+    await api.localSetCoverFromPath(record.id, picked);
+    onSaved?.();
   };
 
   const toggleCollection = async (name: string) => {
@@ -59,6 +71,10 @@ export default function LocalMetadataEditor({
   return (
     <div className="local-meta-editor">
       <div className="local-meta-fields">
+        <label className="field-label" htmlFor="lm-title">Title</label>
+        <input id="lm-title" className="pill-input" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <label className="field-label" htmlFor="lm-authors">Authors (comma separated)</label>
+        <input id="lm-authors" className="pill-input" value={authors} onChange={(e) => setAuthors(e.target.value)} placeholder="Author name" />
         <label className="field-label" htmlFor="lm-series">
           Series
         </label>
@@ -91,6 +107,9 @@ export default function LocalMetadataEditor({
         />
         <button type="button" className="btn-accent" onClick={save} disabled={busy}>
           {busy ? "Saving…" : "Save metadata"}
+        </button>
+        <button type="button" className="btn-ghost" onClick={() => void replaceCover()}>
+          Replace cover…
         </button>
       </div>
 

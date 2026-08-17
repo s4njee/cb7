@@ -3,6 +3,7 @@
  * Typechecked by `pnpm build`; run via tsc + node like the other vector files.
  */
 import {
+  comicScrollEstHeight,
   computeVirtualWindow,
   pageAtScroll,
   windowIndices,
@@ -65,6 +66,14 @@ export const VIRTUAL_WINDOW_VECTORS: VwVector[] = [
       });
       if (w.start !== 0) throw new Error(`start ${w.start}`);
       if (w.beforePx !== 0) throw new Error(`before ${w.beforePx}`);
+    },
+  },
+  {
+    name: "comicScrollEstHeight adapts to width and clamps",
+    run: () => {
+      if (comicScrollEstHeight(1024) !== 1080) throw new Error("desktop width mismatch");
+      if (comicScrollEstHeight(300) !== 420) throw new Error("mobile width mismatch");
+      if (comicScrollEstHeight(50) !== 420) throw new Error("min clamp mismatch");
     },
   },
 ];

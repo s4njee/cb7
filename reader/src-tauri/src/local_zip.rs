@@ -1,4 +1,4 @@
-//! CBZ/CBR archive helpers for the local library.
+//! CBZ/CBR/CB7 archive and image-folder helpers for the local library.
 //!
 //! Page listing, natural sort, and entry extraction live here so `local.rs`
 //! can own catalog commands without also being an archive library.
@@ -9,12 +9,14 @@
 //!   under MIT/Apache). Only *listing* and *entry reads* are used — a page is
 //!   extracted on demand, never the whole comic, and nothing is written to
 //!   disk from the archive, so path traversal is structurally impossible.
+//! - **7z** (CB7) via the pure-Rust `sevenz-rust` crate;
+//! - linked folders, where direct image files are treated as comic pages.
 //!
 //! The desktop build compiles both backends; mobile keeps the old
 //! "CBR needs a server" behavior (see `local.rs`), so phone bundles stay lean.
 
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::error::{ApiError, ApiResult};
 
@@ -34,6 +36,122 @@ pub(crate) fn is_image(name: &str) -> bool {
         return false;
     }
     IMAGE_EXTS.iter().any(|ext| lower.ends_with(&format!(".{ext}")))
+}
+
+/// A plain image folder is a comic when it contains at least one image file
+/// directly. Nested directories are deliberately not pages: this keeps a
+/// linked folder predictable and lets the normal recursive scanner discover
+/// separate comics below it.
+pub(crate) fn is_image_folder(path: &Path) -> bool {
+    path.is_dir()
+        && std::fs::read_dir(path)
+            .map(|entries| {
+                entries.flatten().any(|entry| {
+                    entry.file_type().is_ok_and(|t| t.is_file()) && entry.file_name().to_str().is_some_and(is_image)
+                })
+            })
+            .unwrap_or(false)
+}
+
+pub(crate) fn folder_page_names(path: &Path) -> ApiResult<Vec<String>> {
+    if !is_image_folder(path) {
+        return Err(ApiError::local("Folder has no readable image pages"));
+    }
+    let mut names = std::fs::read_dir(path)?
+        .flatten()
+        .filter_map(|entry| {
+            let is_file = entry.file_type().ok()?.is_file();
+            let name = entry.file_name().into_string().ok()?;
+            (is_file && is_image(&name)).then_some(name)
+        })
+        .collect::<Vec<_>>();
+    names.sort_by(|a, b| natural_cmp(a, b));
+    Ok(names)
+}
+
+fn folder_entry_path(path: &Path, name: &str) -> ApiResult<PathBuf> {
+    let candidate = Path::new(name);
+    if candidate.components().count() != 1
+        || candidate.file_name().and_then(|n| n.to_str()) != Some(name)
+        || !is_image(name)
+    {
+        return Err(ApiError::local("Invalid image-folder page name"));
+    }
+    let page = path.join(name);
+    if !page.is_file() {
+        return Err(ApiError::local("Missing page in image folder"));
+    }
+    Ok(page)
+}
+
+pub(crate) fn folder_entry_bytes(path: &Path, name: &str) -> ApiResult<Vec<u8>> {
+    let page = folder_entry_path(path, name)?;
+    let mut bytes = Vec::new();
+    std::fs::File::open(page)?
+        .take(MAX_ENTRY_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_ENTRY_BYTES {
+        return Err(ApiError::local("Image-folder page is too large to read"));
+    }
+    Ok(bytes)
+}
+
+/// Pack a linked image folder into a normal CBZ when the user chooses Import.
+pub(crate) fn pack_image_folder_to_zip(source: &Path, dest: &Path) -> ApiResult<()> {
+    let file = std::fs::File::create(dest)?;
+    let mut archive = zip::ZipWriter::new(std::io::BufWriter::new(file));
+    let options = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    for name in folder_page_names(source)? {
+        archive
+            .start_file(&name, options)
+            .map_err(|err| ApiError::local(format!("Create CBZ page: {err}")))?;
+        let mut page = std::fs::File::open(source.join(&name))?;
+        std::io::copy(&mut page, &mut archive)?;
+    }
+    archive
+        .finish()
+        .map_err(|err| ApiError::local(format!("Finish CBZ: {err}")))?;
+    Ok(())
+}
+
+fn sevenz_page_names(path: &Path) -> ApiResult<Vec<String>> {
+    let reader = sevenz_rust::SevenZReader::open(path, sevenz_rust::Password::empty())
+        .map_err(|err| ApiError::local(format!("Not a readable 7z archive: {err}")))?;
+    let mut names = reader
+        .archive()
+        .files
+        .iter()
+        .filter(|entry| !entry.is_directory() && is_image(entry.name()))
+        .map(|entry| entry.name().to_string())
+        .collect::<Vec<_>>();
+    names.sort_by(|a, b| natural_cmp(a, b));
+    Ok(names)
+}
+
+fn sevenz_entry_bytes(path: &Path, name: &str) -> ApiResult<Vec<u8>> {
+    let mut reader = sevenz_rust::SevenZReader::open(path, sevenz_rust::Password::empty())
+        .map_err(|err| ApiError::local(format!("Not a readable 7z archive: {err}")))?;
+    let mut found = None;
+    reader
+        .for_each_entries(|entry, stream| {
+            if !entry.is_directory() && entry.name() == name {
+                let mut bytes = Vec::new();
+                stream
+                    .take(MAX_ENTRY_BYTES + 1)
+                    .read_to_end(&mut bytes)
+                    .map_err(sevenz_rust::Error::from)?;
+                found = Some(bytes);
+                Ok(false)
+            } else {
+                Ok(true)
+            }
+        })
+        .map_err(|err| ApiError::local(format!("Could not read 7z page: {err}")))?;
+    let bytes = found.ok_or_else(|| ApiError::local("Missing page in archive"))?;
+    if bytes.len() as u64 > MAX_ENTRY_BYTES {
+        return Err(ApiError::local("Archive entry is too large to read as one page"));
+    }
+    Ok(bytes)
 }
 
 /// Compare names the way a human reads page numbers: `page2` before `page10`.
@@ -142,7 +260,7 @@ pub(crate) fn zip_entry_bytes(path: &Path, name: &str) -> ApiResult<Vec<u8>> {
 
 /// Read one entry out of a CBR (RAR) by name, on demand.
 #[cfg(desktop)]
-fn rar_entry_bytes(path: &Path, name: &str) -> ApiResult<Vec<u8>> {
+pub(crate) fn rar_entry_bytes(path: &Path, name: &str) -> ApiResult<Vec<u8>> {
     let mut archive = unrar::Archive::new(path)
         .open_for_processing()
         .map_err(|err| ApiError::local(format!("Not a readable archive: {err}")))?;
@@ -171,6 +289,8 @@ fn rar_entry_bytes(path: &Path, name: &str) -> ApiResult<Vec<u8>> {
 /// the caller must have rejected it already (see `local.rs`).
 pub(crate) fn page_names(path: &Path, ext: &str) -> ApiResult<Vec<String>> {
     match ext {
+        "folder" => folder_page_names(path),
+        "cb7" => sevenz_page_names(path),
         #[cfg(desktop)]
         "cbr" => rar_page_names(path),
         _ => zip_page_names(path),
@@ -180,6 +300,8 @@ pub(crate) fn page_names(path: &Path, ext: &str) -> ApiResult<Vec<String>> {
 /// Dispatch to the right backend by extension.
 pub(crate) fn entry_bytes(path: &Path, ext: &str, name: &str) -> ApiResult<Vec<u8>> {
     match ext {
+        "folder" => folder_entry_bytes(path, name),
+        "cb7" => sevenz_entry_bytes(path, name),
         #[cfg(desktop)]
         "cbr" => rar_entry_bytes(path, name),
         _ => zip_entry_bytes(path, name),
@@ -274,6 +396,22 @@ mod tests {
         // A .cbr mislabeled as zip should fail as an unreadable zip.
         let err = page_names(&data("fixture.cbr"), "cbz").expect_err("mislabeled");
         assert!(err.message.contains("readable"));
+    }
+
+    #[test]
+    fn image_folder_lists_and_reads_direct_pages_only() {
+        let root = std::env::temp_dir().join(format!("cb8-image-folder-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("nested")).unwrap();
+        std::fs::write(root.join("page10.png"), b"ten").unwrap();
+        std::fs::write(root.join("page2.png"), b"two").unwrap();
+        std::fs::write(root.join("notes.txt"), b"ignore").unwrap();
+        std::fs::write(root.join("nested/page1.png"), b"nested").unwrap();
+        assert!(is_image_folder(&root));
+        assert_eq!(folder_page_names(&root).unwrap(), ["page2.png", "page10.png"]);
+        assert_eq!(folder_entry_bytes(&root, "page2.png").unwrap(), b"two");
+        assert!(folder_entry_bytes(&root, "nested/page1.png").is_err());
+        let _ = std::fs::remove_dir_all(root);
     }
 
     // ---- CBZ (zip) hardening — archives built in-memory, no fixture needed ---

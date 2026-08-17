@@ -9,18 +9,36 @@ import {
   getConfig as tGetConfig,
   clearMediaCache as tClearMediaCache,
   localSetFavorite,
+  localSetCoverFromPath,
   localClearProgress,
   type ApiError,
 } from "./transport";
 import {
   listLocal,
-  createLocalBookmark,
-  deleteLocalBookmark,
-  listLocalBookmarks,
   localFilePath,
   localPagePath,
   setLocalProgress,
 } from "./localSource";
+import {
+  adoptGuestBookmarks,
+  createStored,
+  hydrateLegacyEpub,
+  listStored,
+  listVisible,
+  localOwnerKey,
+  parseServerOwnerKey,
+  pendingServerKeys,
+  planBookmarkSync,
+  publicBookmark,
+  purgeStored,
+  removeStored,
+  replaceStored,
+  serverOwnerKey,
+  setServerId,
+  setStoredNote,
+  type RemoteBookmark,
+} from "./bookmarks";
+import { clearLegacyBookmarks, loadLegacyBookmarks } from "./localBookmarks";
 import { useSession } from "../store/session";
 import { saveGuestProgress } from "./guestProgress";
 import {
@@ -32,7 +50,7 @@ import {
 import { getProgressWriter, type ProgressWriter } from "./progressWrite";
 
 /** In a guest session every server write 401s (see CONTRACT.md). We short-circuit
- *  those writes here — one gate for progress and bookmarks alike — so guest mode
+ *  those writes here — one gate for progress (bookmarks stay on-device) — so guest mode
  *  never fires a request only to swallow the rejection, keeping the console
  *  (and the network) quiet. Reads are unaffected: anonymous GETs succeed. */
 function isGuest(): boolean {
@@ -74,6 +92,12 @@ export interface WebComicRecord {
    *  {@link ./localSource}. Ids are **not** comparable across sources. */
   source?: Source;
   title: string;
+  /** Local embedded creators; server records may omit this field. */
+  authors?: string[];
+  description?: string | null;
+  language?: string | null;
+  publisher?: string | null;
+  publishedAt?: string | null;
   pageCount: number;
   fileSize: number;
   dateAdded: string;
@@ -108,6 +132,8 @@ export interface WebComicRecord {
 export function isLocal(record: WebComicRecord): boolean {
   return record.source === "local";
 }
+
+export { localSetCoverFromPath };
 
 export interface ComicList {
   records: WebComicRecord[];
@@ -220,6 +246,20 @@ export {
   type LinkedFolder,
   type LocalBook,
   type LocalDownloadProgress,
+  opdsSupported,
+  opdsListCatalogs,
+  opdsAddCatalog,
+  opdsRemoveCatalog,
+  opdsBrowse,
+  opdsSearch,
+  opdsDownload,
+  OPDS_PRESETS,
+  type OpdsCatalog,
+  type OpdsFeed,
+  type OpdsPublication,
+  type OpdsNavEntry,
+  type OpdsAcquisition,
+  type OpdsDownloadResult,
 } from "./transport";
 
 export { toRecord, forgetLocalBookmarks, captureLocalCover } from "./localSource";
@@ -551,11 +591,6 @@ export function clearProgress(record: WebComicRecord): Promise<unknown> {
 
 /* --------------------------------------------------------------- bookmarks */
 
-export function listBookmarks(record: WebComicRecord): Promise<ServerBookmark[]> {
-  if (isLocal(record)) return Promise.resolve(listLocalBookmarks(record.id));
-  return apiGet<ServerBookmark[]>(`/api/comics/${record.id}/bookmarks`);
-}
-
 export interface NewBookmark {
   /** Comic page index (0-based). */
   page?: number;
@@ -564,25 +599,160 @@ export interface NewBookmark {
   note?: string;
 }
 
-export function createBookmark(
+function bookmarkOwnerKey(record: WebComicRecord): string {
+  if (isLocal(record)) return localOwnerKey(record.id);
+  const server = useSession.getState().serverUrl ?? "";
+  const actor = isGuest() ? "guest" : (useSession.getState().user?.id ?? "guest");
+  return serverOwnerKey(server, actor, record.id);
+}
+
+function canSyncBookmarks(record: WebComicRecord): boolean {
+  return !isLocal(record) && !isGuest() && !!useSession.getState().user;
+}
+
+function postRemoteBookmark(comicId: number, body: NewBookmark): Promise<ServerBookmark> {
+  return apiSend<ServerBookmark>("POST", `/api/comics/${comicId}/bookmarks`, body);
+}
+
+function deleteRemoteBookmark(comicId: number, serverId: number): Promise<unknown> {
+  return apiSend<unknown>("DELETE", `/api/comics/${comicId}/bookmarks/${serverId}`);
+}
+
+async function pushBookmark(ownerKey: string, comicId: number, row: { id: number; page: number | null; location: string | null; note: string | null }): Promise<void> {
+  const body: NewBookmark = {};
+  if (row.page != null) body.page = row.page;
+  if (row.location) body.location = row.location;
+  if (row.note) body.note = row.note;
+  const remote = await postRemoteBookmark(comicId, body);
+  setServerId(ownerKey, row.id, remote.id);
+}
+
+async function dropBookmark(ownerKey: string, comicId: number, localId: number, serverId: number): Promise<void> {
+  await deleteRemoteBookmark(comicId, serverId);
+  purgeStored(ownerKey, localId);
+}
+
+/** Always local-first. A signed-in session merges/pushes when reachable. */
+export async function listBookmarks(record: WebComicRecord): Promise<ServerBookmark[]> {
+  const key = bookmarkOwnerKey(record);
+  if (!isLocal(record)) {
+    const server = useSession.getState().serverUrl ?? "";
+    const legacy = loadLegacyBookmarks(server, record.id);
+    if (legacy.length) {
+      hydrateLegacyEpub(
+        key,
+        legacy.map((b) => ({ cfi: b.cfi, createdAt: b.createdAt })),
+      );
+      clearLegacyBookmarks(server, record.id);
+    }
+  }
+  const canFetch = !isLocal(record) && !!(useSession.getState().serverUrl);
+  if (!canFetch) {
+    return listVisible(key).map(publicBookmark);
+  }
+  try {
+    const remote = await apiGet<RemoteBookmark[]>(`/api/comics/${record.id}/bookmarks`);
+    const plan = planBookmarkSync(listStored(key), remote);
+    replaceStored(key, plan.next);
+    if (canSyncBookmarks(record)) {
+      for (const row of plan.toPush) {
+        try {
+          await pushBookmark(key, record.id, row);
+        } catch {
+          /* keep local; flush retries */
+        }
+      }
+      for (const row of plan.toDelete) {
+        if (row.serverId == null) continue;
+        try {
+          await dropBookmark(key, record.id, row.id, row.serverId);
+        } catch {
+          /* tombstone stays */
+        }
+      }
+    }
+    return listVisible(key).map(publicBookmark);
+  } catch {
+    return listVisible(key).map(publicBookmark);
+  }
+}
+
+export async function createBookmark(
   record: WebComicRecord,
   body: NewBookmark,
 ): Promise<ServerBookmark> {
-  if (isLocal(record)) return Promise.resolve(createLocalBookmark(record.id, body));
-  // The bookmark UI is already hidden for guests; this is the belt-and-braces
-  // gate so a stray call (e.g. legacy-bookmark migration) can't 401-spam.
-  if (isGuest()) return Promise.reject(GUEST_WRITE_BLOCKED);
-  return apiSend<ServerBookmark>("POST", `/api/comics/${record.id}/bookmarks`, body);
+  const key = bookmarkOwnerKey(record);
+  const created = createStored(key, body);
+  if (canSyncBookmarks(record)) {
+    try {
+      await pushBookmark(key, record.id, created);
+    } catch {
+      /* offline / 401 — the local row is the bookmark */
+    }
+  }
+  return publicBookmark(created);
 }
 
-export function deleteBookmark(
+export async function deleteBookmark(
   record: WebComicRecord,
   bookmarkId: number,
 ): Promise<unknown> {
-  if (isLocal(record)) {
-    deleteLocalBookmark(record.id, bookmarkId);
-    return Promise.resolve({ ok: true });
+  const key = bookmarkOwnerKey(record);
+  const existing = listStored(key).find((b) => b.id === bookmarkId);
+  removeStored(key, bookmarkId);
+  if (canSyncBookmarks(record) && existing?.serverId != null) {
+    try {
+      await dropBookmark(key, record.id, bookmarkId, existing.serverId);
+    } catch {
+      /* tombstone remains for flush */
+    }
   }
-  if (isGuest()) return Promise.reject(GUEST_WRITE_BLOCKED);
-  return apiSend<unknown>("DELETE", `/api/comics/${record.id}/bookmarks/${bookmarkId}`);
+  return { ok: true };
+}
+
+/** Set or clear a bookmark's note. Always writes locally; a synced bookmark
+ *  also PUTs (the server updates only `note`, per CONTRACT.md). A failed PUT
+ *  keeps the local note — the next successful edit re-sends it, and the sync
+ *  merge prefers the local row. */
+export async function setBookmarkNote(
+  record: WebComicRecord,
+  bookmarkId: number,
+  note: string | null,
+): Promise<ServerBookmark | null> {
+  const key = bookmarkOwnerKey(record);
+  const updated = setStoredNote(key, bookmarkId, note);
+  if (!updated) return null;
+  if (canSyncBookmarks(record) && updated.serverId != null) {
+    try {
+      await apiSend<unknown>("PUT", `/api/comics/${record.id}/bookmarks/${updated.serverId}`, {
+        note: updated.note,
+      });
+    } catch {
+      /* offline / 401 — the local note stands */
+    }
+  }
+  return publicBookmark(updated);
+}
+
+/** Drain pending bookmark POSTs/DELETEs (online event / app focus / sign-in). */
+export async function syncBookmarksOutbox(): Promise<void> {
+  const state = useSession.getState();
+  if (state.guest || !state.user || !state.serverUrl) return;
+  adoptGuestBookmarks(state.serverUrl, state.user.id);
+  const actor = state.user.id;
+  for (const key of pendingServerKeys(state.serverUrl, actor)) {
+    const parsed = parseServerOwnerKey(key);
+    if (!parsed) continue;
+    for (const row of listStored(key)) {
+      try {
+        if (row.deleted && row.serverId != null) {
+          await dropBookmark(key, parsed.bookId, row.id, row.serverId);
+        } else if (!row.deleted && row.serverId == null) {
+          await pushBookmark(key, parsed.bookId, row);
+        }
+      } catch (err) {
+        if (isOfflineProgressError(err)) return;
+      }
+    }
+  }
 }

@@ -54,6 +54,25 @@ export interface StoredHighlight {
   /** Excerpt captured at creation: the section may not be loaded when the
    *  drawer lists it, so the text can't be re-derived from the CFI on demand. */
   text: string;
+  /** User note attached to the highlight (plan §5). */
+  note: string | null;
+  createdAt: number;
+}
+
+export interface PdfHighlightRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+export interface StoredPdfHighlight {
+  id: string;
+  page: number;
+  rects: PdfHighlightRect[];
+  color: SwatchId;
+  text: string;
+  note: string | null;
   createdAt: number;
 }
 
@@ -66,7 +85,11 @@ export function loadHighlights(serverUrl: string, bookId: number): StoredHighlig
     const raw = localStorage.getItem(key(serverUrl, bookId));
     if (!raw) return [];
     const parsed = JSON.parse(raw) as StoredHighlight[];
-    return Array.isArray(parsed) ? parsed.filter((h) => h && typeof h.cfi === "string") : [];
+    return Array.isArray(parsed)
+      ? parsed
+          .filter((h) => h && typeof h.cfi === "string")
+          .map((h) => ({ ...h, note: h.note ?? null }))
+      : [];
   } catch {
     return [];
   }
@@ -89,4 +112,48 @@ export function saveHighlights(
 export function excerpt(text: string, max = 180): string {
   const clean = text.replace(/\s+/g, " ").trim();
   return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
+}
+
+/** Set or clear the note on one highlight (pure; the caller persists). A note
+ *  edit must not touch the anchor/color/text, so it maps in place. */
+export function withHighlightNote(
+  list: StoredHighlight[],
+  cfi: string,
+  note: string | null,
+): StoredHighlight[] {
+  return list.map((h) => (h.cfi === cfi ? { ...h, note: note?.trim() ? note : null } : h));
+}
+
+function pdfKey(serverUrl: string, bookId: number): string {
+  return `shelf.pdf-highlights.${serverUrl}.${bookId}`;
+}
+
+export function loadPdfHighlights(serverUrl: string, bookId: number): StoredPdfHighlight[] {
+  try {
+    const raw = localStorage.getItem(pdfKey(serverUrl, bookId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as StoredPdfHighlight[];
+    return Array.isArray(parsed)
+      ? parsed.filter((h) => h && typeof h.id === "string" && Number.isInteger(h.page))
+          .map((h) => ({ ...h, note: h.note ?? null, rects: Array.isArray(h.rects) ? h.rects : [] }))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export function savePdfHighlights(serverUrl: string, bookId: number, list: StoredPdfHighlight[]): void {
+  try {
+    localStorage.setItem(pdfKey(serverUrl, bookId), JSON.stringify(list));
+  } catch {
+    /* storage full / unavailable — ignore */
+  }
+}
+
+export function withPdfHighlightNote(
+  list: StoredPdfHighlight[],
+  id: string,
+  note: string | null,
+): StoredPdfHighlight[] {
+  return list.map((h) => (h.id === id ? { ...h, note: note?.trim() ? note : null } : h));
 }

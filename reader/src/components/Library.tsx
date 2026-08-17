@@ -16,6 +16,7 @@ import {
 } from "../lib/bookContext";
 import { metaLine, percentRead, statusLabel, titleInitials } from "../lib/format";
 import { parseLibraryQuery } from "../lib/searchText";
+import { localSearch, type LocalSearchHit } from "../lib/transport";
 import { fromQuery, LOAD_MESSAGES } from "../lib/loadState";
 import {
   ContentSkeleton,
@@ -28,6 +29,7 @@ import CoverArt from "./CoverArt";
 import CoverCard, { type CardActionAnchor } from "./library/CoverCard";
 import BookDetailSheet from "./library/BookDetailSheet";
 import LinkedFoldersPanel from "./library/LinkedFoldersPanel";
+import OpdsPanel from "./opds/OpdsPanel";
 import ScopeRow from "./library/ScopeRow";
 import SortControl from "./library/SortControl";
 import StatusChips from "./library/StatusChips";
@@ -81,6 +83,7 @@ export default function Library() {
   /** Record ids selected for bulk operations (Cmd/Ctrl-click on cards). */
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [linkedOpen, setLinkedOpen] = useState(false);
+  const [opdsOpen, setOpdsOpen] = useState(false);
   const [sheet, setSheet] = useState<{ record: api.WebComicRecord; anchor: CardActionAnchor } | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -167,6 +170,15 @@ export default function Library() {
 
   const shelf: Shelf = shelfChoice ?? "local";
   const onServer = shelf === "server";
+
+  // Content search is local-only and intentionally separate from the cheap
+  // catalog filter: the native index is disposable and may still be building.
+  const localTextSearch = useQuery({
+    queryKey: ["localTextSearch", search],
+    queryFn: () => localSearch(search),
+    enabled: !onServer && !!search && api.localSupported,
+  });
+  const textHits = (localTextSearch.data ?? []) as LocalSearchHit[];
 
   // All-library and collection scopes are paged (offset-based infinite query).
   const paged = useInfiniteQuery({
@@ -490,6 +502,26 @@ export default function Library() {
               spellCheck={false}
             />
           </div>
+          {!onServer && search && textHits.length > 0 && (
+            <div className="local-search-results" role="listbox" aria-label="Search inside books">
+              <div className="local-search-label">Inside your books</div>
+              {textHits.slice(0, 8).map((hit) => {
+                const record = localBooks.find((book) => book.id === hit.id);
+                if (!record) return null;
+                return (
+                  <button
+                    key={hit.id}
+                    type="button"
+                    className="local-search-hit"
+                    onClick={() => open(record)}
+                  >
+                    <span className="local-search-hit-title">{hit.title}</span>
+                    <span className="local-search-hit-snippet">{hit.snippet}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <button
             className="avatar"
             onClick={() => setMenuOpen((v) => !v)}
@@ -534,6 +566,17 @@ export default function Library() {
                   }}
                 >
                   Linked folders…
+                </button>
+              )}
+              {api.opdsSupported && (
+                <button
+                  className="menu-item"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setOpdsOpen(true);
+                  }}
+                >
+                  OPDS catalogs…
                 </button>
               )}
               {api.downloadsSupported && (
@@ -725,8 +768,8 @@ export default function Library() {
               <div className="empty-state empty-invite">
                 <div className="empty-title">Your shelf is empty</div>
                 <div>
-                  Add books from this device, or connect a CB8 server and save
-                  titles to your shelf.
+                  Add books from this device, browse a public catalog, or
+                  connect a CB8 server and save titles to your shelf.
                 </div>
                 <div className="empty-actions">
                   {api.localSupported && (
@@ -742,6 +785,11 @@ export default function Library() {
                   {!serverReady && (
                     <button className="btn-ghost" onClick={changeServer}>
                       Connect a server
+                    </button>
+                  )}
+                  {api.opdsSupported && (
+                    <button className="btn-ghost" onClick={() => setOpdsOpen(true)}>
+                      Browse a catalog
                     </button>
                   )}
                 </div>
@@ -878,6 +926,20 @@ export default function Library() {
             <LinkedFoldersPanel
               onChanged={() => void localQuery.refetch()}
               onClose={() => setLinkedOpen(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {opdsOpen && (
+        <div className="sheet-backdrop" onClick={() => setOpdsOpen(false)}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <OpdsPanel
+              onClose={() => setOpdsOpen(false)}
+              onImported={() => {
+                void localQuery.refetch();
+                setShelfChoice("local");
+              }}
             />
           </div>
         </div>

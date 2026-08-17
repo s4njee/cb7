@@ -38,11 +38,11 @@ import { findMatches } from "../lib/searchText";
 import type { SearchHit } from "./readerTypes";
 import { Locator } from "@readium/shared";
 import { epubColors, hostMetrics } from "../lib/epubTheme";
-import { clearLegacyBookmarks, loadLegacyBookmarks } from "../lib/localBookmarks";
 import {
   excerpt,
   loadHighlights,
   saveHighlights,
+  withHighlightNote,
   type StoredHighlight,
   type SwatchId,
 } from "../lib/highlights";
@@ -115,6 +115,7 @@ const TextReader = forwardRef<ReaderApi, TextReaderProps>(function TextReader(
   );
   const [downloadPct, setDownloadPct] = useState<number | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
+  const appliedFlowRef = useRef(prefs.flow);
   const bookOpen = load.kind === "ready";
   const [hlPop, setHlPop] = useState<HighlightPopoverState | null>(null);
   const pendingTextRef = useRef("");
@@ -127,6 +128,8 @@ const TextReader = forwardRef<ReaderApi, TextReaderProps>(function TextReader(
     const nav = navRef.current;
     if (!nav || fixed) return;
     const p = prefsRef.current;
+    const flowChanged = appliedFlowRef.current !== p.flow;
+    appliedFlowRef.current = p.flow;
     const columns = (!p.flow || p.flow === "paginated") && p.epubColumns === 2 ? 2 : 1;
     try {
       const { EpubPreferences } = await import("@readium/navigator");
@@ -141,6 +144,15 @@ const TextReader = forwardRef<ReaderApi, TextReaderProps>(function TextReader(
           }),
         ),
       );
+      // Readium can update CSS for a flow change without restoring the active
+      // frame, leaving the viewport blank. Re-navigate the current locator to
+      // make the new layout visible while preserving the reading position.
+      if (flowChanged && locatorRef.current) {
+        const target = locatorRef.current;
+        await new Promise<void>((resolve) => {
+          nav.go(target, false, () => resolve());
+        });
+      }
     } catch {
       /* mid-teardown */
     }
@@ -170,11 +182,31 @@ const TextReader = forwardRef<ReaderApi, TextReaderProps>(function TextReader(
         cfi,
         color,
         text: existing?.text || excerpt(text),
+        note: existing?.note ?? null,
         createdAt: existing?.createdAt ?? Date.now(),
       };
       persistHighlights([...highlightsRef.current.filter((h) => h.cfi !== cfi), next]);
       setHlPop(null);
       // Full Decorator API wiring is a follow-up; store highlights for the drawer.
+    },
+    [persistHighlights],
+  );
+
+  const setBookmarkNote = useCallback((item: BookmarkItem, note: string) => {
+    const id = Number(item.key);
+    api
+      .setBookmarkNote(record, id, note)
+      .then((updated) => {
+        if (updated) setBookmarks((bm) => bm.map((b) => (b.id === id ? updated : b)));
+      })
+      .catch(() => {
+        /* local write already landed; a failed PUT is retried on the next edit */
+      });
+  }, [record]);
+
+  const setHighlightNote = useCallback(
+    (item: HighlightItem, note: string) => {
+      persistHighlights(withHighlightNote(highlightsRef.current, item.key, note));
     },
     [persistHighlights],
   );
@@ -427,30 +459,12 @@ const TextReader = forwardRef<ReaderApi, TextReaderProps>(function TextReader(
 
   useEffect(() => {
     let alive = true;
-    void (async () => {
-      let server: api.ServerBookmark[];
-      try {
-        server = await api.listBookmarks(record);
-      } catch {
-        return;
-      }
-      if (!alive) return;
-      setBookmarks(server);
-      const legacy = loadLegacyBookmarks(serverUrl, record.id);
-      if (legacy.length === 0) return;
-      const known = new Set(server.map((b) => b.location).filter(Boolean));
-      const created: api.ServerBookmark[] = [];
-      for (const b of legacy) {
-        if (known.has(b.cfi)) continue;
-        try {
-          created.push(await api.createBookmark(record, { location: b.cfi }));
-        } catch {
-          return;
-        }
-      }
-      clearLegacyBookmarks(serverUrl, record.id);
-      if (alive && created.length) setBookmarks((list) => [...list, ...created]);
-    })();
+    api
+      .listBookmarks(record)
+      .then((bm) => {
+        if (alive) setBookmarks(bm);
+      })
+      .catch(() => {});
     return () => {
       alive = false;
     };
@@ -501,7 +515,7 @@ const TextReader = forwardRef<ReaderApi, TextReaderProps>(function TextReader(
         const created = await api.createBookmark(record, { location });
         setBookmarks((bm) => [...bm, created]);
       } catch {
-        /* guest */
+        /* local write already landed; a failed sync is retried later */
       }
     }
   }, [bookmarks, record.id]);
@@ -511,8 +525,9 @@ const TextReader = forwardRef<ReaderApi, TextReaderProps>(function TextReader(
       locationBookmarks.map((b) => ({
         key: String(b.id),
         title: record.title,
-        label: b.note || "Bookmark",
+        label: "Bookmark",
         target: b.location,
+        note: b.note ?? null,
       })),
     [locationBookmarks, record.title],
   );
@@ -524,6 +539,7 @@ const TextReader = forwardRef<ReaderApi, TextReaderProps>(function TextReader(
         color: h.color,
         text: h.text,
         target: h.cfi,
+        note: h.note ?? null,
       })),
     [highlights],
   );
@@ -685,9 +701,11 @@ const TextReader = forwardRef<ReaderApi, TextReaderProps>(function TextReader(
         if (loc) navRef.current?.go(loc, false, () => {});
       },
       removeHighlight,
+      setBookmarkNote,
+      setHighlightNote,
       search: (query) => searchBook(query),
     }),
-    [toggleBookmark, removeHighlight, goToHref, searchBook],
+    [toggleBookmark, removeHighlight, setBookmarkNote, setHighlightNote, goToHref, searchBook],
   );
 
   useEffect(() => {
@@ -724,12 +742,13 @@ const TextReader = forwardRef<ReaderApi, TextReaderProps>(function TextReader(
   const twoCol = !fixed && prefs.flow === "paginated" && prefs.epubColumns === 2;
   const scrolled = !fixed && prefs.flow === "scrolled";
   const pageBg = epubColors(prefs.theme).bg;
-  const metrics =
-    fixed || scrolled
-      ? { paddingInline: "0px", maxWidth: "none" }
-      : twoCol
-        ? { paddingInline: `${Math.round(prefs.margin * 100)}%`, maxWidth: "none" as const }
-        : hostMetrics(prefs.margin, prefs.columnWidth, prefs.fontScale * 20);
+  // In scroll mode, scale margin smoothly with the margin slider (base ~3% + slider).
+  const effectiveMargin = scrolled ? 0.03 + prefs.margin * 0.7 : prefs.margin;
+  const metrics = fixed
+    ? { paddingInline: "0px", maxWidth: "none" }
+    : twoCol
+      ? { paddingInline: `${Math.round(prefs.margin * 100)}%`, maxWidth: "none" as const }
+      : hostMetrics(effectiveMargin, scrolled ? 0 : prefs.columnWidth, prefs.fontScale * 20);
 
   return (
     <div
