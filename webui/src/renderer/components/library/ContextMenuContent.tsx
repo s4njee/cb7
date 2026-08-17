@@ -14,6 +14,7 @@ import {
   EyeOff,
   FolderPlus,
   Library as LibraryIcon,
+  Locate,
   Plus,
   Search,
   Tag,
@@ -33,6 +34,8 @@ interface ContextMenuContentProps {
   onCreateCollection: () => void;
   onCreateFolder: () => void;
   onEditTags: () => void;
+  /** Admin-only: repoint the record at its file's new absolute path. */
+  onLocate?: () => void;
   onRemoveLibraryEntry: () => void;
 }
 
@@ -49,6 +52,7 @@ export default function ContextMenuContent({
   onCreateCollection,
   onCreateFolder,
   onEditTags,
+  onLocate,
   onRemoveLibraryEntry,
 }: ContextMenuContentProps) {
   return (
@@ -149,6 +153,16 @@ export default function ContextMenuContent({
         <Tag className="h-4 w-4" />
         <span>Edit Tags</span>
       </DropdownMenuItem>
+
+      {onLocate && (
+        <>
+          <DropdownMenuSeparator className="bg-border" />
+          <DropdownMenuItem onClick={onLocate} className="gap-2 cursor-pointer focus:bg-muted">
+            <Locate className="h-4 w-4" />
+            <span>Locate…</span>
+          </DropdownMenuItem>
+        </>
+      )}
 
       <DropdownMenuSeparator className="bg-border" />
 

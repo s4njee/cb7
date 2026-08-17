@@ -20,6 +20,82 @@
   z-index: 60;
 }
 
+/* OS file drag-over target: a clear "drop here" card over the whole window.
+   The drop itself is handled by Tauri's drag/drop event, so this overlay is
+   purely visual — pointer-events stay off so the webview keeps receiving drops. */
+.drop-target {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+.drop-target-inner {
+  padding: 32px 48px;
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius-card);
+  background: var(--surface2);
+  text-align: center;
+}
+
+.drop-target-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.drop-target-sub {
+  margin-top: 6px;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+
+/* Live batch/folder import progress — small card bottom-center, cancel button. */
+.import-progress {
+  position: fixed;
+  left: 50%;
+  bottom: calc(84px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 70;
+  width: min(340px, calc(100vw - 40px));
+  padding: 14px 18px;
+  border-radius: var(--radius-card);
+  background: var(--surface2);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+}
+
+.import-progress-label {
+  font-size: 13px;
+  color: var(--fg);
+  margin-bottom: 8px;
+}
+
+.import-progress-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--progress-track);
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.import-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 120ms ease-out;
+}
+
+.import-progress button {
+  font-size: 12.5px;
+}
+
 /* ---------------------------------------------------------------- Connect */
 
 .connect {
@@ -1784,4 +1860,111 @@
 }
 .connect-back:hover {
   color: var(--fg);
+}
+
+/* Bulk action bar above the grid when books are selected. */
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  margin: 0 20px 14px;
+  border-radius: var(--radius-card);
+  background: var(--surface2);
+  border: 1px solid var(--line);
+}
+.bulk-count {
+  font-size: 13px;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.bulk-clear {
+  font-size: 12px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.bulk-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.bulk-actions button {
+  font-size: 12.5px;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--fg);
+  cursor: pointer;
+}
+.bulk-actions button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* In-book search drawer */
+.search-drawer {
+  gap: 10px;
+}
+.drawer-search {
+  margin: 0 20px;
+  width: auto;
+  flex: none;
+}
+.search-results {
+  flex: 1;
+  overflow: auto;
+  padding: 6px 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.search-hint {
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+  padding: 20px 0;
+}
+.search-hit {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--surface2);
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+.search-hit:hover {
+  border-color: var(--accent);
+}
+.search-hit-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.search-hit-count {
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 600;
+}
+.search-hit-snippet {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.45;
+  margin-top: 3px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }

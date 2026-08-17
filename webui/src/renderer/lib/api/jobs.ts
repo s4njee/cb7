@@ -11,6 +11,8 @@ export interface ScanJob {
   discovered: number;
   processed: number;
   added: number;
+  /** Files rejected as byte-identical duplicates during the scan. */
+  duplicates: number;
   currentFile: string | null;
   error: string | null;
   /** Per-file ingest failures captured by the worker (empty while running). */
@@ -25,11 +27,36 @@ export interface EnqueueResponse {
   alreadyQueued?: boolean;
 }
 
+/** Liveness of the background worker, derived from its app_meta heartbeat. */
+export interface WorkerStatus {
+  alive: boolean;
+  lastSeenAt: string | null;
+}
+
+/** One queue's in-flight (not yet completed) counts. */
+export interface QueueStatusEntry {
+  name: string;
+  queued: number;
+  active: number;
+}
+
+export interface QueueStatus {
+  depth: number;
+  perQueue: QueueStatusEntry[];
+}
+
+export interface JobsOverview {
+  jobs: ScanJob[];
+  worker: WorkerStatus;
+  queue: QueueStatus;
+}
+
 export const getJob = (id: string): Promise<ScanJob> =>
   get<ScanJob>(`/api/jobs/${encodeURIComponent(id)}`);
 
-export const listActiveJobs = (): Promise<{ jobs: ScanJob[] }> =>
-  get<{ jobs: ScanJob[] }>('/api/jobs');
+/** In-flight jobs + worker liveness + live queue depth (admin). */
+export const fetchJobsOverview = (): Promise<JobsOverview> =>
+  get<JobsOverview>('/api/jobs');
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -72,6 +99,8 @@ export async function pollIngestJob(
       }
       return {
         added: job.added,
+        // Older server builds omit `duplicates` during the rollout; default to 0.
+        duplicates: job.duplicates ?? 0,
         errors: job.error ? [job.error] : [],
         failuresSummary: failures.length > 0
           ? {

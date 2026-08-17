@@ -78,6 +78,12 @@ export default function ContextMenu({
     enabled: open,
   });
 
+  const { data: session } = useQuery({
+    queryKey: ['session'],
+    queryFn: api.getSession,
+  });
+  const isAdmin = session?.user?.isAdmin === true;
+
   const saveTagsMutation = useMutation({
     mutationFn: async () => {
       const tags = parseTagText(tagText);
@@ -123,6 +129,38 @@ export default function ContextMenu({
       setMetadataDialogOpen(false);
     },
     onError: (err) => toast.error(`Metadata apply failed: ${err.message}`),
+  });
+
+  const reReadEmbeddedMutation = useMutation({
+    mutationFn: async () => {
+      if (!targetComic) return { fields: {} as Record<string, string | number | null> };
+      return api.refreshEmbeddedMetadata(targetComic.id);
+    },
+    onSuccess: (result) => {
+      const applied = Object.keys(result.fields ?? {});
+      if (applied.length === 0) toast.info('No embedded metadata found to apply.');
+      else toast.success(`Applied from file: ${applied.join(', ')}.`);
+      queryClient.invalidateQueries();
+    },
+    onError: (err) => toast.error(`Re-read failed: ${err.message}`),
+  });
+
+  // Mutator: Locate (repoint a missing record at its file's new path)
+  const locateMutation = useMutation({
+    mutationFn: async (newPath: string) => {
+      if (!targetComic) throw new Error('No comic selected');
+      return api.relocateComicPath(targetComic.id, newPath);
+    },
+    onSuccess: (result) => {
+      const basename = result.filePath.split(/[\\/]/).pop() || result.filePath;
+      toast.success(`Located to ${basename}`);
+      queryClient.invalidateQueries();
+      clearSelection();
+      onOpenChange(false);
+    },
+    onError: (err) => {
+      toast.error(`Locate failed: ${err.message}`);
+    },
   });
 
   // Mutator: Delete
@@ -289,6 +327,14 @@ export default function ContextMenu({
     onOpenChange(false);
   };
 
+  const handleLocate = () => {
+    if (!targetComic) return;
+    const newPath = window.prompt('Enter the new absolute path to this file on disk:');
+    if (newPath && newPath.trim()) {
+      locateMutation.mutate(newPath.trim());
+    }
+  };
+
   return (
     <>
       <DropdownMenu open={open} onOpenChange={onOpenChange}>
@@ -321,6 +367,7 @@ export default function ContextMenu({
           onCreateCollection={handleCreateCollection}
           onCreateFolder={handleCreateFolder}
           onEditTags={handleEditTags}
+          onLocate={isAdmin ? handleLocate : undefined}
           onRemoveLibraryEntry={() => deleteMutation.mutate()}
         />
       </DropdownMenu>
@@ -345,6 +392,8 @@ export default function ContextMenu({
         isApplying={applyMetadataMutation.isPending}
         onSearch={() => searchMetadataMutation.mutate()}
         onApply={(candidate) => applyMetadataMutation.mutate(candidate)}
+        onReReadEmbedded={isAdmin ? () => reReadEmbeddedMutation.mutate() : undefined}
+        isReReading={reReadEmbeddedMutation.isPending}
       />
       <CreateCollectionDialog
         open={createCollectionOpen}

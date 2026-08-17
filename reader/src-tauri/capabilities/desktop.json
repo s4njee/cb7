@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop",
+  "description": "Desktop-only capabilities for the main window. Scoped to desktop platforms so mobile bundles never see desktop permissions. Camera scanning and haptics stay mobile-only (see mobile.json); the fullscreen window API and the file picker are shared with mobile, so both capability files carry them.",
+  "windows": ["main"],
+  "platforms": ["macOS", "windows", "linux"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-set-title",
+    "dialog:allow-open"
+  ]
+}

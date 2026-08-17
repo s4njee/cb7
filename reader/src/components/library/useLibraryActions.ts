@@ -7,7 +7,9 @@
 import { useCallback } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import * as api from "../../lib/api";
+import { importReportMessage } from "../../lib/format";
 import { useDeviceTransfer } from "../../lib/deviceTransfer";
+import { useSession } from "../../store/session";
 import { invalidateLibrary, patchLibraryCaches } from "./libraryData";
 
 export function useLibraryActions(
@@ -155,8 +157,9 @@ export function useLibraryActions(
     setImporting(true);
     api
       .pickAndImportBooks()
-      .then((added) => {
+      .then((report) => {
         qc.invalidateQueries({ queryKey: ["local"] });
+        const { added, skipped, failed } = report;
         if (added.length) {
           setShelfChoice("local");
           showToast(
@@ -164,10 +167,97 @@ export function useLibraryActions(
               ? `Added “${added[0].title}”.`
               : `Added ${added.length} books.`,
           );
+        } else if (skipped.length || failed.length) {
+          showToast(importReportMessage(report));
+        } else {
+          showToast("Nothing to add.");
         }
       })
       .catch(() => showToast("Couldn't add those files."))
       .finally(() => setImporting(false));
+  }, [qc, showToast, setShelfChoice, setImporting]);
+
+  /** Bulk apply a per-record action over a selection, then invalidate once. */
+  const bulk = useCallback(
+    (records: api.WebComicRecord[], action: (r: api.WebComicRecord) => Promise<unknown>) => {
+      Promise.allSettled(records.map(action)).then(invalidateAll);
+    },
+    [invalidateAll],
+  );
+
+  const bulkMarkRead = useCallback(
+    (records: api.WebComicRecord[]) => {
+      bulk(records, (r) => api.setCompleted(r, true));
+      showToast(`Marked ${records.length} read.`);
+    },
+    [bulk, showToast],
+  );
+
+  const bulkMarkUnread = useCallback(
+    (records: api.WebComicRecord[]) => {
+      bulk(records, (r) => api.setCompleted(r, false));
+      showToast(`Marked ${records.length} unread.`);
+    },
+    [bulk, showToast],
+  );
+
+  const bulkFavorite = useCallback(
+    (records: api.WebComicRecord[]) => {
+      bulk(records, (r) => api.setFavorite(r, true));
+      showToast(`Favorited ${records.length}.`);
+    },
+    [bulk, showToast],
+  );
+
+  const bulkClearProgress = useCallback(
+    (records: api.WebComicRecord[]) => {
+      bulk(records, (r) => api.clearProgress(r));
+      showToast(`Cleared progress on ${records.length}.`);
+    },
+    [bulk, showToast],
+  );
+
+  const bulkRemoveLocal = useCallback(
+    (records: api.WebComicRecord[]) => {
+      bulk(
+        records,
+        (r) =>
+          api.localDelete(r.id).catch((err) => {
+            showToast(api.toApiError(err).message || "Couldn't remove a local copy.");
+            throw err;
+          }),
+      );
+      showToast(`Removed ${records.length} local cop${records.length === 1 ? "y" : "ies"}.`);
+    },
+    [bulk, showToast],
+  );
+
+  const addFolder = useCallback(() => {
+    setImporting(true);
+    const clear = useSession.getState().setImportProgress;
+    api
+      .pickAndImportFolder()
+      .then(({ report }) => {
+        qc.invalidateQueries({ queryKey: ["local"] });
+        const { added, skipped, failed } = report;
+        if (added.length) {
+          setShelfChoice("local");
+          showToast(
+            added.length === 1
+              ? `Added “${added[0].title}”.`
+              : `Added ${added.length} books.`,
+          );
+        } else if (skipped.length || failed.length) {
+          showToast(importReportMessage(report));
+        } else {
+          showToast("Nothing to add.");
+        }
+      })
+      .catch(() => showToast("Couldn't add that folder."))
+      .finally(() => {
+        setImporting(false);
+        clear(null);
+      });
   }, [qc, showToast, setShelfChoice, setImporting]);
 
   return {
@@ -181,6 +271,12 @@ export function useLibraryActions(
     removeOfflineDownload,
     downloadOffline,
     addBooks,
+    addFolder,
+    bulkMarkRead,
+    bulkMarkUnread,
+    bulkFavorite,
+    bulkClearProgress,
+    bulkRemoveLocal,
   };
 }
 

@@ -1,0 +1,30 @@
+# Project map
+
+## Server request path
+
+```text
+browser / reader
+       │
+       ▼
+Fastify API ──► Postgres + pgvector
+       │
+       ├──── enqueue scan / metadata / search work ───► worker
+       └──── serve cached covers and archive pages
+```
+
+The server treats the library files as the source of truth. Postgres stores the catalog, users, progress, metadata, jobs, covers, and search vectors; the data directory holds uploads and regenerable caches.
+
+## Native reader path
+
+```text
+React + TypeScript UI
+          │ invoke / custom media scheme
+          ▼
+Rust commands ──► local catalog + owned files
+          │
+          └────► optional CB8 server using persisted cookies
+```
+
+Rust owns filesystem and network boundaries. The frontend works with a common record shape so local and server books use the same shelf and reader surfaces.
+
+For the detailed API and media contract, see [`reader/docs/CONTRACT.md`](https://github.com/s4njee/CB8/blob/main/reader/docs/CONTRACT.md).

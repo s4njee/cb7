@@ -31,6 +31,9 @@ export const clearInitialCredentials = (): Promise<void> =>
 export const fetchPairInfo = (): Promise<PairInfoResponse> =>
   get<PairInfoResponse>('/api/settings/pair-info');
 
+export const fetchServerVersion = (): Promise<{ version: string }> =>
+  get<{ version: string }>('/api/settings/version');
+
 /**
  * Mint a single-use, ~2-minute pairing token bound to the current user.
  *

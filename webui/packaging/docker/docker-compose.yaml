@@ -130,7 +130,10 @@ services:
     container_name: cb8-worker
     restart: unless-stopped
     user: "10001:10001"
-    command: ["/usr/bin/tini", "--", "node", "/app/dist/worker.mjs"]
+    # Dockerfile ENTRYPOINT is `tini -- node standalone.mjs`. A `command:` here
+    # is appended as extra args, so we must replace the entrypoint or the
+    # worker process would still be the API (producer-only, no job drain).
+    entrypoint: ["/usr/bin/tini", "--", "node", "/app/dist/worker.mjs"]
     depends_on:
       cb8-postgres:
         condition: service_healthy

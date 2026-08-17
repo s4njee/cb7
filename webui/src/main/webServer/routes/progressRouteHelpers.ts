@@ -73,6 +73,12 @@ export function buildProgressUpdate(
   if (typeof opts.page === 'number' && opts.completed === undefined && isFinalPage(opts.page, pageCount)) {
     opts.completed = true;
   }
+  // Mark-read with no page/percent still has to look finished in the grid
+  // (`isFinished` keys off last page / 100%, not the completed flag).
+  if (opts.completed === true) {
+    if (opts.page === undefined && pageCount > 0) opts.page = pageCount - 1;
+    if (opts.percent === undefined) opts.percent = 100;
+  }
 
   return opts;
 }

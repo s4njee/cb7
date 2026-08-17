@@ -7,7 +7,7 @@
  * same path while one is already queued/active returns `null`).
  */
 import { getBoss } from './boss';
-import { QUEUE, type IngestScanJob } from './queues';
+import { QUEUE, type CoverRefreshJob, type IngestScanJob } from './queues';
 
 /** Priority lanes. Higher runs first; single/on-demand work jumps the backfill. */
 export const PRIORITY = { high: 100, normal: 0, low: -100 } as const;
@@ -35,5 +35,19 @@ export function enqueueBackfill(opts: { lane?: Lane; full?: boolean } = {}): Pro
   return getBoss().send(QUEUE.searchBackfill, { full }, {
     priority: PRIORITY[opts.lane ?? 'low'],
     singletonKey: full ? `${QUEUE.searchBackfill}:full` : QUEUE.searchBackfill,
+  });
+}
+
+/**
+ * Enqueue a cover refresh. Resolves to the pg-boss job id, or `null` if an
+ * identical job is already queued/active (deduped by `singletonKey`). Low
+ * priority — cover extraction must never starve a library scan. The key is the
+ * sorted id list so `[3,1]` and `[1,3]` dedupe to the same job; `allMissing`
+ * gets its own fixed key.
+ */
+export function enqueueCoverRefresh(job: CoverRefreshJob): Promise<string | null> {
+  return getBoss().send(QUEUE.coverRefresh, job, {
+    priority: PRIORITY.low,
+    singletonKey: job.allMissing ? 'cover-refresh:all-missing' : `cover-refresh:${(job.ids ?? []).slice().sort((a, b) => a - b).join(',')}`,
   });
 }

@@ -110,7 +110,19 @@ export function validateUploadPathParts(
 export function resolveUploadDestination(baseDir: string, relParts: string[]): string | null {
   const resolvedBase = path.resolve(baseDir);
   const destPath = path.resolve(resolvedBase, ...relParts);
-  return destPath.startsWith(resolvedBase + path.sep) ? destPath : null;
+  return isInsideDirectory(resolvedBase, destPath) && destPath !== path.resolve(resolvedBase)
+    ? destPath
+    : null;
+}
+
+/**
+ * True when `candidate` is `root` or a file/dir under it. Both sides are
+ * resolved first so `../` cannot escape.
+ */
+export function isInsideDirectory(root: string, candidate: string): boolean {
+  const resolvedRoot = path.resolve(root);
+  const resolved = path.resolve(candidate);
+  return resolved === resolvedRoot || resolved.startsWith(resolvedRoot + path.sep);
 }
 
 /**

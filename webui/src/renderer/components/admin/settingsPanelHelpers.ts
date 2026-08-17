@@ -34,6 +34,9 @@ export function parseAutoRescanMinutes(raw: string): number | null {
   return Number.isFinite(minutes) && minutes >= 0 ? minutes : null;
 }
 
+/** Preset choices for the watched-roots scan interval (minutes). 0 = manual only. */
+export const AUTO_RESCAN_PRESETS = [0, 5, 15, 60] as const;
+
 /**
  * Build the confirmation message after saving the auto-rescan interval.
  * @param minutes The saved interval in minutes (0 means disabled).
@@ -41,8 +44,8 @@ export function parseAutoRescanMinutes(raw: string): number | null {
  */
 export function autoRescanSavedMessage(minutes: number): string {
   return minutes > 0
-    ? `Folders will rescan every ${minutes} minute${minutes === 1 ? '' : 's'}.`
-    : 'Auto-rescan disabled.';
+    ? `Watched folders will rescan every ${minutes} minute${minutes === 1 ? '' : 's'}.`
+    : 'Auto-rescan disabled — only manual Rescan adds files.';
 }
 
 /**
@@ -202,4 +205,31 @@ export function pairOriginWarning(
     return `You're viewing CB8 on ${currentOrigin}, which a phone can't reach, so this code points at ${selectedOrigin} instead. Make sure your phone is on the same network.`;
   }
   return null;
+}
+
+/**
+ * Human "last seen" label for the worker heartbeat. Ranges from "just now"
+ * through minute/hour buckets, falling back to the absolute local time for
+ * anything older than a day.
+ */
+export function formatWorkerLastSeen(iso: string | null): string {
+  if (!iso) return 'never';
+  const ms = Date.now() - Date.parse(iso);
+  if (!Number.isFinite(ms)) return iso;
+  if (ms < 60_000) return 'just now';
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`;
+  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}h ago`;
+  return new Date(iso).toLocaleString();
+}
+
+/**
+ * Compact human size, e.g. 1.2 MB / 340 KB / 512 B. Used by the cache-controls
+ * section; a small helper keeps the formatting consistent and unit-testable.
+ */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / 1024 ** exponent;
+  return `${value >= 100 || exponent === 0 ? Math.round(value) : value.toFixed(1)} ${units[exponent]}`;
 }

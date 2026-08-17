@@ -1,6 +1,6 @@
 # CB8
 
-CB8 is a self-hosted comic and book server for the library you already own. Point it at the folders where your `.cbz`, `.cbr`, `.epub`, `.pdf`, and `.mobi` files live and it builds a browsable, searchable catalog over them — covers, metadata, reading progress, tags, and collections — without ever moving, renaming, or rewriting the originals. Your files stay exactly where they are; CB8 only keeps a catalog alongside them.
+CB8 is a self-hosted comic and book server for the library you already own. Point it at the folders where your `.cbz`, `.cbr`, `.epub`, and `.pdf` files live and it builds a browsable, searchable catalog over them — covers, metadata, reading progress, tags, and collections — without ever moving, renaming, or rewriting the originals. Your files stay exactly where they are; CB8 only keeps a catalog alongside them.
 
 Under the hood it is a **Fastify HTTP server + Postgres catalog + React SPA**, shipped as two Node processes built from one codebase: the **API server** (`dist/standalone.mjs`), which serves the SPA and the whole `/api`, and a **background worker** (`dist/worker.mjs`), which drains the durable job queue (library scans, search indexing, auto-rescans). It runs in Docker, on Kubernetes, or as a plain Node process on a VPS — the web UI is identical everywhere, and any browser on your LAN gets the same reading experience. There is also a native [Flutter client](../README.md) (iOS / Android / macOS) in this monorepo that can point at the same server.
 
@@ -22,14 +22,14 @@ Everything is organized as a view over the catalog rather than a layout on disk.
 
 ## Features
 
-- Reads `.cbz`, `.cbr`, `.epub`, `.pdf`, and `.mobi`. Image entries inside archives are sorted with natural filename ordering (`page2.jpg` before `page10.jpg`).
+- Reads `.cbz`, `.cbr`, `.epub`, and `.pdf`. Image entries inside archives are sorted with natural filename ordering (`page2.jpg` before `page10.jpg`).
 - Page-by-page comic reader with immersive auto-hiding chrome, pinch / pan / swipe on touch, and keyboard navigation on desktop; EPUB reader with themes, adjustable type, and whole-book progress; PDF reader via pdf.js.
 - Continuity-first home page: a **Continue reading** hero card plus an up-next row, then the library grid.
 - **⌘K / Ctrl+K command palette** for jumping to books, collections, folders, tags, and actions; `/` focuses the search box.
 - **Multi-user** with admin and regular accounts, per-user read state, and optional **guest access** (guests can browse and read; progress isn't saved). There is no public signup — an admin creates accounts.
 - **OPDS catalog + Readium WebPub manifests** (`/api/opds`, `/api/comics/:id/manifest`) so external reader apps can browse and stream the library. The catalog URL is shown under **Settings → Connect a reader app**.
 - Optional **e-book semantic search** (hybrid Postgres FTS + pgvector, via an embeddings sidecar) and optional **HD comic upscaling** (Real-ESRGAN sidecar with a disk cache). Both fail soft when unconfigured.
-- **Watched folders**: the worker auto-rescans registered library paths on an interval, so new files show up without manual rescans.
+- **Watched folders**: register a server path once (**Settings → Watched folders**) and the worker rescans it on a configurable interval (Off / 5 / 15 / 60 min) — or hit **Rescan** to pick up dropped files immediately, no re-browsing. Empty drop roots are valid watch targets and missing mounts show an offline badge. Requires the worker process (`cb8-worker`) to be running; the API only enqueues.
 - Library scanned from folders or drag-and-drop / upload. Cover thumbnails are generated and cached; search, tags, virtual folders, and collections never move files on disk.
 - Removing items from the library only deletes the database row; the underlying files stay on disk.
 

@@ -26,6 +26,7 @@ export default function TagPage() {
     fileExt,
     readStatus,
     favoritesOnly,
+    missingOnly,
   } = useUiStore();
 
   const filters = comicQueryOptionsFromFilters({
@@ -35,6 +36,7 @@ export default function TagPage() {
     fileExt,
     readStatus,
     favoritesOnly,
+    missingOnly,
   }, { tag: tagName });
 
   // Infinite query for tag filtered list
@@ -83,7 +85,7 @@ export default function TagPage() {
         />
       </div>
 
-      <SelectionBar />
+      <SelectionBar matchingScope={{ tag: tagName }} />
     </div>
   );
 }

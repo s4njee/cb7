@@ -63,6 +63,8 @@ export function parseComicRouteOptions(query: Record<string, string>): ComicRout
     opts.readStatus = query.readStatus;
   }
   if (query.favorites === 'true') opts.favorites = true;
+  if (query.missing === 'true') opts.missing = true;
+  if (query.missing === 'false') opts.missing = false;
   return opts;
 }
 

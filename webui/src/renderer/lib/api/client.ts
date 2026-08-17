@@ -50,6 +50,12 @@ export interface RequestOptions<Body = unknown> {
   parse?: 'json' | 'none';
   parseError?: 'soft' | 'strict';
   headers?: Record<string, string>;
+  /**
+   * Keep the request alive after the page is hidden or unloading. Needed for
+   * progress flushes on `visibilitychange` / `pagehide` — a regular fetch is
+   * cancelled by the browser before it leaves the socket.
+   */
+  keepalive?: boolean;
 }
 
 export async function request<T = unknown, Body = unknown>(
@@ -57,11 +63,12 @@ export async function request<T = unknown, Body = unknown>(
   path: string,
   opts: RequestOptions<Body> = {},
 ): Promise<T> {
-  const { query, body, credentials, parse = 'json', parseError, headers } = opts;
+  const { query, body, credentials, parse = 'json', parseError, headers, keepalive } = opts;
   const init: RequestInit = {
     method,
     headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...headers },
     credentials,
+    ...(keepalive ? { keepalive: true } : {}),
   };
   if (body !== undefined) init.body = JSON.stringify(body);
 

@@ -14,7 +14,7 @@
  */
 
 /** The reader UI to render for a given item. */
-export type ReaderFormat = 'comic' | 'epub' | 'pdf';
+export type ReaderFormat = 'comic' | 'epub' | 'pdf' | 'unsupported';
 
 /** A chrome-level keyboard command shared by every reader format. */
 export type ReaderChromeKeyAction = 'back' | 'fullscreen';
@@ -99,6 +99,11 @@ export function determineReaderFormat(record: ReaderFormatRecord): ReaderFormat 
   }
   if (ext === 'epub') return 'epub';
   if (ext === 'pdf') return 'pdf';
+
+  // Formats CB8 once accepted but no longer supports (see mediaTypes.ts). A
+  // legacy record keeps its extension, so it is detectable here even though
+  // nothing can render it — surface a clear state instead of attempting EPUB.
+  if (ext === 'mobi') return 'unsupported';
 
   if (record.pageCount === 0 && !record.lastPage) return 'epub';
   if (record.lastLocation && record.lastLocation.includes('epubcfi')) return 'epub';

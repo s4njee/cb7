@@ -12,7 +12,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Heart, ChevronDown, Check } from 'lucide-react';
+import { Heart, ChevronDown, Check, LayoutGrid, List } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const MEDIA_PILLS: { value: MediaTypeFilter; label: string }[] = [
@@ -28,8 +28,18 @@ const READ_STATUS_PILLS: { status: ReadStatusFilter; label: string }[] = [
   { status: 'completed', label: 'Completed' },
 ];
 
+/** Format (file extension) pills — `fileExt` was wired but never surfaced (P3-1). */
+const FORMAT_PILLS: { value: string; label: string }[] = [
+  { value: '', label: 'All' },
+  { value: 'cbz', label: 'CBZ' },
+  { value: 'cbr', label: 'CBR' },
+  { value: 'cb7', label: 'CB7' },
+  { value: 'epub', label: 'EPUB' },
+  { value: 'pdf', label: 'PDF' },
+];
+
 const SORT_OPTIONS: { value: SortByFilter; label: string }[] = [
-  { value: 'dateAdded', label: 'Recent' },
+  { value: 'dateAdded', label: 'Recently added' },
   { value: 'title', label: 'Title' },
   { value: 'lastRead', label: 'Recently read' },
   { value: 'fileSize', label: 'File size' },
@@ -76,10 +86,18 @@ export default function FilterStrips() {
     setReadStatus,
     favoritesOnly,
     setFavoritesOnly,
+    missingOnly,
+    setMissingOnly,
     sortBy,
     setSortBy,
     sortOrder,
     setSortOrder,
+    viewMode,
+    setViewMode,
+    density,
+    setDensity,
+    fileExt,
+    setFileExt,
   } = useUiStore();
 
   const currentSort = SORT_OPTIONS.find((o) => o.value === sortBy) ?? SORT_OPTIONS[0];
@@ -88,11 +106,75 @@ export default function FilterStrips() {
   return (
     <div className="px-4 md:px-10 pt-5 pb-3 select-none">
       {/* Section label + sort field + sort direction */}
-      <div className="flex items-baseline justify-between gap-3 mb-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mb-3">
         <h2 className="text-[11.5px] font-medium uppercase tracking-[0.14em] text-section">
           All books
         </h2>
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {/* Grid / list view toggle (P3-4), persisted per device class. */}
+          <div className="flex items-center gap-0.5 rounded-full border border-border bg-card p-0.5">
+            <button
+              type="button"
+              onClick={() => setViewMode('grid')}
+              aria-pressed={viewMode === 'grid'}
+              aria-label="Grid view"
+              title="Grid view"
+              className={cn(
+                'flex h-6 w-6 items-center justify-center rounded-full transition-colors',
+                viewMode === 'grid'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('list')}
+              aria-pressed={viewMode === 'list'}
+              aria-label="List view"
+              title="List view"
+              className={cn(
+                'flex h-6 w-6 items-center justify-center rounded-full transition-colors',
+                viewMode === 'list'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <List className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          {/* Density (P2-2 / P3-2): looser grid for large-type / large-target users. */}
+          <div className="flex items-center gap-0.5 rounded-full border border-border bg-card p-0.5">
+            <button
+              type="button"
+              onClick={() => setDensity('compact')}
+              aria-pressed={density === 'compact'}
+              className={cn(
+                'rounded-full px-2 py-1 text-[11px] font-medium transition-colors',
+                density === 'compact'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              Compact
+            </button>
+            <button
+              type="button"
+              onClick={() => setDensity('comfortable')}
+              aria-pressed={density === 'comfortable'}
+              className={cn(
+                'rounded-full px-2 py-1 text-[11px] font-medium transition-colors',
+                density === 'comfortable'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              Comfortable
+            </button>
+          </div>
+
           <DropdownMenu>
             <DropdownMenuTrigger className="flex items-center gap-0.5 text-xs text-faint hover:text-foreground">
               Sort: {currentSort.label}
@@ -174,6 +256,29 @@ export default function FilterStrips() {
           <Heart className={cn('h-3.5 w-3.5', favoritesOnly && 'fill-current')} />
           <span>Favorites</span>
         </button>
+
+        {/* Missing-file filter (P1-8): only records whose file is gone from disk. */}
+        <button
+          type="button"
+          onClick={() => setMissingOnly(!missingOnly)}
+          aria-pressed={missingOnly}
+          className={cn(
+            'flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-[13px] transition-colors',
+            missingOnly
+              ? 'border-primary bg-primary/10 text-primary'
+              : 'border-border bg-card text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <span>Missing</span>
+        </button>
+
+        <div className="mx-1 h-6 w-px shrink-0 bg-border" />
+
+        {FORMAT_PILLS.map((p) => (
+          <Pill key={p.value} active={fileExt === p.value} onClick={() => setFileExt(p.value)}>
+            {p.label}
+          </Pill>
+        ))}
       </div>
     </div>
   );

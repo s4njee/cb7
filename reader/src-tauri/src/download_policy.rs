@@ -50,12 +50,7 @@ pub fn should_skip(recorded_size: Option<u64>, on_disk_size: u64) -> bool {
 }
 
 /// Map manifest + in-flight bit to a UI status.
-pub fn derive_status(
-    complete: bool,
-    active: bool,
-    last_error: Option<&str>,
-    done: i64,
-) -> DownloadStatus {
+pub fn derive_status(complete: bool, active: bool, last_error: Option<&str>, done: i64) -> DownloadStatus {
     if complete {
         return DownloadStatus::Complete;
     }
@@ -120,19 +115,13 @@ mod tests {
         assert_eq!(a.len(), 64);
         assert_ne!(a, pin_key("http://host:8008", 6));
         assert_ne!(a, pin_key("http://other:8008", 5));
-        assert_ne!(
-            pin_key("http://host:80085", 0),
-            pin_key("http://host:8008", 50)
-        );
+        assert_ne!(pin_key("http://host:80085", 0), pin_key("http://host:8008", 50));
     }
 
     #[test]
     fn strip_query_removes_only_the_query() {
         assert_eq!(strip_query("/api/comics/5/pages/0"), "/api/comics/5/pages/0");
-        assert_eq!(
-            strip_query("/api/comics/5/pages/0?width=800"),
-            "/api/comics/5/pages/0"
-        );
+        assert_eq!(strip_query("/api/comics/5/pages/0?width=800"), "/api/comics/5/pages/0");
     }
 
     #[test]

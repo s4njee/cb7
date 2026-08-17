@@ -7,6 +7,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
 import { useDrop } from '@/hooks/useDrop';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { useUiStore } from '@/store/uiStore';
 import { invalidateLibraryQueries } from '@/lib/queryClient';
 import { RefreshCw, Upload } from 'lucide-react';
 
@@ -62,7 +63,10 @@ const AdminModal = React.lazy(() => import('@/components/admin/AdminModal'));
 
 /** The top-level layout shell that wraps and routes all pages. */
 export default function AppShell() {
-  const [adminPanel, setAdminPanel] = useState<string | null>(null);
+  // Which admin content panel is open lives in the UI store so other surfaces
+  // (first-run onboarding on the home page) can open the same modal.
+  const adminPanel = useUiStore((s) => s.adminPanel);
+  const openAdminPanel = useUiStore((s) => s.openAdminPanel);
   // Whether the lazy AdminModal chunk has ever been requested. Kept mounted
   // after the first open so the dialog's close animation still plays.
   const [adminMounted, setAdminMounted] = useState(false);
@@ -71,9 +75,15 @@ export default function AppShell() {
   const queryClient = useQueryClient();
   const mainScrollRef = useRef<HTMLElement | null>(null);
 
+  useEffect(() => {
+    if (adminPanel !== null) {
+      setAdminMounted(true);
+    }
+  }, [adminPanel]);
+
   const openAdminModal = (panel: string) => {
     setAdminMounted(true);
-    setAdminPanel(panel);
+    openAdminPanel(panel);
   };
 
   const { dragging } = useDrop({
@@ -113,6 +123,14 @@ export default function AppShell() {
 
   return (
     <div className="h-screen flex flex-col bg-background text-foreground">
+      {/* Skip link (P2-2): keyboard/screen-reader users jump past the header. */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:rounded-md focus:bg-primary focus:px-3 focus:py-1.5 focus:text-sm focus:font-semibold focus:text-primary-foreground"
+      >
+        Skip to content
+      </a>
+
       {/* 1. Folio top header (hidden while reading) */}
       {!isReader && <FolioHeader onOpenAdminModal={openAdminModal} />}
 
@@ -121,7 +139,7 @@ export default function AppShell() {
         <div className="flex-1 min-h-0 flex overflow-hidden">
           {/* Library pages container (hidden when reader is open, but stays mounted) */}
           <div className={cn("flex-1 min-h-0 flex flex-col overflow-hidden", isReader && "hidden")}>
-            <main ref={mainScrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-y-none">
+            <main id="main-content" ref={mainScrollRef} tabIndex={-1} className="flex-1 min-h-0 overflow-y-auto overscroll-y-none focus:outline-none">
             {showPullRefreshIndicator && (
               <div
                 className={cn("ptr-indicator", pullState)}
@@ -190,7 +208,7 @@ export default function AppShell() {
             open={adminPanel !== null}
             onOpenChange={(open) => {
               if (!open) {
-                setAdminPanel(null);
+                openAdminPanel(null);
                 setDroppedFiles([]);
               }
             }}
@@ -206,7 +224,7 @@ export default function AppShell() {
           <div className="border-4 border-dashed border-primary/50 rounded-2xl p-12 flex flex-col items-center gap-4 bg-card/60 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
             <Upload className="h-16 w-16 text-primary animate-bounce" />
             <span className="text-2xl font-bold text-foreground">Drop to add to library</span>
-            <span className="text-sm text-muted-foreground">Supports .cbz, .cbr, .epub, .pdf, .mobi</span>
+            <span className="text-sm text-muted-foreground">Supports .cbz, .cbr, .cb7, .epub, .pdf</span>
           </div>
         </div>
       )}

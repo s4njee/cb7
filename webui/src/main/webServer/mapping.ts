@@ -30,6 +30,8 @@ export interface WebComicRecord {
   thumbnailUrl: string;
   /** File extension without the dot: 'epub' | 'pdf' | 'mobi' | 'cbz' | 'cbr' */
   fileExt: string;
+  /** Stamped when the file is missing from disk; null when present (P1-8). */
+  missingAt: string | null;
 }
 
 /**
@@ -61,6 +63,7 @@ export function toWebRecord(record: Awaited<ReturnType<LibraryDatabase['getComic
     mediaType: record.mediaType,
     thumbnailUrl: `/api/comics/${record.id}/thumbnail?v=${vParam}`,
     fileExt: path.extname(record.filePath).toLowerCase().replace(/^\./, ''),
+    missingAt: record.missingAt ?? null,
   };
 }
 

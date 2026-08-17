@@ -5,16 +5,23 @@
  * not a raw .epub blob. Thorium uses a server-side streamer; in this Tauri app
  * we unpack the EPUB in-process and rewrite relative asset URLs to blob: URLs
  * so frames can load CSS/images without a network streamer.
+ *
+ * Books are streamed: the zip is read through a {@link RangeZipReader} backed
+ * by ranged reads of the book's bytes, and entries are decompressed lazily the
+ * first time the reader asks for them. Opening a server EPUB therefore pulls
+ * only the zip central directory (a few KB) plus the chapter actually on
+ * screen — never the whole book.
  */
 import {
-  BlobReader,
   BlobWriter,
   configure,
+  Reader,
   TextWriter,
   ZipReader,
   type Entry,
   type FileEntry,
 } from "@zip.js/zip.js";
+import type { BookByteSource } from "./epub";
 import {
   Locator,
   Manifest,
@@ -136,13 +143,47 @@ function isDocumentHref(pathOnly: string): boolean {
   return /\.(x?html?|xml|nav)$/i.test(base) || base === "" || base.endsWith("/");
 }
 
-/** Rewrite url(...) and asset src/href to blob: URLs. Never rewrite document links. */
-function rewriteAssetUrls(
+/**
+ * Rewrite url(...) and asset src/href to blob: URLs. Never rewrite document
+ * links.
+ *
+ * Referenced entries are materialized first (decompressing just those, on
+ * demand, from a streamed book) because the two rewrite passes below are
+ * synchronous — `String.replace` cannot await a per-match promise.
+ */
+async function rewriteAssetUrls(
   text: string,
   fromFile: string,
+  materialize: (path: string) => Promise<Uint8Array | undefined>,
   pathToBlob: Map<string, string>,
   isCss: boolean,
-): string {
+): Promise<string> {
+  // Collect every path the passes below would rewrite, resolve it, and pull
+  // its bytes now so `pathToBlob` is complete before the sync passes run.
+  const wanted = new Set<string>();
+  const want = (raw: string) => {
+    const cleaned = raw.trim().replace(/^['"]|['"]$/g, "");
+    if (!cleaned || /^(https?:|data:|blob:|mailto:|#)/i.test(cleaned)) return;
+    const [pathPart] = cleaned.split("#");
+    const [pathOnly] = pathPart.split("?");
+    wanted.add(resolvePath(fromFile, pathOnly));
+  };
+  let m: RegExpExecArray | null;
+  const urlRe = /url\(\s*([^)]+?)\s*\)/gi;
+  while ((m = urlRe.exec(text))) want(m[1]);
+  if (!isCss) {
+    const attrRe = /\b(src|href)=(["'])([^"']+)\2/gi;
+    while ((m = attrRe.exec(text))) {
+      const attr = m[1];
+      const val = m[3];
+      if (/^(https?:|data:|blob:|mailto:|#)/i.test(val)) continue;
+      // Keep spine/chapter navigation paths relative for the navigator.
+      if (attr.toLowerCase() === "href" && isDocumentHref(val)) continue;
+      want(val);
+    }
+  }
+  await Promise.all([...wanted].map((p) => materialize(p).catch(() => undefined)));
+
   const mapUrl = (raw: string): string => {
     const cleaned = raw.trim().replace(/^['"]|['"]$/g, "");
     if (!cleaned || /^(https?:|data:|blob:|mailto:|#)/i.test(cleaned)) return raw;
@@ -179,12 +220,34 @@ function rewriteAssetUrls(
   return out;
 }
 
+/**
+ * zip.js `Reader` over a {@link BookByteSource} — random access by ranged
+ * reads, so zip.js only ever pulls the central directory plus the entries the
+ * reader actually asks for (one chapter at a time). Reads past the end of the
+ * source are truncated, matching zip.js's reader contract.
+ */
+class RangeZipReader extends Reader<BookByteSource> {
+  constructor(private readonly source: BookByteSource) {
+    super(source);
+    this.size = source.size;
+  }
+
+  async init(): Promise<void> {}
+
+  async readUint8Array(index: number, length: number): Promise<Uint8Array> {
+    const end = Math.min(index + length, this.source.size);
+    if (end <= index) return new Uint8Array();
+    return new Uint8Array(await this.source.read(index, end));
+  }
+}
+
 class ZipResource extends Resource {
   constructor(
     private readonly entryPath: string,
     private readonly linkRef: Link,
     private readonly getBytes: (path: string) => Promise<Uint8Array | undefined>,
     private readonly pathToBlob: Map<string, string>,
+    private readonly sizeOf: (path: string) => number | undefined,
   ) {
     super();
   }
@@ -194,8 +257,9 @@ class ZipResource extends Resource {
   }
 
   async length(): Promise<number | undefined> {
-    const b = await this.getBytes(this.entryPath);
-    return b?.byteLength;
+    // From the zip central directory — decompressing the entry just to report
+    // its size would pull a streamed chapter's bytes before it's needed.
+    return this.sizeOf(this.entryPath);
   }
 
   async read(_range?: NumberRange): Promise<Uint8Array | undefined> {
@@ -208,9 +272,10 @@ class ZipResource extends Resource {
     let text = new TextDecoder("utf-8").decode(bytes);
     const type = this.linkRef.type ?? mimeFor(this.entryPath);
     if (type.includes("html") || type.includes("xml") || type.includes("css")) {
-      text = rewriteAssetUrls(
+      text = await rewriteAssetUrls(
         text,
         this.entryPath,
+        this.getBytes,
         this.pathToBlob,
         type.includes("css"),
       );
@@ -225,6 +290,7 @@ class ZipFetcher implements Fetcher {
   constructor(
     private readonly pathToBlob: Map<string, string>,
     private readonly getBytes: (path: string) => Promise<Uint8Array | undefined>,
+    private readonly sizeOf: (path: string) => number | undefined,
   ) {}
 
   links(): Link[] {
@@ -245,7 +311,7 @@ class ZipFetcher implements Fetcher {
       href = href.slice("https://readium.local/".length);
     }
     href = normalizeZipPath(decodeURIComponent(href));
-    return new ZipResource(href, link, this.getBytes, this.pathToBlob);
+    return new ZipResource(href, link, this.getBytes, this.pathToBlob, this.sizeOf);
   }
 
   close(): void {
@@ -309,11 +375,14 @@ export interface OpenedReadiumEpub {
 }
 
 /**
- * Open an EPUB ArrayBuffer as a Readium Publication ready for EpubNavigator.
+ * Open an EPUB as a Readium Publication ready for EpubNavigator.
+ *
+ * The zip is read through a {@link RangeZipReader}, so `getEntries()` pulls
+ * only the central directory and each entry's bytes are decompressed lazily on
+ * first request — a streamed server book is never fetched in full.
  */
-export async function openEpubAsPublication(data: ArrayBuffer): Promise<OpenedReadiumEpub> {
-  const file = new Blob([data], { type: "application/epub+zip" });
-  const reader = new ZipReader(new BlobReader(file));
+export async function openEpubAsPublication(source: BookByteSource): Promise<OpenedReadiumEpub> {
+  const reader = new ZipReader(new RangeZipReader(source));
   const entries = await reader.getEntries();
   const byPath = new Map<string, Entry>();
   for (const e of entries) {
@@ -354,25 +423,39 @@ export async function openEpubAsPublication(data: ArrayBuffer): Promise<OpenedRe
   }
   if (!spine.length) throw new Error("EPUB spine is empty");
 
-  // Materialize blob URLs for every entry (assets + chapters).
+  // Lazy: an entry's bytes are decompressed (and its blob URL created) only
+  // when the reader first asks for it — the navigator opens one chapter at a
+  // time, so a streamed book pulls just the central directory up front and
+  // then each chapter's own bytes as you turn pages. Blob URLs live until
+  // `close()`.
   const pathToBlob = new Map<string, string>();
   const bytesCache = new Map<string, Uint8Array>();
+  // `decodeURIComponent` throws on malformed escapes (a filename with a
+  // literal `%`); a failed decode just means "not this spelling".
+  const tryDecode = (p: string): string => {
+    try {
+      return decodeURIComponent(p);
+    } catch {
+      return p;
+    }
+  };
   const getBytes = async (path: string): Promise<Uint8Array | undefined> => {
     const key = normalizeZipPath(path);
-    if (bytesCache.has(key)) return bytesCache.get(key);
-    const entry = byPath.get(key);
+    const entry = byPath.get(key) ?? byPath.get(tryDecode(key));
     if (!entry) return undefined;
+    const storeKey = normalizeZipPath(entry.filename);
+    const cached = bytesCache.get(storeKey);
+    if (cached) return cached;
     const bytes = await readEntryBytes(entry);
-    bytesCache.set(key, bytes);
+    bytesCache.set(storeKey, bytes);
+    const blob = new Blob([bytes], { type: mimeFor(storeKey) });
+    pathToBlob.set(storeKey, URL.createObjectURL(blob));
     return bytes;
   };
-
-  for (const path of byPath.keys()) {
-    const bytes = await getBytes(path);
-    if (!bytes) continue;
-    const blob = new Blob([bytes], { type: mimeFor(path) });
-    pathToBlob.set(path, URL.createObjectURL(blob));
-  }
+  const sizeOf = (path: string): number | undefined => {
+    const key = normalizeZipPath(path);
+    return byPath.get(key)?.uncompressedSize ?? byPath.get(tryDecode(key))?.uncompressedSize;
+  };
 
   const meta = opfDoc.querySelector("metadata");
   const dcTitle =
@@ -561,7 +644,7 @@ export async function openEpubAsPublication(data: ArrayBuffer): Promise<OpenedRe
   if (!manifest) throw new Error("Failed to deserialize WebPub manifest");
   manifest.setSelfLink("https://readium.local/manifest.json");
 
-  const fetcher = new ZipFetcher(pathToBlob, getBytes);
+  const fetcher = new ZipFetcher(pathToBlob, getBytes, sizeOf);
 
   const publication = new Publication({ manifest, fetcher });
 

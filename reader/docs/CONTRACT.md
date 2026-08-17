@@ -1,8 +1,27 @@
-# Shelf (reader/) — Architecture & Wire Contract
+# CB8 (reader/) — Architecture & Wire Contract
 
-Shelf is a Tauri v2 app (Rust core + React/TS/Vite webview UI) that is a client
+CB8 is a Tauri v2 app (Rust core + React/TS/Vite webview UI) that is a client
 for a **CB8 server** (the Fastify+Postgres server in `/Users/sanjee/projects/cb7/webui`).
-Primary deployment targets: **iOS and Android**; desktop is the dev vehicle.
+Deployment targets: **iOS, Android, and desktop** (macOS/Windows/Linux). The
+app is **local-first** — the on-device library works with no server at all,
+and connecting to a CB8 server is optional. Desktop release details live in
+[plan-desktop.md](../plan-desktop.md) and
+[DESKTOP.md](../DESKTOP.md).
+
+## Platform boundary
+
+- **Frontend platform facts** come from `src/lib/platform.ts`, resolved once
+  during boot from the Rust `platform_info` command (`os`, `isDesktop`,
+  `media_base`). `isTauri` also lives there. **No `navigator.userAgent`
+  sniffing anywhere** — platform identity and the media protocol base are
+  native values from Rust.
+- **Desktop open/import pipeline** (`src-tauri/src/opens.rs`): every way a book
+  reaches the app — macOS/iOS/Android `RunEvent::Opened`, Windows/Linux startup
+  argv, a second single-instance forward — normalizes to a canonical supported
+  book path (`file://` URL or plain path), then either queues for cold-start
+  drain or emits the live `shelf://opened-files` event. A single OS open event
+  goes entirely to one channel, so a path can never import twice. All paths end
+  at `local_import`.
 
 ## Split of responsibilities
 
@@ -189,7 +208,9 @@ screenshot is useless.
 ## Media proxy (custom URI scheme `cb8`)
 
 - Frontend URL base: `cb8://localhost` on macOS/iOS/Linux, `http://cb8.localhost`
-  on Windows/Android (detect via `navigator.userAgent` containing `Android`/`Windows`).
+  on Windows/Android. The base comes from the Rust `platform_info` command
+  (`media_base`, chosen from `cfg!` at compile time) — **not** from the user
+  agent. `transport.mediaUrl()` appends it to server-relative paths.
 - `GET {base}{serverRelativePath}` — e.g. `cb8://localhost/api/comics/5/pages/0`.
   GET only. Path must start with `/api/`. The Rust handler forwards to the
   configured server with the session cookie, caches 200 responses for paths
@@ -205,6 +226,49 @@ screenshot is useless.
   fetch on the main thread (a worker fetch to `cb8://` never reaches the scheme
   handler) and hands pdf.js the bytes. EPUBs still whole-file fetch (they're
   small); only PDFs range-stream.
+- **Local media** (`/local/<id>/<resource>`): `<id>` is parsed as `i64` and
+  the resource is a whitelist of `cover | file | page/<n>` — no caller-supplied
+  path is ever accepted through the scheme. Books are copied into app-owned
+  storage (`<app_data>/library/books/`), so a copied book still opens after the
+  original is renamed or removed (see `docs/LOCAL-FIRST.md`).
+
+## Local library
+
+The on-device shelf works with **no server**: books are copies in app storage,
+indexed by `catalog.json` (relative paths, atomic `.tmp`+rename writes —
+Windows-safe replacement semantics tested). Local commands:
+
+| command | args | returns |
+|---|---|---|
+| `local_list` | — | `LocalBook[]` |
+| `local_import` | `{ paths: string[] }` | `ImportReport { added, skipped, failed }` — per-file verdicts; directories and unsupported formats are skipped with a reason, a corrupt archive fails without leaving a catalog row, and one bad file never blocks the rest. |
+| `local_delete` | `{ id }` | bytes freed |
+| `local_download` | `{ comicId, title, ext, mediaType, pageCount }` | downloads a server book into the local library |
+| `local_read_range` / `local_file_length` | `{ id, begin, end }` / `{ id }` | ranged reads for local PDFs |
+| `local_page_count` / `local_set_progress` / `local_clear_progress` / `local_set_favorite` / `local_size` / `save_local_cover` | — | library bookkeeping |
+
+Formats: EPUB, PDF, CBZ, and **CBR on desktop** (RAR via the `unrar` crate —
+MIT/Apache wrapper around RARLAB's UnRAR C library; desktop-only Cargo `cfg`).
+Comic pages are listed and extracted **on demand** through one bounded
+abstraction (`local_zip::page_names` / `entry_bytes`), natural-sorted and
+capped at 512 MiB per entry (decompression-bomb safe); traversal names
+(`../`) are rejected.
+
+## Desktop delivery contract
+
+Every entry point funnels into `local_import` — picker, drag/drop,
+double-click, and second-instance opens all produce the same catalog record:
+
+- **macOS/iOS/Android**: `RunEvent::Opened` URLs → `opens::record_opens`.
+- **Windows/Linux**: startup argv and single-instance forwards →
+  `opens::book_args` (skips the executable, keeps only existing book files) →
+  `record_opens`.
+- **Cold start** queues paths until the frontend drains them once
+  (`take_opened_paths`); **warm opens** emit the live `shelf://opened-files`
+  event. Delivery is idempotent per OS event (one channel only), so the
+  cold-start drain and a live emit can't import the same path twice.
+- **While reading**: an import lands on the shelf with a toast rather than
+  replacing the active session — progress is never discarded.
 
 ## CB8 REST API (verified against webui source)
 

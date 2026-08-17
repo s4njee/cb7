@@ -57,3 +57,21 @@ export async function removeTagBulk(db: Db, comicIds: number[], tag: string): Pr
     await db.run('DELETE FROM comic_tags WHERE comic_id = ? AND tag_id = ?', [id, tagRow.id]);
   }
 }
+
+/**
+ * Replace the full tag set on many comics at once: delete every existing link for
+ * those ids, then attach each tag (reusing the `addTagBulk` insert-if-missing
+ * pattern). An empty `tags` array removes all links only. No-op for an empty
+ * `comicIds` list.
+ * @param db The database handle.
+ * @param comicIds Comic ids whose tags should be replaced.
+ * @param tags The complete new tag set to attach to every id.
+ */
+export async function replaceTagsForComics(db: Db, comicIds: number[], tags: string[]): Promise<void> {
+  if (comicIds.length === 0) return;
+  const placeholders = comicIds.map(() => '?').join(',');
+  await db.run(`DELETE FROM comic_tags WHERE comic_id IN (${placeholders})`, comicIds);
+  for (const tag of tags) {
+    await addTagBulk(db, comicIds, tag);
+  }
+}

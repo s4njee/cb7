@@ -2,9 +2,15 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { LibraryDatabase } from './libraryDatabase';
 import * as ArchiveLoader from './archiveLoader';
-import { extractEpubCover, getEpubSpineCount } from './epubCoverExtractor';
+import { extractEpubCover, getEpubSpineCount, extractEpubMetadata } from './epubCoverExtractor';
 import { getPdfPageCount, renderPdfFirstPageCover } from './pdfCoverExtractor';
 import { generateThumbnail } from './thumbnailGenerator';
+import {
+  readComicInfoFromArchive,
+  resolveIngestMetadata,
+  type EmbeddedMetadata,
+  type ResolvedIngestMetadata,
+} from './embeddedMetadata';
 import { parseSeriesFromFilename, stripLeadingReleaseDate, type SeriesInfo } from './seriesParser';
 import { detectMediaType } from '../shared/mediaTypes';
 import type { ScanProgress } from '../shared/types';
@@ -13,7 +19,8 @@ import { classifyIngestError, type IngestErrorClass } from './ingestErrorLog';
 import { dottedExtensionsForMediaType, seriesNameFromScanRoot } from './ingestPathHelpers';
 import { IngestQueue } from './ingestQueue';
 import { discoverFiles, discoverFilesChangedSince } from './ingestDiscovery';
-import { addComicFast, setComicSeries } from './db/comics';
+import { addComicFast, setComicSeries, type ComicSource } from './db/comics';
+import { sha256File } from './fileHasher';
 import { addComicsToFolderRaw } from './db/folders';
 
 /**
@@ -21,9 +28,15 @@ import { addComicsToFolderRaw } from './db/folders';
  * Ingest Service
  * 
  * Architecture overview for Junior Devs:
- * The Ingest system is responsible for scanning the file system, finding comic/book files, 
+ * The Ingest system is responsible for scanning the file system, finding comic/book files,
  * and extracting their metadata (page count, covers, series info) to be saved into the database.
- * 
+ *
+ * Since P1-3 it also reads *embedded* metadata (ComicInfo.xml from CBZ/CBR
+ * archives, the EPUB OPF metadata) and resolves it against the filename-derived
+ * title/series so author/artist/genre/year/summary/language/publisher/tags land
+ * on the inserted row. A read failure must never break the ingest — it degrades
+ * to "no embedded metadata".
+ *
  * Performance is the main driver here:
  * 1. Parallelism: The `IngestQueue` and `runWorkers` methods allow us to extract covers and parse
  *    archives in parallel across multiple concurrent tasks (up to `MAX_INGEST_CONCURRENCY`). 
@@ -57,6 +70,9 @@ export interface IngestResult {
   added: boolean;
   comicId?: number;
   error?: string;
+  /** True when the file was a byte-identical duplicate of an existing record. */
+  duplicate?: boolean;
+  duplicateOfId?: number | null;
 }
 
 export interface ScanDirectoryOptions {
@@ -72,7 +88,28 @@ interface PreparedInsert {
   fileSize: number;
   coverThumbnail: Buffer;
   mediaType: 'comic' | 'book';
+  source: ComicSource;
+  contentHash: string | null;
   seriesInfo: SeriesInfo;
+  /** Resolved embedded metadata (P1-3): author/artist/genre/year/summary/
+   *  language/publisher/tags written at insert; title + series fields are
+   *  consumed separately (see prepareInsert). */
+  metadata: ResolvedIngestMetadata;
+}
+
+/** Outcome of preparing one file for ingest. */
+export type PrepareResult =
+  | { kind: 'insert'; insert: PreparedInsert }
+  | { kind: 'duplicate'; existingId: number }
+  /** Dismissed, unsupported, or already indexed under this path. */
+  | { kind: 'skip' };
+
+/** Aggregated outcome of a whole scan. */
+export interface IngestScanResult {
+  added: number;
+  /** Files rejected as byte-identical copies of an already-cataloged record. */
+  duplicates: number;
+  failures: IngestFailure[];
 }
 
 export class IngestService {
@@ -86,14 +123,31 @@ export class IngestService {
    * Pure async work — does not write to the DB. The caller is responsible
    * for batching the resulting payloads through `flushBatch`.
    */
-  async prepareInsert(filePath: string, scanRoot?: string, jobId?: number | string | null): Promise<PreparedInsert | null> {
-    const mediaType = detectMediaType(filePath);
-    if (!mediaType) return null;
-    if (await this.db.isDismissed(filePath)) return null;
-    if (await this.db.comicExistsByPath(filePath)) return null;
+  async prepareInsert(
+    filePath: string,
+    scanRoot?: string,
+    jobId?: number | string | null,
+    source: ComicSource = 'scan',
+  ): Promise<PrepareResult> {
+    const stats = fs.statSync(filePath);
+    // A directory of loose images (P1-6) is itself one comic, so it is treated
+    // as a comic regardless of what `detectMediaType` says about the path.
+    const isFolder = stats.isDirectory();
+    const mediaType = isFolder ? 'comic' : detectMediaType(filePath);
+    if (!mediaType) return { kind: 'skip' };
+    if (await this.db.isDismissed(filePath)) return { kind: 'skip' };
+    if (await this.db.comicExistsByPath(filePath)) return { kind: 'skip' };
+
+    // Hash the file up front: a byte-identical copy elsewhere in the library is
+    // rejected before any expensive cover/page work runs. A hashing failure
+    // (unreadable file) degrades to no-hash rather than blocking the ingest.
+    const contentHash = await sha256File(filePath).catch(() => null);
+    if (contentHash) {
+      const existingId = await this.db.comicExistsByHash(contentHash);
+      if (existingId != null) return { kind: 'duplicate', existingId };
+    }
 
     const ext = path.extname(filePath).toLowerCase();
-    const stats = fs.statSync(filePath);
     // Strip leading YYYY/YYYYMM/YYYYMMDD prefix from the display title so files
     // like "199305 X-Force v1 022.cbz" show as "X-Force v1 022".
     const title = stripLeadingReleaseDate(path.basename(filePath, ext));
@@ -102,6 +156,37 @@ export class IngestService {
     if (scanRoot) {
       const seriesName = seriesNameFromScanRoot(scanRoot, filePath);
       if (seriesName) seriesInfo.seriesName = seriesName;
+    }
+
+    if (isFolder) {
+      // Folder-comic (P1-6): a directory of loose images is one comic. The
+      // directory-aware `ArchiveLoader.open` turns the folder into an
+      // `ArchiveHandle` whose page entries are its direct image files.
+      const handle = await ArchiveLoader.open(filePath);
+      try {
+        let coverImage: Buffer | null = null;
+        try {
+          coverImage = await ArchiveLoader.getCoverImage(handle);
+        } catch (err) {
+          const message = (err instanceof Error ? err.message : String(err)).trim();
+          const errorClass = classifyIngestError(err, filePath);
+          // Best-effort: a logging failure must never break the ingest.
+          await this.db.recordIngestError({ path: filePath, ext, errorClass, message, jobId: jobId ?? null }).catch(() => {});
+          console.warn(`Failed to extract cover from ${filePath} [${errorClass}]; using placeholder thumbnail.`, err);
+        }
+        const coverThumbnail = await generateThumbnail(coverImage);
+        // A folder has no embedded metadata; resolve against the folder name.
+        const resolved = resolveIngestMetadata(title, seriesInfo, null);
+        seriesInfo.seriesName = resolved.seriesName;
+        seriesInfo.volumeNumber = resolved.volumeNumber;
+        seriesInfo.chapterNumber = resolved.chapterNumber;
+        return { kind: 'insert', insert: {
+          filePath, title: resolved.title, pageCount: handle.pageCount, fileSize: stats.size,
+          coverThumbnail, mediaType: 'comic', source, contentHash: null, seriesInfo, metadata: resolved,
+        } };
+      } finally {
+        await ArchiveLoader.close(handle);
+      }
     }
 
     if (mediaType === 'book') {
@@ -124,7 +209,17 @@ export class IngestService {
       } catch {
         coverThumbnail = await generateThumbnail(null);
       }
-      return { filePath, title, pageCount, fileSize: stats.size, coverThumbnail, mediaType: 'book', seriesInfo };
+      // P1-3: read the EPUB's own OPF metadata. A timeout or read failure
+      // degrades to "no embedded metadata" — it must never break the ingest.
+      let embedded: EmbeddedMetadata | null = null;
+      if (ext === '.epub') {
+        embedded = await withTimeout(extractEpubMetadata(filePath), COVER_TIMEOUT_MS).catch(() => null);
+      }
+      const resolved = resolveIngestMetadata(title, seriesInfo, embedded);
+      seriesInfo.seriesName = resolved.seriesName;
+      seriesInfo.volumeNumber = resolved.volumeNumber;
+      seriesInfo.chapterNumber = resolved.chapterNumber;
+      return { kind: 'insert', insert: { filePath, title: resolved.title, pageCount, fileSize: stats.size, coverThumbnail, mediaType: 'book', source, contentHash, seriesInfo, metadata: resolved } };
     }
 
     // Comic archive
@@ -141,10 +236,17 @@ export class IngestService {
         console.warn(`Failed to extract cover from ${filePath} [${errorClass}]; using placeholder thumbnail.`, err);
       }
       const coverThumbnail = await generateThumbnail(coverImage);
-      return {
-        filePath, title, pageCount: handle.pageCount, fileSize: stats.size,
-        coverThumbnail, mediaType: 'comic', seriesInfo,
-      };
+      // P1-3: read ComicInfo.xml/ComicInfo.json from the open archive. Best
+      // effort — a read failure degrades to null, never breaking the ingest.
+      const embedded = await readComicInfoFromArchive(handle).catch(() => null);
+      const resolved = resolveIngestMetadata(title, seriesInfo, embedded);
+      seriesInfo.seriesName = resolved.seriesName;
+      seriesInfo.volumeNumber = resolved.volumeNumber;
+      seriesInfo.chapterNumber = resolved.chapterNumber;
+      return { kind: 'insert', insert: {
+        filePath, title: resolved.title, pageCount: handle.pageCount, fileSize: stats.size,
+        coverThumbnail, mediaType: 'comic', source, contentHash, seriesInfo, metadata: resolved,
+      } };
     } finally {
       await ArchiveLoader.close(handle);
     }
@@ -157,7 +259,8 @@ export class IngestService {
       for (const p of batch) {
         const id = await addComicFast(tx, {
           filePath: p.filePath, title: p.title, pageCount: p.pageCount, fileSize: p.fileSize,
-          coverThumbnail: p.coverThumbnail, mediaType: p.mediaType,
+          coverThumbnail: p.coverThumbnail, mediaType: p.mediaType, source: p.source, contentHash: p.contentHash,
+          metadata: p.metadata, tags: p.metadata.tags,
         });
         if (p.seriesInfo.seriesName) {
           await setComicSeries(tx, id, p.seriesInfo.seriesName, p.seriesInfo.volumeNumber, p.seriesInfo.chapterNumber);
@@ -175,14 +278,22 @@ export class IngestService {
    * Single-file ingest used by the upload route. Wraps prepare + flush
    * for one file; returns added/comicId/error in the original shape.
    */
-  async addFile(filePath: string, folderId?: number, jobId?: number | string | null): Promise<IngestResult> {
+  async addFile(
+    filePath: string,
+    folderId?: number,
+    jobId?: number | string | null,
+    source: ComicSource = 'scan',
+  ): Promise<IngestResult> {
     try {
-      const prepared = await this.prepareInsert(filePath, undefined, jobId);
-      if (!prepared) {
+      const result = await this.prepareInsert(filePath, undefined, jobId, source);
+      if (result.kind === 'skip') {
         if (!detectMediaType(filePath)) return { added: false, error: 'Unsupported file type' };
         return { added: false };
       }
-      const [id] = await this.flushBatch([prepared], folderId);
+      if (result.kind === 'duplicate') {
+        return { added: false, duplicate: true, duplicateOfId: result.existingId };
+      }
+      const [id] = await this.flushBatch([result.insert], folderId);
       return { added: true, comicId: id };
     } catch (err) {
       return { added: false, error: err instanceof Error ? err.message : String(err) };
@@ -207,7 +318,7 @@ export class IngestService {
     folderId?: number,
     scanRoot?: string,
     jobId?: number | string | null,
-  ): Promise<{ added: number; failures: IngestFailure[] }> {
+  ): Promise<IngestScanResult> {
     const queue = new IngestQueue();
     queue.pushMany(filePaths);
     queue.complete();
@@ -221,12 +332,13 @@ export class IngestService {
     folderId: number | undefined,
     scanRoot: string | undefined,
     jobId?: number | string | null,
-  ): Promise<{ added: number; failures: IngestFailure[] }> {
+  ): Promise<IngestScanResult> {
     const progress: ScanProgress = { discovered: 0, processed: 0, currentFile: '' };
     const pending: PreparedInsert[] = [];
     const existingForFolder: number[] = [];
     const failures: IngestFailure[] = [];
     let added = 0;
+    let duplicates = 0;
     let lastEmit = 0;
     let emittedCurrentFile = false;
 
@@ -240,7 +352,9 @@ export class IngestService {
 
     const flushIfFull = async (): Promise<void> => {
       if (pending.length >= FLUSH_BATCH_SIZE) {
-        added += (await this.flushBatch(pending.splice(0, pending.length), folderId)).length;
+        const toFlush = pending.splice(0, pending.length);
+        const flushed = await this.flushBatch(toFlush, folderId);
+        added += flushed.length;
       }
       if (folderId != null && existingForFolder.length >= FLUSH_BATCH_SIZE) {
         const ids = existingForFolder.splice(0, existingForFolder.length);
@@ -276,8 +390,9 @@ export class IngestService {
               }
             }
           } else {
-            const prep = await this.prepareInsert(filePath, scanRoot, jobId);
-            if (prep) pending.push(prep);
+            const result = await this.prepareInsert(filePath, scanRoot, jobId);
+            if (result.kind === 'insert') pending.push(result.insert);
+            else if (result.kind === 'duplicate') duplicates += 1;
           }
           await flushIfFull();
         } catch (err) {
@@ -305,13 +420,15 @@ export class IngestService {
     await Promise.all(workers);
 
     if (pending.length > 0) {
-      added += (await this.flushBatch(pending.splice(0, pending.length), folderId)).length;
+      const toFlush = pending.splice(0, pending.length);
+      const flushed = await this.flushBatch(toFlush, folderId);
+      added += flushed.length;
     }
     if (folderId != null && existingForFolder.length > 0) {
       await this.db.runInTransaction((tx) => addComicsToFolderRaw(tx, folderId, existingForFolder));
     }
     emit(true);
-    return { added, failures };
+    return { added, duplicates, failures };
   }
 
   async scanDirectory(
@@ -321,12 +438,12 @@ export class IngestService {
     signal?: AbortSignal,
     folderId?: number,
     options: ScanDirectoryOptions = {},
-  ): Promise<{ added: number; failures: IngestFailure[] }> {
+  ): Promise<IngestScanResult> {
     const extensions = dottedExtensionsForMediaType(mediaType);
 
     const files: string[] = [];
     await discoverFiles(dirPath, files, extensions, signal);
-    if (signal?.aborted) return { added: 0, failures: [] };
+    if (signal?.aborted) return { added: 0, duplicates: 0, failures: [] };
     const metadataRoot = options.useFolderNamesAsSeries === true ? dirPath : undefined;
     return this.ingestParallel(files, onProgress, signal, folderId, metadataRoot, options.jobId);
   }
@@ -345,12 +462,12 @@ export class IngestService {
     signal?: AbortSignal,
     folderId?: number,
     options: ScanDirectoryOptions = {},
-  ): Promise<{ added: number; failures: IngestFailure[] }> {
+  ): Promise<IngestScanResult> {
     const extensions = dottedExtensionsForMediaType(mediaType);
 
     const files: string[] = [];
     await discoverFilesChangedSince(dirPath, files, extensions, since, signal);
-    if (signal?.aborted) return { added: 0, failures: [] };
+    if (signal?.aborted) return { added: 0, duplicates: 0, failures: [] };
     const metadataRoot = options.useFolderNamesAsSeries === true ? dirPath : undefined;
     return this.ingestParallel(files, onProgress, signal, folderId, metadataRoot, options.jobId);
   }

@@ -1,0 +1,196 @@
+# Reader desktop release (Phase 7).
+#
+# Triggered by a `reader-vX.Y.Z` tag. Runs `scripts/check-version.mjs` first,
+# then builds on native runners and publishes signed (where secrets exist) or
+# unsigned artifacts with unambiguous OS/arch/version names plus SHA-256
+# checksums. See reader/docs/RELEASE-WORKFLOW.md for the full contract.
+#
+# The updater plugin is intentionally NOT in this workflow yet — installers and
+# manual upgrades must be proven first (per plan-desktop.md Phase 7).
+
+name: Reader Release
+
+on:
+  push:
+    tags:
+      - 'reader-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  version-check:
+    name: Version sync
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: reader
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check package.json / tauri.conf.json / Cargo.toml agree
+        run: node scripts/check-version.mjs
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+
+  macos:
+    name: macOS universal .dmg
+    needs: version-check
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: reader
+    env:
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: reader/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: reader/src-tauri -> target
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build universal bundle
+        run: pnpm tauri build --target universal-apple-darwin --bundles app,dmg
+      - name: List artifacts
+        run: ls -la src-tauri/target/universal-apple-darwin/release/bundle/
+      - name: Upload .dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal-dmg
+          path: reader/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+      - name: Upload .app.tar.gz (updater-ready; harmless now)
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal-app
+          path: reader/src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
+
+  windows:
+    name: Windows x64 MSI + NSIS
+    needs: version-check
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: reader
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: reader/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: reader/src-tauri -> target
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build MSI + NSIS
+        run: pnpm tauri build --bundles msi,nsis
+        env:
+          TAURI_WINDOWS_SIGNTOOL_PATH: ${{ secrets.TAURI_WINDOWS_SIGNTOOL_PATH }}
+      - name: List artifacts
+        shell: pwsh
+        run: Get-ChildItem -Recurse src-tauri/target/release/bundle/ | Select-Object FullName
+      - name: Upload MSI + NSIS
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-installers
+          path: reader/src-tauri/target/release/bundle/
+
+  linux:
+    name: Linux AppImage + deb
+    needs: version-check
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: reader
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: reader/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: reader/src-tauri -> target
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build AppImage + deb
+        run: pnpm tauri build --bundles deb,appimage
+      - name: List artifacts
+        run: find src-tauri/target/release/bundle/ -type f | sort
+      - name: Upload AppImage + deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64-archives
+          path: reader/src-tauri/target/release/bundle/
+
+  publish:
+    name: Publish release with checksums
+    needs: [macos, windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: List + checksum everything
+        run: |
+          find artifacts -type f | sort
+          cd artifacts
+          for f in $(find . -type f ! -name '*.sha256'); do
+            sha256sum "$f" > "$f.sha256"
+          done
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: |
+            ## CB8 ${{ github.ref_name }}
+
+            ### Supported
+            - macOS 10.13+ (universal: Apple Silicon + Intel) — `.dmg`
+            - Windows 10/11 x64 — MSI + NSIS `.exe`
+            - Linux x64 (Ubuntu 22.04-class; WebKitGTK 4.1) — AppImage + `.deb`
+
+            ### Data
+            Local library, catalog, cookies, prefs, progress, downloads, and
+            window state live under the bundle-id data directory and survive
+            upgrades. Imported books are copies — the originals are never
+            modified or deleted.
+
+            ### Notes
+            - macOS/Windows artifacts are signed only when signing secrets are
+              configured (see `reader/docs/RELEASE-WORKFLOW.md`).
+            - SHA-256 checksums are published alongside every artifact.
+          files: artifacts/*

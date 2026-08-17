@@ -39,6 +39,9 @@ export interface EpubThemePrefs {
   themeMode: ThemeMode;
   fontSize: number;
   googleFont?: string;
+  /** P3-5: body line-height multiplier and page padding (px). */
+  lineSpacing?: number;
+  pageMargin?: number;
 }
 
 /**
@@ -149,7 +152,10 @@ export function applyEpubThemeToRendition({
   const fontSizeCss = toEpubFontSizePercent(prefs.fontSize);
 
   try {
-    rendition.themes.default(buildEpubTheme(prefs.themeMode, fontFamily, prefs.fontSize));
+    rendition.themes.default(buildEpubTheme(prefs.themeMode, fontFamily, prefs.fontSize, {
+      lineSpacing: prefs.lineSpacing,
+      pageMargin: prefs.pageMargin,
+    }));
   } catch {}
   try {
     rendition.themes.font(fontFamily);
@@ -186,5 +192,34 @@ export function applyEpubThemeToRendition({
     if (targetView?.iframe && !themedIframes.has(targetView.iframe)) {
       targetView.iframe.style.setProperty('background-color', colors.background, 'important');
     }
+  } catch {}
+}
+
+/**
+ * Apply a line-spacing / page-margin change to every live rendition document
+ * (P3-5). Restyles each mounted document directly for instant feedback, then
+ * overrides the rendition theme's body rule so re-rendered chapters keep the
+ * new spacing. epub.js calls are best-effort.
+ * @param rendition The epub.js rendition to update.
+ * @param lineSpacing The new line-height multiplier.
+ * @param pageMargin The new page padding in px (all sides).
+ */
+export function applyLiveEpubSpacing(rendition: EpubRendition, lineSpacing: number, pageMargin: number): void {
+  forEachRenditionDocument(rendition, (doc) => {
+    try {
+      if (doc.body) {
+        doc.body.style.setProperty('line-height', String(lineSpacing), 'important');
+        doc.body.style.setProperty('padding', `${pageMargin}px`, 'important');
+      }
+    } catch {}
+  });
+  try {
+    rendition.themes.override('line-height', String(lineSpacing), true);
+  } catch {}
+  try {
+    rendition.themes.override('padding', `${pageMargin}px`, true);
+  } catch {}
+  try {
+    rendition.resize();
   } catch {}
 }

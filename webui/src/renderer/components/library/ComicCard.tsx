@@ -81,16 +81,36 @@ function ComicCard({ record, isAdmin, orderedIds, onContextMenu }: ComicCardProp
 
   const isCompleted = isFinished(record);
   const progressPercent = progressPercentFor(record);
+  const statusLabel = record.missingAt
+    ? 'Missing'
+    : isCompleted
+      ? 'Read'
+      : progressPercent > 0
+        ? `${progressPercent}% read`
+        : 'New';
+
+  // Keyboard activation (P2-2): the card is a link-shaped control, so Enter or
+  // Space opens it — screen readers announce it by title, not just "image".
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleCardClick(e as unknown as React.MouseEvent);
+    }
+  };
 
   return (
     <div
       onClick={handleCardClick}
+      onKeyDown={handleKeyDown}
       onContextMenu={(e) => onContextMenu(e, record)}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
       onTouchMove={cancelLongPress}
       onTouchCancel={cancelLongPress}
-      className="relative flex flex-col group select-none cursor-pointer h-full"
+      role="link"
+      tabIndex={0}
+      aria-label={`${record.title}, ${statusLabel}`}
+      className="relative flex flex-col group select-none cursor-pointer h-full focus-visible:ring-2 focus-visible:ring-primary focus-visible:rounded-md focus:outline-none"
       data-id={record.id}
     >
       {/* 1. Thumbnail Area */}
@@ -101,7 +121,7 @@ function ComicCard({ record, isAdmin, orderedIds, onContextMenu }: ComicCardProp
         )}
       >
         {hasError ? (
-          <div className={cn("h-full w-full", isCompleted && "opacity-55")}>
+          <div className={cn("h-full w-full", (isCompleted || record.missingAt) && "opacity-55")}>
             <TypographicCover title={record.title} />
           </div>
         ) : (
@@ -112,7 +132,7 @@ function ComicCard({ record, isAdmin, orderedIds, onContextMenu }: ComicCardProp
             decoding="async"
             className={cn(
               "object-cover w-full h-full transition-transform duration-300 group-hover:scale-105",
-              imgLoading ? "opacity-30 blur-xs" : isCompleted ? "opacity-55" : "opacity-100"
+              imgLoading ? "opacity-30 blur-xs" : isCompleted || record.missingAt ? "opacity-55" : "opacity-100"
             )}
             onLoad={() => setImgLoading(false)}
             onError={() => {
@@ -133,15 +153,23 @@ function ComicCard({ record, isAdmin, orderedIds, onContextMenu }: ComicCardProp
           >
             <Checkbox
               checked={isSelected}
+              aria-label={isSelected ? `Deselect ${record.title}` : `Select ${record.title}`}
               className="bg-card border-muted-foreground data-[state=checked]:bg-primary data-[state=checked]:border-primary h-5 w-5 rounded-md"
             />
           </div>
         )}
 
         {/* Finished check chip */}
-        {isCompleted && (
+        {isCompleted && !record.missingAt && (
           <div className="absolute top-2 right-2 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-card border border-border">
             <Check className="h-3 w-3 text-muted-foreground" />
+          </div>
+        )}
+
+        {/* Missing-file chip (P1-8) */}
+        {record.missingAt && (
+          <div className="absolute top-2 right-2 z-10 flex items-center rounded-full bg-red-600 px-2 py-0.5">
+            <span className="text-[9.5px] font-semibold uppercase tracking-wide text-white">Missing</span>
           </div>
         )}
 
@@ -171,10 +199,14 @@ function ComicCard({ record, isAdmin, orderedIds, onContextMenu }: ComicCardProp
         <span
           className={cn(
             "text-[11.5px]",
-            progressPercent > 0 && !isCompleted ? "text-primary" : "text-section"
+            record.missingAt
+              ? "text-red-600"
+              : progressPercent > 0 && !isCompleted
+                ? "text-primary"
+                : "text-section"
           )}
         >
-          {isCompleted ? 'Read' : progressPercent > 0 ? `${progressPercent}%` : 'New'}
+          {record.missingAt ? 'Missing' : isCompleted ? 'Read' : progressPercent > 0 ? `${progressPercent}%` : 'New'}
         </span>
       </div>
     </div>

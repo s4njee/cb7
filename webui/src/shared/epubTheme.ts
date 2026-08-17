@@ -44,10 +44,18 @@ const EPUB_TEXT_INHERIT_SELECTOR = [
   'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'td', 'th', 'a', 'em', 'strong', 'i', 'b',
 ].join(', ');
 
-export function buildEpubTheme(mode: ThemeMode, fontFamily: string, fontSize = 100) {
+export function buildEpubTheme(
+  mode: ThemeMode,
+  fontFamily: string,
+  fontSize = 100,
+  opts: { lineSpacing?: number; pageMargin?: number } = {},
+) {
   const colors = getThemeColors(mode);
-  const hPad = '2.75rem';
   const fontSizeCss = toEpubFontSizePercent(fontSize);
+  // P3-5: line height and page padding are now user-adjustable; defaults match
+  // the original hardcoded values (1.6, 2rem/2.75rem ≈ 32/44px).
+  const lineSpacing = opts.lineSpacing ?? 1.6;
+  const margin = opts.pageMargin ?? 44;
   const textRule = {
     color: `${colors.text} !important`,
     'background-color': 'transparent !important',
@@ -64,9 +72,9 @@ export function buildEpubTheme(mode: ThemeMode, fontFamily: string, fontSize = 1
       color: `${colors.text} !important`,
       'font-family': fontFamily,
       'font-size': '100% !important',
-      'line-height': '1.6',
+      'line-height': String(lineSpacing),
       margin: '0',
-      padding: `2rem ${hPad}`,
+      padding: `${margin}px`,
       'box-sizing': 'border-box',
     },
     'body *': textRule,

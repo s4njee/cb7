@@ -1,0 +1,84 @@
+# CB8 webui CI (P2-5).
+#
+# The webui was previously built/pushed without any automated checks running —
+# everything was manual (`pnpm typecheck`, `pnpm test`, `pnpm build:renderer`).
+# This runs the same checks on every push/PR touching webui/, plus the
+# Postgres-gated suite against a throwaway pgvector service container so the
+# SQL-heavy paths are actually exercised.
+#
+# Note on the parallel build: `pnpm build:standalone` bundles the server with
+# esbuild, which is hoisted by `node-linker=hoisted` and whose install script is
+# permitted via `pnpm-workspace.yaml` `allowBuilds`. A frozen install is enough.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths: ['webui/**']
+  pull_request:
+    paths: ['webui/**']
+
+jobs:
+  checks:
+    name: Typecheck, unit tests, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: webui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: webui/pnpm-lock.yaml
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Unit tests
+        run: pnpm test
+      - name: Build renderer
+        run: pnpm build:renderer
+      - name: Build server (standalone + worker)
+        run: pnpm build:standalone
+
+  postgres:
+    name: Postgres-backed tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: webui
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: cb8
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: webui/pnpm-lock.yaml
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Postgres-gated suite
+        run: pnpm test --no-file-parallelism
+        env:
+          CB8_TEST_DATABASE_URL: postgres://postgres:test@localhost:5433/cb8

@@ -128,12 +128,7 @@ fn build_payload(
 ///
 /// Holds an Android MulticastLock for the whole window (DISC-5) and releases
 /// it on every exit path via [`android_multicast::MulticastGuard`].
-async fn run_browse(
-    app: AppHandle,
-    receiver: Receiver<ServiceEvent>,
-    cancel: Arc<AtomicBool>,
-    daemon: ServiceDaemon,
-) {
+async fn run_browse(app: AppHandle, receiver: Receiver<ServiceEvent>, cancel: Arc<AtomicBool>, daemon: ServiceDaemon) {
     // Acquire for this window only — battery cost must not outlive the browse.
     // Drop (and thus release) runs on timeout, cancel, channel death, and panic.
     let _multicast = crate::android_multicast::MulticastGuard::acquire(app.clone());
@@ -214,7 +209,10 @@ pub async fn start_discovery(app: AppHandle, state: State<'_, AppState>) -> Resu
     };
 
     let cancel = Arc::new(AtomicBool::new(false));
-    *slot = Some(DiscoveryHandle { cancel: cancel.clone(), daemon: daemon.clone() });
+    *slot = Some(DiscoveryHandle {
+        cancel: cancel.clone(),
+        daemon: daemon.clone(),
+    });
     drop(slot);
 
     // MulticastLock (DISC-5) is acquired inside `run_browse` for the window
@@ -274,31 +272,32 @@ mod tests {
 
     #[test]
     fn txt_lookup_is_case_insensitive() {
-        let server =
-            build_payload(FULLNAME, &txt(&[("Ver", "2.0.0"), ("NAME", "Loft")]), &[ip("10.0.0.5")], 80)
-                .expect("resolvable");
+        let server = build_payload(
+            FULLNAME,
+            &txt(&[("Ver", "2.0.0"), ("NAME", "Loft")]),
+            &[ip("10.0.0.5")],
+            80,
+        )
+        .expect("resolvable");
         assert_eq!(server.name, "Loft");
         assert_eq!(server.version, "2.0.0");
     }
 
     #[test]
     fn missing_version_is_empty_string() {
-        let server = build_payload(FULLNAME, &txt(&[("name", "Loft")]), &[ip("10.0.0.5")], 80)
-            .expect("resolvable");
+        let server = build_payload(FULLNAME, &txt(&[("name", "Loft")]), &[ip("10.0.0.5")], 80).expect("resolvable");
         assert_eq!(server.version, "");
     }
 
     #[test]
     fn name_falls_back_to_instance_name() {
-        let server = build_payload(FULLNAME, &txt(&[("ver", "1.0.5")]), &[ip("10.0.0.5")], 80)
-            .expect("resolvable");
+        let server = build_payload(FULLNAME, &txt(&[("ver", "1.0.5")]), &[ip("10.0.0.5")], 80).expect("resolvable");
         assert_eq!(server.name, "Living Room");
     }
 
     #[test]
     fn blank_txt_name_falls_back_to_instance_name() {
-        let server = build_payload(FULLNAME, &txt(&[("name", "   ")]), &[ip("10.0.0.5")], 80)
-            .expect("resolvable");
+        let server = build_payload(FULLNAME, &txt(&[("name", "   ")]), &[ip("10.0.0.5")], 80).expect("resolvable");
         assert_eq!(server.name, "Living Room");
     }
 
@@ -308,13 +307,19 @@ mod tests {
         // A dotted display name survives: only the trailing suffix goes.
         assert_eq!(instance_name("bob.local._cb8._tcp.local."), "bob.local");
         // Foreign or already-stripped names pass through untouched.
-        assert_eq!(instance_name("Living Room._http._tcp.local."), "Living Room._http._tcp.local.");
+        assert_eq!(
+            instance_name("Living Room._http._tcp.local."),
+            "Living Room._http._tcp.local."
+        );
         assert_eq!(instance_name("Living Room"), "Living Room");
     }
 
     #[test]
     fn url_is_http_scheme_with_srv_port() {
-        assert_eq!(build_url("192.168.1.20".parse().unwrap(), 4218), "http://192.168.1.20:4218");
+        assert_eq!(
+            build_url("192.168.1.20".parse().unwrap(), 4218),
+            "http://192.168.1.20:4218"
+        );
         assert_eq!(build_url("10.0.0.1".parse().unwrap(), 80), "http://10.0.0.1:80");
     }
 
@@ -362,16 +367,27 @@ mod tests {
     fn dedupe_is_by_url_only() {
         let mut seen: HashSet<String> = HashSet::new();
         let emit = |seen: &mut HashSet<String>, name: &str, addr: &str, port: u16| {
-            let server =
-                build_payload(FULLNAME, &txt(&[("name", name)]), &[ip(addr)], port).expect("resolvable");
+            let server = build_payload(FULLNAME, &txt(&[("name", name)]), &[ip(addr)], port).expect("resolvable");
             seen.insert(server.url)
         };
 
         assert!(emit(&mut seen, "Loft", "192.168.1.20", 4218), "first sighting emits");
-        assert!(!emit(&mut seen, "Loft", "192.168.1.20", 4218), "re-announcement is dropped");
-        assert!(!emit(&mut seen, "Renamed", "192.168.1.20", 4218), "same url, new name is dropped");
-        assert!(emit(&mut seen, "Loft", "192.168.1.20", 9000), "a different port is a new server");
-        assert!(emit(&mut seen, "Loft", "192.168.1.21", 4218), "a different host is a new server");
+        assert!(
+            !emit(&mut seen, "Loft", "192.168.1.20", 4218),
+            "re-announcement is dropped"
+        );
+        assert!(
+            !emit(&mut seen, "Renamed", "192.168.1.20", 4218),
+            "same url, new name is dropped"
+        );
+        assert!(
+            emit(&mut seen, "Loft", "192.168.1.20", 9000),
+            "a different port is a new server"
+        );
+        assert!(
+            emit(&mut seen, "Loft", "192.168.1.21", 4218),
+            "a different host is a new server"
+        );
         assert_eq!(seen.len(), 3);
     }
 
@@ -401,13 +417,11 @@ mod tests {
                 Ok(ServiceEvent::ServiceResolved(info)) => {
                     // Mirror the production loop exactly (see `run_browse`), so
                     // this test can't pass on a path real discovery never takes.
-                    let mut addrs: Vec<IpAddr> =
-                        info.get_addresses().iter().map(ScopedIp::to_ip_addr).collect();
+                    let mut addrs: Vec<IpAddr> = info.get_addresses().iter().map(ScopedIp::to_ip_addr).collect();
                     addrs.sort();
                     let txt = info.get_properties().clone().into_property_map_str();
-                    let payload =
-                        build_payload(info.get_fullname(), &txt, &addrs, info.get_port())
-                            .expect("a resolved CB8 must produce a payload");
+                    let payload = build_payload(info.get_fullname(), &txt, &addrs, info.get_port())
+                        .expect("a resolved CB8 must produce a payload");
 
                     eprintln!("live payload: {payload:?}");
                     assert!(payload.url.starts_with("http://"), "url: {}", payload.url);

@@ -1,10 +1,18 @@
-# Shelf
+# CB8
+
+Project documentation: [CB8 Wiki](https://s4njee.github.io/cb7/)
 
 A Tauri v2 ebook & comic reader for **CB8 servers** (the server in `../webui`).
-Primary deployment targets are **iOS and Android**; the desktop app is the
-development vehicle. The UI recreates the iPad-first design handoff (library
-"Shelf", reflowable EPUB reader, CBZ comic reader with single/spread/webtoon
-layouts, settings + TOC/bookmarks drawers, dark/sepia/light themes).
+Primary deployment targets are **iOS and Android**, plus a **supported desktop
+build** (macOS, Windows, Linux) — the same codebase, packaged as native apps.
+The UI recreates the iPad-first design handoff (library "Shelf", reflowable
+EPUB reader, CBZ/CBR comic reader with single/spread/webtoon layouts, settings
++ TOC/bookmarks drawers, dark/sepia/light themes).
+
+Desktop behavior (window state, native menus, file open/import, drag-and-drop,
+release builds) is covered in [DESKTOP.md](DESKTOP.md); the desktop release
+plan and support matrix live in [plan-desktop.md](plan-desktop.md) and
+[docs/desktop-support-matrix.md](docs/desktop-support-matrix.md).
 
 ## Architecture
 
@@ -18,10 +26,16 @@ layouts, settings + TOC/bookmarks drawers, dark/sepia/light themes).
     pages, EPUB files) with an on-disk LRU cache (768 MiB, cache-first —
     re-reads work offline). Frontend media URLs: `cb8://localhost/api/...`
     (macOS/iOS/Linux) or `http://cb8.localhost/api/...` (Android/Windows).
+  - the **local library**: imported books are copied into app-owned storage
+    (`<app_data>/library/books`) with a `catalog.json` index, so they read
+    offline and survive the source file being moved or deleted.
 - **Frontend (`src/`)**: React 18 + TypeScript + Vite, zustand (persisted
-  prefs), react-query (server data), epub.js for EPUB rendering (whole-file
-  ArrayBuffer via the proxy, CFI positions synced to the server). No router —
-  a `connect → library → reader` state machine.
+  prefs), react-query (server data), Readium TS Toolkit for EPUB rendering
+  (CFI positions synced to the server). No router — a
+  `connect → library → reader` state machine.
+- **Platform boundary (`src/lib/platform.ts`)**: `isTauri`, `isDesktop`, OS,
+  and the media protocol base come from Rust (`platform_info`), never the user
+  agent.
 - The wire contract and design mapping live in [docs/CONTRACT.md](docs/CONTRACT.md).
 
 Reading progress is synced per turn (`PUT /api/comics/:id/progress` —
@@ -31,10 +45,11 @@ Bookmarks are server-side for every format (page anchors for comics/PDFs, CFI
 `location` anchors for EPUBs). Highlights and reader prefs live on-device.
 
 Readers: CBZ/CBR (single/spread/webtoon, RTL manga direction, pinch-free
-width-hinted pages), reflowable + fixed-layout EPUB (epub.js; footnote
-popovers, dictionary lookup, colored highlights), and PDF (pdf.js streaming
-over Range requests). All three share chrome: scrubber, go-to-page, jump
-back-stack, TOC/bookmarks drawer, themes, immersive mode.
+width-hinted pages; CBR reads locally on desktop via RAR extraction),
+reflowable + fixed-layout EPUB (Readium; footnote popovers, dictionary lookup,
+colored highlights), and PDF (pdf.js streaming over Range requests). All three
+share chrome: scrubber, go-to-page, jump back-stack, TOC/bookmarks drawer,
+themes, immersive mode.
 
 ## Development
 
@@ -57,8 +72,13 @@ projects on this machine fight over 1420).
 ### Tests
 
 ```sh
+pnpm test                         # frontend vector suites (vitest)
+pnpm typecheck                    # tsc --noEmit
+pnpm build                        # typecheck + vite build
+
 cd src-tauri
-cargo test                       # unit tests (hermetic)
+cargo test                        # unit tests (hermetic)
+cargo clippy --all-targets -- -D warnings
 CB8_TEST_SERVER=http://localhost:4218 \
 CB8_TEST_PASSWORD=<admin-password> cargo test --test live_server
 ```
@@ -69,6 +89,8 @@ bytes → EPUB bytes against a running server.
 ## Mobile
 
 Generated projects are checked in under `src-tauri/gen/`.
+
+Deploying a build to a physical iPad/iPhone: [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ```sh
 # iOS (simulator; picks/boots one):
@@ -92,14 +114,18 @@ Notes:
   `bundle.fileAssociations`. Opening a book from Files or the share sheet
   copies it into the owned library and opens it. On iOS the library lives under
   Documents (`UIFileSharingEnabled`) so On My iPhone → CB8 shows imports.
-- `csp` is `null` in `tauri.conf.json`: epub.js renders chapters into blob
-  iframes with inline styles, which a strict CSP breaks. The webview only ever
-  loads bundled assets + the `cb8` scheme.
+- **Desktop Open In / drag-and-drop:** the same `local_import` pipeline serves
+  the native picker, OS file association, and drag-and-drop; every path lands
+  in one importer (see [DESKTOP.md](DESKTOP.md)).
+- `csp` is `null` in `tauri.conf.json`: the reader renders book chapters into
+  sandboxed iframes with inline styles, which a strict CSP breaks. Book content
+  never runs in the app shell — the iframe is sandboxed and Tauri's
+  `__TAURI_INTERNALS__` is injected main-frame only.
 - App icons were generated with `pnpm tauri icon <1024px.png>`
   (`src-tauri/icons/`, plus iOS/Android asset catalogs).
 - `index.html` shims `requestAnimationFrame` with a hidden-document timeout
-  fallback: epub.js pumps its task queue on rAF, which browsers suppress while
-  a webview is hidden — without the shim, a book opened mid-app-switch hangs
-  at "Opening book…" until the next repaint.
+  fallback: the reader pumps its task queue on rAF, which browsers suppress
+  while a webview is hidden — without the shim, a book opened mid-app-switch
+  hangs at "Opening book…" until the next repaint.
 - The dictionary popover queries `dictionaryapi.dev`; it fails soft (popover
   shows "no definition") when offline.

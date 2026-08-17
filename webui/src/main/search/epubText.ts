@@ -18,13 +18,23 @@ function readZip(path: string): Promise<Map<string, Buffer>> {
     yauzl.open(path, { lazyEntries: true }, (err, zip) => {
       if (err || !zip) return reject(err ?? new Error('open failed'));
       const files = new Map<string, Buffer>();
-      zip.on('error', reject);
+      zip.on('error', (zipErr) => {
+        try { zip.close(); } catch {}
+        reject(zipErr);
+      });
       zip.on('entry', (entry) => {
         if (entry.fileName.endsWith('/')) return zip.readEntry();
         zip.openReadStream(entry, (e, stream) => {
-          if (e || !stream) return reject(e ?? new Error('read failed'));
+          if (e || !stream) {
+            try { zip.close(); } catch {}
+            return reject(e ?? new Error('read failed'));
+          }
           const bufs: Buffer[] = [];
           stream.on('data', (d: Buffer) => bufs.push(d));
+          stream.on('error', (streamErr) => {
+            try { zip.close(); } catch {}
+            reject(streamErr);
+          });
           stream.on('end', () => {
             files.set(entry.fileName, Buffer.concat(bufs));
             zip.readEntry();

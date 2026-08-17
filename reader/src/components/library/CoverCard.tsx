@@ -22,6 +22,8 @@ export default function CoverCard({
   onOpen,
   onToggleFavorite,
   onActions,
+  selected = false,
+  onToggleSelect,
 }: {
   record: WebComicRecord;
   onOpen: (record: WebComicRecord) => void;
@@ -29,6 +31,10 @@ export default function CoverCard({
   onToggleFavorite?: (record: WebComicRecord) => void;
   /** Opens the book detail sheet. Undefined hides overflow + press menus. */
   onActions?: (record: WebComicRecord, anchor: CardActionAnchor) => void;
+  /** Selection mode: true shows the check ring. */
+  selected?: boolean;
+  /** Present while in selection mode; Cmd/Ctrl-click calls it. */
+  onToggleSelect?: () => void;
 }) {
   const timer = useRef<number | null>(null);
   const longFired = useRef(false);
@@ -84,9 +90,15 @@ export default function CoverCard({
   const onTouchEnd = () => clearTimer();
   const onTouchCancel = () => clearTimer();
 
-  const onClick = () => {
+  const onClick = (e: React.MouseEvent) => {
     if (longFired.current) {
       longFired.current = false;
+      return;
+    }
+    // In selection mode a Cmd/Ctrl click toggles instead of opening.
+    if (onToggleSelect && (e.metaKey || e.ctrlKey)) {
+      e.stopPropagation();
+      onToggleSelect();
       return;
     }
     onOpen(record);
@@ -101,12 +113,13 @@ export default function CoverCard({
   return (
     <div
       ref={cardRef}
-      className="cover-card"
+      className={`cover-card${selected ? " selected" : ""}${onToggleSelect ? " selectable" : ""}`}
       role="button"
       tabIndex={0}
       aria-label={`${record.title}. ${statusLabel(record)}. Press Enter to open${
         onActions ? ", i for details" : ""
-      }`}
+      }${onToggleSelect ? ", Cmd/Ctrl-click to select" : ""}`}
+      aria-pressed={onToggleSelect ? selected : undefined}
       onClick={onClick}
       onContextMenu={onContextMenu}
       onTouchStart={onTouchStart}
@@ -128,6 +141,16 @@ export default function CoverCard({
       }}
     >
       <div className="cover-wrap">
+        {onToggleSelect && (
+          <span className={`select-check${selected ? " on" : ""}`} aria-hidden="true">
+            {selected ? "✓" : ""}
+          </span>
+        )}
+        {record.missing && (
+          <span className="missing-badge" title="File missing on disk — open to locate">
+            Missing
+          </span>
+        )}
         <CoverArt record={record} className="cover" variant="grid" />
         {onToggleFavorite && (
           <button

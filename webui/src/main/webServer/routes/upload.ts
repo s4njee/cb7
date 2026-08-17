@@ -9,6 +9,7 @@ import type { IngestErrorLogResponse } from '../../../shared/apiTypes';
 import { readJsonBody, requireTrimmedString } from './validation';
 import { enqueueScan } from '../../jobs/producer';
 import { QUEUE } from '../../jobs/queues';
+import { backfillContentHashes } from '../../fileHasher';
 import {
   directorySuggestions,
   parseIngestErrorLimit,
@@ -16,6 +17,7 @@ import {
   parseUploadHeaders,
   resolveDirectoryLookup,
   resolveUploadDestination,
+  isInsideDirectory,
   validateUploadPathParts,
 } from './uploadRouteHelpers';
 
@@ -47,6 +49,16 @@ export function setUploadRoot(dir: string): void {
 
 function uploadRoot(): string {
   return path.join(uploadRootDir ?? path.join(os.tmpdir(), 'cb8'), 'web-uploads');
+}
+
+/**
+ * Delete an upload-sourced file only if it still lives under the upload root.
+ * A mismatched `source='upload'` pointing at a scanned library path must never
+ * unlink the user's original file.
+ */
+export async function unlinkIfUploadedFile(filePath: string): Promise<void> {
+  if (!isInsideDirectory(uploadRoot(), filePath)) return;
+  await fsp.unlink(filePath).catch(() => {});
 }
 
 export const handle: RouteHandler = async (ctx) => {
@@ -112,13 +124,49 @@ export const handle: RouteHandler = async (ctx) => {
       return true;
     }
 
-    const result = await addSingleFile(db, destPath);
+    const result = await addSingleFile(db, destPath, undefined, undefined, 'upload');
     if (!result.added && result.error) {
       await fsp.unlink(destPath).catch(() => {});
       sendError(res, 500, result.error);
       return true;
     }
+    if (result.duplicate) {
+      // A byte-identical copy already exists in the library — drop the redundant
+      // uploaded file (nothing references it) and report the duplicate.
+      await fsp.unlink(destPath).catch(() => {});
+      sendJson(res, 200, { added: false, duplicate: true, filePath: destPath });
+      return true;
+    }
     sendJson(res, 200, { added: result.added, filePath: destPath });
+    return true;
+  }
+
+  // Admin: duplicate groups for review (exact content-hash copies + likely
+  // series/volume lookalikes), so the admin can remove the extras.
+  if (method === 'GET' && pathname === '/api/admin/duplicates') {
+    if (!requireAdmin(ctx)) return true;
+    sendJson(res, 200, { groups: await db.findDuplicateGroups() });
+    return true;
+  }
+
+  // Admin: one-shot content-hash backfill (P1-4). Rows ingested before hashing
+  // shipped have `content_hash` NULL, so exact duplicate groups miss them. This
+  // hashes a bounded batch inline so the request returns promptly and reports
+  // how many remain (the worker also backfills unbounded at boot). Idempotent.
+  if (method === 'POST' && pathname === '/api/admin/hash-backfill') {
+    if (!requireAdmin(ctx)) return true;
+    const result = await backfillContentHashes(db, 2000);
+    sendJson(res, 200, result);
+    return true;
+  }
+
+  // Admin: prune missing (P1-8) — delete every catalog row whose file is missing
+  // from disk. Goes through removeComics, so scan-sourced rows leave dismissed
+  // markers and a rescan won't immediately re-add them. Files are never touched.
+  if (method === 'POST' && pathname === '/api/admin/prune-missing') {
+    if (!requireAdmin(ctx)) return true;
+    const removed = await db.pruneMissingComics();
+    sendJson(res, 200, { ok: true, removed });
     return true;
   }
 
@@ -191,10 +239,22 @@ export const handle: RouteHandler = async (ctx) => {
 
     // Resolve optional folder target. Implicit create-if-no-match: a name
     // that doesn't case-insensitively match an existing folder creates one.
+    // A folder target also registers the path as that folder's *watched root*
+    // (drop-folder ingest) so it can be rescanned later without re-browsing.
     let folderId: number | undefined;
-    const folderTarget = resolveAddPathFolderTarget(parsed.value.folderName, await db.getAllFolders());
-    if (folderTarget.kind === 'existing') folderId = folderTarget.id;
-    else if (folderTarget.kind === 'create') folderId = (await db.createFolder(folderTarget.name, [])).id;
+    const folders = await db.getAllFolders();
+    const folderTarget = resolveAddPathFolderTarget(parsed.value.folderName, folders);
+    if (folderTarget.kind === 'existing') {
+      folderId = folderTarget.id;
+      // Don't overwrite an existing watched root — a second add-path that
+      // happens to share a folder name would silently retarget auto-rescan.
+      const existing = folders.find((f) => f.id === folderId);
+      if (!existing?.scanPath) {
+        await db.setFolderScanRoot(folderId, targetPath);
+      }
+    } else if (folderTarget.kind === 'create') {
+      folderId = (await db.createFolder(folderTarget.name, [], targetPath)).id;
+    }
 
     const jobId = await enqueueScan(
       { targetPath, folderId, useFolderNamesAsSeries: parsed.value.useFolderNamesAsSeries === true },

@@ -13,6 +13,10 @@
  * camelCase field to its snake_case DB column. `buildComicMetadataUpdate` walks
  * it and, crucially, includes a field only when it is not `undefined` — so an
  * explicit `null` clears a column, while an absent field is left untouched.
+ *
+ * P1-3 (`language`, `publisher`) also come from embedded file metadata
+ * (ComicInfo.xml / EPUB OPF) written at ingest; they live on the same comics row
+ * and are edited through the same single-comic metadata route.
  */
 import type { SqlParam } from './types';
 
@@ -24,6 +28,8 @@ export interface ComicMetadataUpdateFields {
   genre?: string | null;
   year?: number | null;
   summary?: string | null;
+  language?: string | null;
+  publisher?: string | null;
   externalId?: string | null;
   externalSource?: string | null;
   seriesName?: string | null;
@@ -44,6 +50,8 @@ export interface ComicMetadata {
   genre: string | null;
   year: number | null;
   summary: string | null;
+  language: string | null;
+  publisher: string | null;
   externalId: string | null;
   externalSource: string | null;
   seriesName: string | null;
@@ -58,6 +66,8 @@ export interface ComicMetadataRow {
   genre: string | null;
   year: number | null;
   summary: string | null;
+  language: string | null;
+  publisher: string | null;
   external_id: string | null;
   external_source: string | null;
   series_name: string | null;
@@ -73,6 +83,8 @@ const METADATA_FIELD_COLUMNS: Array<[keyof ComicMetadataUpdateFields, string]> =
   ['genre', 'genre'],
   ['year', 'year'],
   ['summary', 'summary'],
+  ['language', 'language'],
+  ['publisher', 'publisher'],
   ['externalId', 'external_id'],
   ['externalSource', 'external_source'],
   ['seriesName', 'series_name'],
@@ -115,6 +127,8 @@ export function rowToComicMetadata(row: ComicMetadataRow): ComicMetadata {
     genre: row.genre,
     year: row.year,
     summary: row.summary,
+    language: row.language,
+    publisher: row.publisher,
     externalId: row.external_id,
     externalSource: row.external_source,
     seriesName: row.series_name,

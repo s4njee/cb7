@@ -22,6 +22,7 @@ const PdfReader = lazy(() => import("./PdfReader"));
 const TextReader = lazy(() => import("./TextReader"));
 import { ErrorBoundary } from "./ErrorBoundary";
 import SettingsDrawer from "./SettingsDrawer";
+import SearchDrawer from "./SearchDrawer";
 import TocDrawer, { type TocTab } from "./TocDrawer";
 import FinishedOverlay from "./flows/FinishedOverlay";
 import { RibbonIcon } from "./icons";
@@ -31,7 +32,7 @@ import {
   type ReaderReportedState,
 } from "./readerTypes";
 
-type Panel = null | "settings" | "toc";
+type Panel = null | "settings" | "toc" | "search";
 
 /** Deep jumps we can return from. Bounded because a reader who taps through a
  *  hundred footnotes doesn't want a hundred-deep back-stack — they want the
@@ -47,6 +48,8 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
   const showToast = useSession((s) => s.showToast);
   const guest = useSession((s) => s.guest);
   const serverUrl = useSession((s) => s.serverUrl) ?? "";
+  const readerSettingsTick = useSession((s) => s.readerSettingsTick);
+  const readerSearchTick = useSession((s) => s.readerSearchTick);
   const comicMode = usePrefs((s) => s.comicMode);
   const immersive = usePrefs((s) => s.immersive);
   const haptics = usePrefs((s) => s.haptics);
@@ -106,6 +109,17 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
   const [tocTab, setTocTab] = useState<TocTab>(isComic ? "bookmarks" : "contents");
   const [rstate, setRstate] = useState<ReaderReportedState>(EMPTY_READER_STATE);
   const [seekOpen, setSeekOpen] = useState(false);
+
+  // Native menu "View > Reader Settings…" bumps this tick; open the drawer.
+  useEffect(() => {
+    if (readerSettingsTick > 0) setPanel("settings");
+  }, [readerSettingsTick]);
+
+  // Native menu "Edit > Find in Library…" (Cmd/Ctrl+F) routes here while
+  // reading; open the in-book search drawer.
+  useEffect(() => {
+    if (readerSearchTick > 0) setPanel("search");
+  }, [readerSearchTick]);
 
   /** Latest reported state, readable inside stable callbacks. */
   const rstateRef = useRef<ReaderReportedState>(EMPTY_READER_STATE);
@@ -333,6 +347,10 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
       } else if (e.key === " ") {
         e.preventDefault();
         next();
+      } else if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) {
+        // Cmd/Ctrl+F while reading opens in-book search (not library search).
+        e.preventDefault();
+        setPanel((cur) => (cur === "search" ? null : "search"));
       } else if (e.key === "Escape") {
         setPanel(null);
         setSeekOpen(false);
@@ -517,6 +535,14 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
               </button>
             )}
             <button
+              className={`nav-btn${panel === "search" ? " active" : ""}`}
+              onClick={() => openPanel("search")}
+              aria-label="Search this book"
+              title="Search this book (Cmd/Ctrl+F)"
+            >
+              🔍
+            </button>
+            <button
               className={`nav-btn${panel === "toc" ? " active" : ""}`}
               onClick={() => openPanel("toc")}
               aria-label="Table of contents"
@@ -666,7 +692,25 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
         <>
           <div className="backdrop" onClick={closePanel} />
           <div className="drawer" onClick={(e) => e.stopPropagation()}>
-            {panel === "settings" ? (
+            {panel === "search" ? (
+              <SearchDrawer
+                bookTitle={shown.title}
+                search={(q) => apiRef.current?.search?.(q) ?? Promise.resolve([])}
+                onGo={(target) => {
+                  jump(() => {
+                    const t = String(target);
+                    // EPUB hits target a section href; PDF hits a page index.
+                    if (/^\d+$/.test(t) && format !== "epub") {
+                      apiRef.current?.goTo(Number(t));
+                    } else {
+                      apiRef.current?.goToChapter(t);
+                    }
+                  });
+                  closePanel();
+                }}
+                onClose={closePanel}
+              />
+            ) : panel === "settings" ? (
               <SettingsDrawer format={format} bookId={shown.id} onClose={closePanel} />
             ) : (
               <TocDrawer

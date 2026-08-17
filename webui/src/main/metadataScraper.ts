@@ -30,8 +30,11 @@ export interface MetadataSearchResult {
   warnings: string[];
 }
 
+const METADATA_FETCH_TIMEOUT_MS = 10_000;
+
 async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
-  const res = await fetch(url, init);
+  const signal = init?.signal ?? AbortSignal.timeout(METADATA_FETCH_TIMEOUT_MS);
+  const res = await fetch(url, { ...init, signal });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return await res.json();
 }
@@ -63,6 +66,7 @@ async function searchAniList(query: string): Promise<MetadataCandidate[]> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
     body: JSON.stringify({ query: q, variables: { q: query } }),
+    signal: AbortSignal.timeout(METADATA_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const json = await res.json() as { data?: { Page?: { media?: Array<Record<string, unknown>> } } };

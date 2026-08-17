@@ -30,7 +30,7 @@ export async function adminAddPath(
   // Enqueue a background scan, then poll the job for progress. The heavy work
   // runs in the cb8-worker process, so this no longer holds the request open.
   const res = await post<EnqueueResponse>('/api/admin/add-path', { body });
-  if (!res.jobId) return { added: 0, errors: [], failuresSummary: null };
+  if (!res.jobId) return { added: 0, duplicates: 0, errors: [], failuresSummary: null };
   return pollIngestJob(res.jobId, onProgress);
 }
 
@@ -42,6 +42,51 @@ export const adminClearIngestErrors = (): Promise<void> =>
 
 export const clearLibrary = (): Promise<ClearLibraryResponse> =>
   del<ClearLibraryResponse>('/api/admin/library');
+
+export interface DuplicateGroupMember {
+  id: number;
+  title: string;
+  filePath: string;
+  fileSize: number;
+  dateAdded: string;
+}
+
+export interface DuplicateGroup {
+  /** `exact` = byte-identical copies; `likely` = same series + volume. */
+  kind: 'exact' | 'likely';
+  key: string;
+  title: string;
+  members: DuplicateGroupMember[];
+}
+
+export const fetchDuplicates = (): Promise<{ groups: DuplicateGroup[] }> =>
+  get<{ groups: DuplicateGroup[] }>('/api/admin/duplicates');
+
+/** One-shot content-hash backfill (P1-4): hashes a bounded batch of legacy rows. */
+export const hashBackfill = (): Promise<{ hashed: number; remaining: number }> =>
+  post<{ hashed: number; remaining: number }>('/api/admin/hash-backfill');
+
+export interface CacheStats {
+  path: string;
+  sizeBytes: number;
+  fileCount: number;
+}
+
+export const fetchCacheStats = (): Promise<{ imageCache: CacheStats; upscaleCache: CacheStats }> =>
+  get<{ imageCache: CacheStats; upscaleCache: CacheStats }>('/api/admin/cache');
+
+export const clearCache = (): Promise<void> =>
+  del<void>('/api/admin/cache', { parse: 'none' });
+
+/**
+ * Drop every catalog record whose file is missing from disk (admin).
+ * Removes records only — the missing files are already gone.
+ */
+export const pruneMissing = (): Promise<{ ok: boolean; removed: number }> =>
+  post<{ ok: boolean; removed: number }>('/api/admin/prune-missing');
+
+/** Absolute URL the browser downloads a pg_dump backup from (same-origin auth). */
+export const backupUrl = (): string => `${API}/api/admin/backup`;
 
 export type AdminUploadProgress = {
   /** Bytes sent so far (may exceed `file.size` briefly; callers should clamp). */

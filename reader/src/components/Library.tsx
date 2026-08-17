@@ -15,6 +15,7 @@ import {
   sourceBadge,
 } from "../lib/bookContext";
 import { metaLine, percentRead, statusLabel, titleInitials } from "../lib/format";
+import { parseLibraryQuery } from "../lib/searchText";
 import { fromQuery, LOAD_MESSAGES } from "../lib/loadState";
 import {
   ContentSkeleton,
@@ -26,6 +27,7 @@ import { useSession } from "../store/session";
 import CoverArt from "./CoverArt";
 import CoverCard, { type CardActionAnchor } from "./library/CoverCard";
 import BookDetailSheet from "./library/BookDetailSheet";
+import LinkedFoldersPanel from "./library/LinkedFoldersPanel";
 import ScopeRow from "./library/ScopeRow";
 import SortControl from "./library/SortControl";
 import StatusChips from "./library/StatusChips";
@@ -46,8 +48,18 @@ type Shelf = "local" | "server";
 const PAGE_SIZE = 200;
 
 export default function Library() {
-  const { user, guest, serverUrl, openBook, reset, goConnect, openSheet, showToast } =
-    useSession();
+  const {
+    user,
+    guest,
+    serverUrl,
+    openBook,
+    reset,
+    goConnect,
+    openSheet,
+    showToast,
+    importTick,
+    librarySearchTick,
+  } = useSession();
   const accent = usePrefs((s) => s.accent);
   const setAccent = usePrefs((s) => s.setAccent);
   const signedIn = !!user && !guest;
@@ -58,15 +70,22 @@ export default function Library() {
   const [readStatus, setReadStatus] = useState<api.ReadStatus | null>(null);
   const [favorites, setFavorites] = useState(false);
   const [scope, setScope] = useState<Scope>({ type: "all" });
+  /** Local-only filters by tag / collection (server scopes handle their own). */
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [collectionFilter, setCollectionFilter] = useState<string | null>(null);
   // Null until the first local listing settles, so the initial shelf can be
   // chosen from what actually exists rather than flickering between the two.
   const [shelfChoice, setShelfChoice] = useState<Shelf | null>(null);
   const [importing, setImporting] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  /** Record ids selected for bulk operations (Cmd/Ctrl-click on cards). */
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [linkedOpen, setLinkedOpen] = useState(false);
   const [sheet, setSheet] = useState<{ record: api.WebComicRecord; anchor: CardActionAnchor } | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
 
   const { sort, setSortBy, toggleOrder } = useLibrarySort();
 
@@ -135,6 +154,17 @@ export default function Library() {
     setShelfChoice(localBooks.length > 0 || !serverReady ? "local" : "server");
   }, [shelfChoice, localQuery.isLoading, localBooks.length, serverReady]);
 
+  // A book imported from outside the library (native menu, drag/drop) lands on
+  // the local shelf — switch to it so the user sees what they just added.
+  useEffect(() => {
+    if (importTick > 0) setShelfChoice("local");
+  }, [importTick]);
+
+  // Native Edit > Find in Library… (Cmd/Ctrl+F) focuses the search box.
+  useEffect(() => {
+    if (librarySearchTick > 0) searchRef.current?.focus();
+  }, [librarySearchTick]);
+
   const shelf: Shelf = shelfChoice ?? "local";
   const onServer = shelf === "server";
 
@@ -152,9 +182,14 @@ export default function Library() {
     ],
     initialPageParam: 0,
     queryFn: ({ pageParam }) => {
+      // The server FTS already covers title/author/series/summary, so an
+      // unprefixed query goes through verbatim. A field prefix (`series:foo`)
+      // would tokenize to `series & foo` and match nothing — strip it so the
+      // server searches the term itself (its vector spans all those fields).
+      const serverSearch = parseLibraryQuery(search || "").term;
       const params: api.ListParams = {
         mediaType,
-        search: search || undefined,
+        search: serverSearch || undefined,
         sortBy: sort.sortBy,
         sortOrder: sort.sortOrder,
         readStatus: effStatus ?? undefined,
@@ -205,8 +240,10 @@ export default function Library() {
       favorites: effFav,
       sortBy: sort.sortBy,
       sortOrder: sort.sortOrder,
+      tag: tagFilter,
+      collection: collectionFilter,
     }),
-    [search, mediaType, effStatus, effFav, sort.sortBy, sort.sortOrder],
+    [search, mediaType, effStatus, effFav, sort.sortBy, sort.sortOrder, tagFilter, collectionFilter],
   );
 
   const records = useMemo(() => {
@@ -218,6 +255,31 @@ export default function Library() {
     }
     return paged.data?.pages.flatMap((p) => p.records) ?? [];
   }, [onServer, localBooks, isSeries, seriesQuery.data, paged.data, clientParams]);
+
+  // Bulk selection: toggle on Cmd/Ctrl-click, Escape to clear, and reset when
+  // the visible scope changes so stale ids can't linger across shelves.
+  const toggleSelect = useCallback((id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+  useEffect(() => {
+    setSelected(new Set());
+  }, [shelfChoice, scope, filter, search]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelected(new Set());
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const selectedRecords = useMemo(
+    () => records.filter((r) => selected.has(r.id)),
+    [records, selected],
+  );
 
   const loadedCount = records.length;
   const totalCount =
@@ -343,6 +405,12 @@ export default function Library() {
     removeLocalCopy,
     removeOfflineDownload,
     addBooks,
+    addFolder,
+    bulkMarkRead,
+    bulkMarkUnread,
+    bulkFavorite,
+    bulkClearProgress,
+    bulkRemoveLocal,
   } = useLibraryActions(showToast, downloadsQuery.data, setShelfChoice, setImporting);
 
   const openActions = useCallback(
@@ -413,6 +481,7 @@ export default function Library() {
           <div className="search-pill">
             <span className="search-glyph" />
             <input
+              ref={searchRef}
               className="search-input"
               placeholder="Search titles"
               value={searchInput}
@@ -454,6 +523,17 @@ export default function Library() {
                   }}
                 >
                   Add books…
+                </button>
+              )}
+              {api.localSupported && (
+                <button
+                  className="menu-item"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setLinkedOpen(true);
+                  }}
+                >
+                  Linked folders…
                 </button>
               )}
               {api.downloadsSupported && (
@@ -560,6 +640,24 @@ export default function Library() {
         </div>
       )}
 
+      {!onServer && (tagFilter || collectionFilter) && (
+        <div className="filters-sub meta-filter">
+          <span className="meta-filter-label">
+            {tagFilter ? `Tag: ${tagFilter}` : `Collection: ${collectionFilter}`}
+          </span>
+          <button
+            type="button"
+            className="filter-pill"
+            onClick={() => {
+              setTagFilter(null);
+              setCollectionFilter(null);
+            }}
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       <div className="lib-scroll" ref={scrollRef}>
         {ptrEnabled && (pull > 0 || refreshing) && (
           <div className="lib-ptr" style={{ transform: `translateY(${pull - 24}px)`, opacity: Math.min(1, pull / 70) }}>
@@ -632,9 +730,14 @@ export default function Library() {
                 </div>
                 <div className="empty-actions">
                   {api.localSupported && (
-                    <button className="btn-accent" onClick={addBooks} disabled={importing}>
-                      {importing ? "Adding…" : "Add books"}
-                    </button>
+                    <>
+                      <button className="btn-accent" onClick={addBooks} disabled={importing}>
+                        {importing ? "Adding…" : "Add books"}
+                      </button>
+                      <button className="btn-ghost" onClick={addFolder} disabled={importing}>
+                        Add folder…
+                      </button>
+                    </>
                   )}
                   {!serverReady && (
                     <button className="btn-ghost" onClick={changeServer}>
@@ -648,6 +751,39 @@ export default function Library() {
             )
           ) : (
             <>
+              {selected.size > 0 && (
+                <div className="bulk-bar" role="toolbar" aria-label="Bulk actions">
+                  <span className="bulk-count">
+                    {selected.size} selected
+                    <button
+                      type="button"
+                      className="bulk-clear"
+                      onClick={() => setSelected(new Set())}
+                    >
+                      Clear (Esc)
+                    </button>
+                  </span>
+                  <span className="bulk-actions">
+                    <button type="button" onClick={() => bulkMarkRead(selectedRecords)}>
+                      Mark read
+                    </button>
+                    <button type="button" onClick={() => bulkMarkUnread(selectedRecords)}>
+                      Mark unread
+                    </button>
+                    <button type="button" onClick={() => bulkFavorite(selectedRecords)}>
+                      Favorite
+                    </button>
+                    <button type="button" onClick={() => bulkClearProgress(selectedRecords)}>
+                      Clear progress
+                    </button>
+                    {!onServer && (
+                      <button type="button" onClick={() => bulkRemoveLocal(selectedRecords)}>
+                        Remove local copy
+                      </button>
+                    )}
+                  </span>
+                </div>
+              )}
               <div className="grid">
                 {records.map((r) => (
                   <CoverCard
@@ -656,6 +792,8 @@ export default function Library() {
                     onOpen={open}
                     onToggleFavorite={signedIn || !onServer ? toggleFavorite : undefined}
                     onActions={signedIn || !onServer ? openActions : undefined}
+                    selected={selected.has(r.id)}
+                    onToggleSelect={() => toggleSelect(r.id)}
                   />
                 ))}
               </div>
@@ -695,7 +833,31 @@ export default function Library() {
             showRemoveLocalCopy={canRemoveLocalCopy(r)}
             // Legacy offline-pin cleanup only — new downloads use Save to device.
             showRemoveDownload={!!pin}
+            onMetadataSaved={() => void localQuery.refetch()}
+            onFilterTag={(tag) => {
+              setTagFilter(tag);
+              setCollectionFilter(null);
+              setSheet(null);
+            }}
+            onFilterCollection={(collection) => {
+              setCollectionFilter(collection);
+              setTagFilter(null);
+              setSheet(null);
+            }}
             onClose={() => setSheet(null)}
+            onLocate={async (rec) => {
+              const { open } = await import("@tauri-apps/plugin-dialog");
+              const picked = await open({ multiple: false });
+              if (!picked || Array.isArray(picked)) return;
+              try {
+                await api.localLocateLinkedBook(rec.id, String(picked));
+                await localQuery.refetch();
+                setSheet(null);
+                showToast("Re-located the book.");
+              } catch {
+                showToast("Couldn't locate that file.");
+              }
+            }}
             actions={{
               onOpen: open,
               onMarkRead: markRead,
@@ -709,6 +871,17 @@ export default function Library() {
           />
         );
       })()}
+
+      {linkedOpen && (
+        <div className="sheet-backdrop" onClick={() => setLinkedOpen(false)}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <LinkedFoldersPanel
+              onChanged={() => void localQuery.refetch()}
+              onClose={() => setLinkedOpen(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

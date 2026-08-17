@@ -1,0 +1,46 @@
+# CB8 Reader
+
+The CB8 Reader is the native Tauri v2 client in [`reader/`](https://github.com/s4njee/CB8/tree/main/reader). It runs on macOS, Windows, Linux, iOS, and Android from one React + Rust codebase.
+
+The reader is useful without a server. A server adds shared libraries, accounts, remote browsing, and progress sync; it does not gate the core reading experience.
+
+The screenshots below use five public-domain Project Gutenberg EPUBs imported into
+the Tauri app’s on-device shelf.
+
+<img src="/cb7/screenshots/library-gutenberg.png" alt="The Tauri reader’s Gutenberg-backed local shelf" />
+
+## Choose a mode
+
+| Mode | Files live | Best for |
+| --- | --- | --- |
+| Local library | On the device or in an attached folder | Offline reading and personal collections |
+| Server library | On a CB8 server | Shared libraries, multiple users, and sync |
+| Downloaded copy | Copied from a server into local storage | Reading remotely acquired books offline |
+
+## What is included
+
+- Reflowable EPUB and fixed-layout EPUB reading with Readium.
+- PDF reading through pdf.js with range loading, text search, highlights, and bookmarks.
+- CBZ, desktop CBR, CB7/7z, and plain image-folder comics.
+- Local metadata extraction, series/volume heuristics, tags, collections, and cover management.
+- Library search, in-book search, progress, favorites, bookmarks, and local-first annotations.
+- Native file pickers, drag-and-drop, OS file associations, linked folders, and folder watchers on desktop.
+
+Start with the [desktop reader guide](/reader/desktop), then read about the [local-first library](/reader/local-first) if you want to use the app without a server.
+
+## Reader views
+
+The same native window moves from the local shelf into a focused EPUB canvas. The
+reader chrome keeps search, contents, bookmarks, and settings one tap away.
+
+<img src="/cb7/screenshots/reader-epub-gutenberg.png" alt="Reflowable EPUB reading view using a Gutenberg book" />
+
+The contents drawer exposes the EPUB navigation document and separates contents,
+bookmarks, and highlights.
+
+<img src="/cb7/screenshots/reader-toc-gutenberg.png" alt="EPUB table-of-contents drawer" />
+
+Reading settings are scoped to the book or to all reader defaults, with paged or
+scroll flow, one- or two-page columns, themes, typefaces, text size, and spacing.
+
+<img src="/cb7/screenshots/reader-settings-gutenberg.png" alt="Reader settings for a Gutenberg EPUB" />

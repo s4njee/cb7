@@ -29,6 +29,7 @@ import * as users from './db/users';
 import * as history from './db/history';
 import * as progress from './db/progress';
 import * as libraries from './db/libraries';
+import * as libraryAccess from './db/libraryAccess';
 import * as folders from './db/folders';
 import * as comics from './db/comics';
 import * as jobs from './db/jobs';
@@ -71,6 +72,7 @@ export class LibraryDatabase {
   // --- app_meta ---
   getAppMeta(key: string) { return appMeta.getAppMeta(this.db, key); }
   setAppMeta(key: string, value: string) { return appMeta.setAppMeta(this.db, key, value); }
+  getWorkerHeartbeat() { return appMeta.getWorkerHeartbeat(this.db); }
 
   // --- comics ---
   addComic(record: Omit<MediaRecord, 'id' | 'dateAdded'>) { return comics.addComic(this.db, record); }
@@ -81,19 +83,37 @@ export class LibraryDatabase {
     return folders.addComicsToFolderRaw(this.db, folderId, comicIds);
   }
   removeComics(ids: number[]) { return comics.removeComics(this.db, ids); }
+  getComicSources(ids: number[]) { return comics.getComicSources(this.db, ids); }
+  getComicFilesByIds(ids: number[]) { return comics.getComicFilesByIds(this.db, ids); }
+  getCoverlessComicIds(maxIds: number) { return comics.getCoverlessComicIds(this.db, maxIds); }
   isDismissed(filePath: string) { return comics.isDismissed(this.db, filePath); }
   getComic(id: number) { return comics.getComic(this.db, id); }
   /** Light single-comic fetch: no cover blob, no tags. For hot read paths. */
   getComicLite(id: number) { return comics.getComicLite(this.db, id); }
   comicExistsByPath(filePath: string) { return comics.comicExistsByPath(this.db, filePath); }
+  comicExistsByHash(contentHash: string) { return comics.comicExistsByHash(this.db, contentHash); }
+  // --- missing-file handling (P1-8) ---
+  markComicMissing(comicId: number) { return comics.markComicMissing(this.db, comicId); }
+  clearComicMissing(comicId: number) { return comics.clearComicMissing(this.db, comicId); }
+  refreshMissingUnderRoot(rootPath: string) { return comics.refreshMissingUnderRoot(this.db, rootPath); }
+  pruneMissingComics() { return comics.pruneMissingComics(this.db); }
+  relocateComicPath(comicId: number, newPath: string, newHash: string | null) {
+    return comics.relocateComicPath(this.db, comicId, newPath, newHash);
+  }
+  isComicVisible(comicId: number, userId: number | null) {
+    return libraryAccess.comicIsVisible(this.db, comicId, userId);
+  }
+  findDuplicateGroups() { return comics.findDuplicateGroups(this.db); }
   updateCoverThumbnailByPath(filePath: string, coverThumbnail: Buffer | null) {
     return comics.updateCoverThumbnailByPath(this.db, filePath, coverThumbnail);
   }
+  getComicCover(comicId: number) { return comics.getComicCover(this.db, comicId); }
+  setComicCover(comicId: number, data: Buffer) { return comics.setComicCover(this.db, comicId, data); }
+  backfillComicCovers() { return comics.backfillComicCovers(this.db); }
   updatePageCountByPath(filePath: string, pageCount: number) {
     return comics.updatePageCountByPath(this.db, filePath, pageCount);
   }
   getComicByPath(filePath: string) { return comics.getComicByPath(this.db, filePath); }
-  getCoverThumbnail(comicId: number) { return comics.getCoverThumbnail(this.db, comicId); }
   updateReadingProgress(comicId: number, pageIndex: number) {
     return comics.updateReadingProgress(this.db, comicId, pageIndex);
   }
@@ -105,28 +125,43 @@ export class LibraryDatabase {
   }
 
   // --- Ebook full-text + semantic search (pgvector) ---
-  ftsCandidates(q: string, limit: number) { return ebookSearch.ftsCandidates(this.db, q, limit); }
-  vectorCandidates(queryVec: number[], limit: number) { return ebookSearch.vectorCandidates(this.db, queryVec, limit); }
+  ftsCandidates(q: string, limit: number, userId?: number | null, admin?: boolean) {
+    return ebookSearch.ftsCandidates(this.db, q, limit, userId, admin);
+  }
+  vectorCandidates(queryVec: number[], limit: number, userId?: number | null, admin?: boolean) {
+    return ebookSearch.vectorCandidates(this.db, queryVec, limit, userId, admin);
+  }
   indexBook(comicId: number, filePath: string) { return searchIndexer.indexBook(this.db, comicId, filePath); }
   backfillBooks() { return searchIndexer.backfillBooks(this.db); }
   clearEbookIndex() { return ebookSearch.clearAllEbookChunks(this.db); }
-  getRecentlyRead(limit: number = 10, mediaType?: 'comic' | 'book') {
-    return comics.getRecentlyRead(this.db, limit, mediaType);
+  getRecentlyRead(limit: number = 10, mediaType?: 'comic' | 'book', userId?: number | null) {
+    return comics.getRecentlyRead(this.db, limit, mediaType, userId);
   }
-  getContinueReading(limit: number = 10, mediaType?: 'comic' | 'book') {
-    return comics.getContinueReading(this.db, limit, mediaType);
+  getContinueReading(limit: number = 10, mediaType?: 'comic' | 'book', userId?: number | null) {
+    return comics.getContinueReading(this.db, limit, mediaType, userId);
   }
   setComicSeries(comicId: number, seriesName: string | null, volumeNumber: number | null, chapterNumber: number | null) {
     return comics.setComicSeries(this.db, comicId, seriesName, volumeNumber, chapterNumber);
   }
-  getAllSeries() { return comics.getAllSeries(this.db); }
-  getSeriesComics(name: string) { return comics.getSeriesComics(this.db, name); }
+  getAllSeries(userId?: number | null, admin?: boolean) { return comics.getAllSeries(this.db, userId, admin); }
+  getSeriesComics(name: string, userId?: number | null, admin?: boolean) {
+    return comics.getSeriesComics(this.db, name, userId, admin);
+  }
   updateComicMetadata(comicId: number, fields: Parameters<typeof comics.updateComicMetadata>[2]) {
     return comics.updateComicMetadata(this.db, comicId, fields);
+  }
+  fillNullMetadataFromEmbedded(comicId: number, embedded: Parameters<typeof comics.fillNullMetadataFromEmbedded>[2]) {
+    return comics.fillNullMetadataFromEmbedded(this.db, comicId, embedded);
+  }
+  updateComicMetadataBulk(ids: number[], fields: Parameters<typeof comics.updateComicMetadataBulk>[2]) {
+    return comics.updateComicMetadataBulk(this.db, ids, fields);
   }
   getComicMetadata(id: number) { return comics.getComicMetadata(this.db, id); }
   queryComicsForUser(userId: number | null, options: Parameters<typeof comics.queryComicsForUser>[2]) {
     return comics.queryComicsForUser(this.db, userId, options);
+  }
+  queryComicIdsForUser(userId: number | null, options: Parameters<typeof comics.queryComicIdsForUser>[2], cap?: number) {
+    return comics.queryComicIdsForUser(this.db, userId, options, cap);
   }
 
   // --- tags ---
@@ -137,6 +172,9 @@ export class LibraryDatabase {
   deleteTag(tag: string) { return tags.deleteTag(this.db, tag); }
   addTagBulk(comicIds: number[], tag: string) { return tags.addTagBulk(this.db, comicIds, tag); }
   removeTagBulk(comicIds: number[], tag: string) { return tags.removeTagBulk(this.db, comicIds, tag); }
+  replaceTagsForComics(comicIds: number[], tagNames: string[]) {
+    return tags.replaceTagsForComics(this.db, comicIds, tagNames);
+  }
 
   // --- libraries ---
   createLibrary(name: string, mediaType: 'comic' | 'book' = 'comic') {
@@ -144,7 +182,13 @@ export class LibraryDatabase {
   }
   renameLibrary(id: number, newName: string) { return libraries.renameLibrary(this.db, id, newName); }
   deleteLibrary(id: number) { return libraries.deleteLibrary(this.db, id); }
-  getAllLibraries(mediaType?: 'comic' | 'book') { return libraries.getAllLibraries(this.db, mediaType); }
+  getAllLibraries(mediaType?: 'comic' | 'book', userId?: number | null, admin?: boolean) {
+    return libraries.getAllLibraries(this.db, mediaType, userId, admin);
+  }
+  setLibraryAccess(libraryId: number, everyone: boolean, memberIds: number[]) {
+    return libraries.setLibraryAccess(this.db, libraryId, everyone, memberIds);
+  }
+  getLibraryMemberIds(libraryId: number) { return libraries.getLibraryMemberIds(this.db, libraryId); }
   addComicsToLibrary(libraryId: number, comicIds: number[]) {
     return libraries.addComicsToLibrary(this.db, libraryId, comicIds);
   }
@@ -154,24 +198,37 @@ export class LibraryDatabase {
   addFoldersToLibrary(libraryId: number, folderIds: number[]) {
     return libraries.addFoldersToLibrary(this.db, libraryId, folderIds);
   }
-  queryComicsByLibrary(libraryId: number, options: QueryOptions = {}): Promise<QueryResult> {
-    return libraries.queryComicsByLibrary(this.db, libraryId, options);
+  queryComicsByLibrary(libraryId: number, options: QueryOptions = {}, userId?: number | null, admin?: boolean): Promise<QueryResult> {
+    return libraries.queryComicsByLibrary(this.db, libraryId, options, userId, admin);
   }
 
   // --- folders ---
-  createFolder(name: string, comicIds: number[]) { return folders.createFolder(this.db, name, comicIds); }
+  createFolder(name: string, comicIds: number[], scanPath?: string | null) {
+    return folders.createFolder(this.db, name, comicIds, scanPath);
+  }
   renameFolder(id: number, newName: string) { return folders.renameFolder(this.db, id, newName); }
   deleteFolder(id: number) { return folders.deleteFolder(this.db, id); }
   getAllFolders(libraryId?: number | null) { return folders.getAllFolders(this.db, libraryId); }
-  getFolderThumbnail(folderId: number) { return folders.getFolderThumbnail(this.db, folderId); }
+  getFolderThumbnail(folderId: number, userId?: number | null, admin?: boolean) {
+    return folders.getFolderThumbnail(this.db, folderId, userId, admin);
+  }
+  setFolderScanRoot(folderId: number, scanPath: string | null) {
+    return folders.setFolderScanRoot(this.db, folderId, scanPath);
+  }
+  setFolderAutoScanEnabled(folderId: number, enabled: boolean) {
+    return folders.setFolderAutoScanEnabled(this.db, folderId, enabled);
+  }
+  getFolderScanRoot(folderId: number) { return folders.getFolderScanRoot(this.db, folderId); }
+  folderExists(folderId: number) { return folders.folderExists(this.db, folderId); }
+  getWatchedRoots() { return folders.getWatchedRoots(this.db); }
   addComicsToFolder(folderId: number, comicIds: number[]) {
     return folders.addComicsToFolder(this.db, folderId, comicIds);
   }
   removeComicsFromFolder(folderId: number, comicIds: number[]) {
     return folders.removeComicsFromFolder(this.db, folderId, comicIds);
   }
-  getFolderComics(folderId: number, options: QueryOptions = {}): Promise<QueryResult> {
-    return folders.getFolderComics(this.db, folderId, options);
+  getFolderComics(folderId: number, options: QueryOptions = {}, userId?: number | null, admin?: boolean): Promise<QueryResult> {
+    return folders.getFolderComics(this.db, folderId, options, userId, admin);
   }
   getFolderSeriesGroups(userId: number | null, folderId: number, options: Parameters<typeof folders.getFolderSeriesGroups>[3] = {}) {
     return folders.getFolderSeriesGroups(this.db, userId, folderId, options);
@@ -289,6 +346,9 @@ export class LibraryDatabase {
   getHistory(userId: number, offset: number, limit: number) {
     return history.getHistory(this.db, userId, offset, limit);
   }
+  getReadingStats(userId: number) {
+    return history.getReadingStats(this.db, userId);
+  }
 
   // --- favorites ---
   addFavorite(userId: number, comicId: number) { return favorites.addFavorite(this.db, userId, comicId); }
@@ -305,7 +365,9 @@ export class LibraryDatabase {
   }
   getScanJob(id: string) { return jobs.getScanJob(this.db, id); }
   listActiveScanJobs(limit?: number) { return jobs.listActiveScanJobs(this.db, limit); }
+  getQueueStatus() { return jobs.getQueueStatus(this.db); }
   findActiveScanByPath(targetPath: string) { return jobs.findActiveScanByPath(this.db, targetPath); }
+  getLatestScanJobForFolders(folderIds: number[]) { return jobs.getLatestScanJobForFolders(this.db, folderIds); }
 
   // --- ingest error log (shared by the worker writer + the API reader) ---
   recordIngestError(record: Parameters<typeof ingestErrors.recordIngestError>[1]) {

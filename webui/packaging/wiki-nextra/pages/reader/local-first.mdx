@@ -1,0 +1,43 @@
+# Local-first library
+
+The reader opens to the local shelf. A server connection is optional and is reached from the library rather than being a launch requirement.
+
+## Storage model
+
+The app stores its catalog and owned files under its platform app-data directory:
+
+```text
+library/
+  catalog.json
+  books/<content>.ext
+  covers/<content>.<image-ext>
+```
+
+Catalog paths are relative. This matters on iOS, where the app container path can change across reinstalls. The source files themselves are not rewritten.
+
+## Import choices
+
+- **Import files:** copy EPUB, PDF, MOBI/AZW3, CBZ, CBR, and CB7 into app-owned storage. MOBI/AZW3 are converted to EPUB during import; DRM is never bypassed.
+- **Import a folder:** preview supported files, then copy them with bounded recursive scanning and per-file progress.
+- **Link a folder:** read files in place. The catalog remembers the external path, watches the folder on desktop, and marks missing books without deleting their history.
+- **Plain image folders:** direct image files are treated as comic pages. Linked folders stay in place; explicit imports become CBZ copies.
+
+## Catalog metadata
+
+The importer extracts EPUB OPF fields, PDF document information, and ComicInfo.xml from comic archives. Filename fallbacks recognize common names such as `Series v02 #013 (2019)`. Users can edit title, authors, series, volume, tags, collections, and covers from the local book detail sheet.
+
+## Search and annotations
+
+Local shelf search covers title, author, series, tags, and collections. The local full-text index supports EPUB and PDF text and can be rebuilt or disabled from the reader settings. EPUB/PDF in-book search runs in the reader itself.
+
+Bookmarks, highlights, and notes are local-first. Server-backed progress and bookmarks can sync when the book is opened against an authenticated CB8 server.
+
+The implementation contract is documented in [`reader/docs/LOCAL-FIRST.md`](https://github.com/s4njee/CB8/blob/main/reader/docs/LOCAL-FIRST.md).
+
+## Fixture shelf used in this guide
+
+These views were captured from the native Tauri app after importing five
+Project Gutenberg EPUBs. The files remain in the app-owned shelf, so the same
+library view is available without a server connection.
+
+<img src="/cb7/screenshots/library-gutenberg.png" alt="Local-first shelf with Project Gutenberg fixtures" />

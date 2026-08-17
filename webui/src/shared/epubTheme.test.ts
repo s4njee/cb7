@@ -25,3 +25,16 @@ describe('epubTheme font size', () => {
     expect(css).toContain('font-size: inherit !important');
   });
 });
+describe('buildEpubTheme line spacing and margins (P3-5)', () => {
+  it('defaults to the original 1.6 line-height and 44px padding', () => {
+    const theme = buildEpubTheme('black', 'Georgia, serif');
+    expect(theme.body['line-height']).toBe('1.6');
+    expect(theme.body.padding).toBe('44px');
+  });
+
+  it('honours custom line spacing and page margin', () => {
+    const theme = buildEpubTheme('black', 'Georgia, serif', 100, { lineSpacing: 2.0, pageMargin: 24 });
+    expect(theme.body['line-height']).toBe('2');
+    expect(theme.body.padding).toBe('24px');
+  });
+});

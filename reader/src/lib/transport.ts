@@ -21,9 +21,11 @@ export interface AppConfig {
   server_url: string | null;
 }
 
-export const isTauri =
-  typeof window !== "undefined" &&
-  "__TAURI_INTERNALS__" in (window as unknown as Record<string, unknown>);
+// `isTauri` and the media protocol base now come from the platform boundary
+// (`platform.ts`), where Rust supplies them instead of a UA sniff. Re-exported
+// here so existing `import { isTauri } from "./transport"` callers keep working.
+import { isTauri, isDesktop, mediaBase } from "./platform";
+export { isTauri, isDesktop };
 
 function isApiError(value: unknown): value is ApiError {
   return (
@@ -42,13 +44,11 @@ export function toApiError(value: unknown): ApiError {
 
 /* ------------------------------------------------------------------ media */
 
-function mediaBase(): string {
-  if (!isTauri) return ""; // same-origin (proxied in dev)
-  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
-  return /Android|Windows/.test(ua) ? "http://cb8.localhost" : "cb8://localhost";
-}
-
-/** Build a loadable media URL for a server-relative `/api/...` path. */
+/** Build a loadable media URL for a server-relative `/api/...` path.
+ *
+ *  The protocol base comes from the platform boundary (Rust `platform_info`),
+ *  resolved once during boot — see `platform.ts`. In browser dev it's `""`
+ *  (same-origin through the Vite proxy). */
 export function mediaUrl(path: string): string {
   return mediaBase() + path;
 }
@@ -194,14 +194,21 @@ export async function fileByteLength(path: string): Promise<number | null> {
 }
 
 /** Read a half-open `[begin, end)` byte range of a server file as an
- *  ArrayBuffer, over the network. Used only in browser dev (a same-origin
- *  ranged `fetch`); on device a PDF is copied into the local library and read
- *  from disk instead — see {@link localDownload} / {@link localReadRange}. */
+ *  ArrayBuffer, over the network.
+ *
+ *  Under Tauri this goes through Rust's `read_file_range` command, never a
+ *  webview `fetch`: WKWebView does not reliably forward a `Range` header to the
+ *  custom scheme handler (same rationale as {@link fileByteLength}), and Rust
+ *  attaches the session cookie. In browser dev it's a same-origin ranged
+ *  `fetch` (the Vite proxy forwards `/api`). */
 export async function readFileRange(
   path: string,
   begin: number,
   end: number,
 ): Promise<ArrayBuffer> {
+  if (isTauri) {
+    return invoke<ArrayBuffer>("read_file_range", { path, begin, end });
+  }
   const resp = await fetch(path, {
     headers: { Range: `bytes=${begin}-${end - 1}` },
     credentials: "include",
@@ -240,6 +247,22 @@ export interface LocalBook {
   origin: { server: string; comicId: number } | null;
   progress: LocalProgress;
   favorited: boolean;
+  /** SHA-256 of the file; used to dedupe re-imports. */
+  contentHash?: string | null;
+  /** Series name, e.g. "Kaiju Diaries". */
+  series?: string | null;
+  /** Volume within the series, e.g. "1". */
+  volume?: string | null;
+  /** Free-form user tags. */
+  tags?: string[];
+  /** User-defined collections this book belongs to. */
+  collections?: string[];
+  /** "linked" when read in place from `externalPath` (a user-attached folder). */
+  source?: string | null;
+  /** Absolute path a linked book is read from. */
+  externalPath?: string | null;
+  /** Linked book whose file has gone missing on disk. */
+  missing?: boolean;
 }
 
 export interface LocalDownloadProgress {
@@ -254,9 +277,107 @@ export function localList(): Promise<LocalBook[]> {
   return invoke<LocalBook[]>("local_list");
 }
 
-export function localImport(paths: string[]): Promise<LocalBook[]> {
-  if (!isTauri) return Promise.resolve([]);
-  return invoke<LocalBook[]>("local_import", { paths });
+/** Per-file import outcome — every input file gets a verdict, and one bad file
+ *  never blocks the rest. Mirrors the Rust `ImportReport`. */
+export interface ImportReport {
+  added: LocalBook[];
+  skipped: ImportNote[];
+  failed: ImportNote[];
+}
+
+export interface ImportNote {
+  path: string;
+  reason: string;
+}
+
+export function localImport(paths: string[]): Promise<ImportReport> {
+  if (!isTauri) return Promise.resolve({ added: [], skipped: [], failed: [] });
+  return invoke<ImportReport>("local_import", { paths });
+}
+
+/** Preview of a recursive folder import: supported files + what it would skip. */
+export interface FolderScan {
+  supported: string[];
+  unsupported: string[];
+  truncated: boolean;
+}
+
+/** Scan a directory (no import) to preview a recursive folder import. */
+export function localScanFolder(dir: string): Promise<FolderScan> {
+  if (!isTauri) return Promise.resolve({ supported: [], unsupported: [], truncated: false });
+  return invoke<FolderScan>("local_scan_folder", { dir });
+}
+
+/** Ask the in-flight import to stop after the current file. */
+export function localCancelImport(): Promise<void> {
+  if (!isTauri) return Promise.resolve();
+  return invoke<void>("local_cancel_import").catch(() => {});
+}
+
+export interface ImportProgress {
+  done: number;
+  total: number;
+  current: string;
+}
+
+/** Live progress of a batch import (per file). */
+export async function onLocalImportProgress(
+  cb: (p: ImportProgress) => void,
+): Promise<() => void> {
+  if (!isTauri) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<ImportProgress>("shelf://local-import-progress", (event) => cb(event.payload));
+}
+
+/**
+ * Import every supported book inside `folder` recursively, with a preview
+ * confirmation ("Found N books, M skipped") and live progress. `report.added`
+ * is empty when the user cancels or nothing was found.
+ */
+export async function importFolderAtPath(folder: string): Promise<ImportReport> {
+  if (!isTauri) return { added: [], skipped: [], failed: [] };
+  const scan = await localScanFolder(folder).catch(() => null);
+  if (!scan) return { added: [], skipped: [], failed: [] };
+
+  const { confirm } = await import("@tauri-apps/plugin-dialog");
+  const unsupportedNote = scan.unsupported.length
+    ? `\n${scan.unsupported.length} unsupported file${scan.unsupported.length === 1 ? "" : "s"} skipped.`
+    : "";
+  const truncNote = scan.truncated ? "\nPreview was capped — the largest supported files are listed first." : "";
+  const ok = await confirm(
+    `Import ${scan.supported.length} book${scan.supported.length === 1 ? "" : "s"} from this folder?${unsupportedNote}${truncNote}`,
+    { title: "Add folder", kind: "info" },
+  );
+  if (!ok || scan.supported.length === 0) {
+    return { added: [], skipped: [], failed: [] };
+  }
+  return localImport(scan.supported);
+}
+
+/**
+ * Pick a *folder* and import every supported book inside it recursively, with a
+ * preview confirmation and a progress UI + cancel. Returns `folder: null` when
+ * the user cancels the picker or the confirm dialog.
+ */
+export async function pickAndImportFolder(): Promise<{
+  report: ImportReport;
+  folder: string | null;
+}> {
+  if (!isTauri) return { report: { added: [], skipped: [], failed: [] }, folder: null };
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const picked = await open({ directory: true, multiple: false });
+  if (!picked || Array.isArray(picked)) return { report: { added: [], skipped: [], failed: [] }, folder: null };
+  const folder = String(picked);
+  const report = await importFolderAtPath(folder);
+  return { report, folder };
+}
+
+/** Whether a dropped/open path is a directory (vs a single book file). */
+export function pathIsDirectory(path: string): Promise<boolean> {
+  if (!isTauri) return Promise.resolve(false);
+  return localScanFolder(path)
+    .then(() => true)
+    .catch(() => false);
 }
 
 /**
@@ -336,6 +457,78 @@ export function localClearProgress(id: number): Promise<void> {
   return invoke<void>("local_clear_progress", { id });
 }
 
+/** Set series / volume / tags on a local book (tags replace the whole set). */
+export function localSetMetadata(
+  id: number,
+  series: string | null,
+  volume: string | null,
+  tags: string[],
+): Promise<void> {
+  if (!isTauri) return Promise.resolve();
+  return invoke<void>("local_set_metadata", { id, series, volume, tags });
+}
+
+/** Add or remove a local book from a named collection. */
+export function localToggleCollection(
+  id: number,
+  collection: string,
+  on: boolean,
+): Promise<string[]> {
+  if (!isTauri) return Promise.resolve([]);
+  return invoke<string[]>("local_toggle_collection", { id, collection, on });
+}
+
+/** A user-attached folder read in place (no copy). */
+export interface LinkedFolder {
+  id: number;
+  path: string;
+}
+
+/** List attached (linked) folders. */
+export function localLinkedFolders(): Promise<LinkedFolder[]> {
+  if (!isTauri) return Promise.resolve([]);
+  return invoke<LinkedFolder[]>("local_linked_folders");
+}
+
+/** Attach a folder, cataloguing its books read in place (no copy). */
+export function localAddLinkedFolder(path: string): Promise<LocalBook[]> {
+  if (!isTauri) return Promise.resolve([]);
+  return invoke<LocalBook[]>("local_add_linked_folder", { path });
+}
+
+/** Re-scan every linked folder (add new, refresh, mark missing). */
+export function localRescanLinkedFolders(): Promise<number> {
+  if (!isTauri) return Promise.resolve(0);
+  return invoke<number>("local_rescan_linked_folders");
+}
+
+/** Remove a linked folder and its catalogued books (files untouched). */
+export function localRemoveLinkedFolder(id: number): Promise<void> {
+  if (!isTauri) return Promise.resolve();
+  return invoke<void>("local_remove_linked_folder", { id });
+}
+
+/** Re-point a missing linked book at its new location on disk. */
+export function localLocateLinkedBook(id: number, newPath: string): Promise<LocalBook> {
+  if (!isTauri) return Promise.reject({ status: 0, message: "Needs the app" });
+  return invoke<LocalBook>("local_locate_linked_book", { id, newPath });
+}
+
+/** Live event: a linked folder changed on disk; offer a Rescan. */
+export async function onLinkedFoldersChanged(
+  cb: () => void,
+): Promise<() => void> {
+  if (!isTauri) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen("shelf://linked-folders-changed", () => cb());
+}
+
+/** Rename a collection everywhere it is used. */
+export function localRenameCollection(from: string, to: string): Promise<void> {
+  if (!isTauri) return Promise.resolve();
+  return invoke<void>("local_rename_collection", { from, to });
+}
+
 export function localSetFavorite(id: number, favorited: boolean): Promise<void> {
   if (!isTauri) return Promise.resolve();
   return invoke<void>("local_set_favorite", { id, favorited });
@@ -369,18 +562,91 @@ export async function onLocalDownloadProgress(
 
 /** Open the system file picker and import whatever was chosen.
  *
- *  Resolves to `[]` when the user cancels — a cancel is not an error, and the
- *  shelf just stays as it was. */
-export async function pickAndImportBooks(): Promise<LocalBook[]> {
-  if (!isTauri) return [];
+ *  Resolves to an {@link ImportReport} — a cancel is not an error, and the
+ *  shelf just stays as it was. Desktop pickers get filters so the OS shows only
+ *  book files; on iOS/Android the picker stays unfiltered, because filters
+ *  become UTIs and `cbz`/`cbr` have no system UTI — a filtered picker would
+ *  grey out exactly the files we most want. Rust rejects anything that isn't a
+ *  book format after the pick either way. */
+export async function pickAndImportBooks(): Promise<ImportReport> {
+  if (!isTauri) return { added: [], skipped: [], failed: [] };
   const { open } = await import("@tauri-apps/plugin-dialog");
-  // No `filters`: on iOS they become UTIs, and `cbz`/`cbr` have no system UTI —
-  // a filtered picker would grey out exactly the files we most want. Rust
-  // rejects anything that isn't a book format after the pick instead.
-  const picked = await open({ multiple: true });
-  if (!picked) return [];
+  const filters = isDesktop()
+    ? [
+        // CBR is locally readable on desktop (RAR via the unrar crate), so the
+        // picker advertises it; mobile has no RAR backend and stays unfiltered
+        // anyway (custom UTIs).
+        { name: "Books", extensions: ["epub", "pdf", "cbz", "cbr"] },
+        { name: "All files", extensions: ["*"] },
+      ]
+    : undefined;
+  const picked = await open({ multiple: true, ...(filters ? { filters } : {}) });
+  if (!picked) return { added: [], skipped: [], failed: [] };
   const paths = Array.isArray(picked) ? picked : [picked];
   return localImport(paths.map(String));
+}
+
+/* ---------------------------------------------------------- native menus */
+
+/** Subscribe to native menu commands (`shelf://menu-command`). The payload is
+ *  the command id the user picked in the native menu, e.g. `"add-books"`.
+ *  Resolves to an unlisten function. */
+export async function onMenuCommand(
+  cb: (command: string) => void,
+): Promise<() => void> {
+  if (!isTauri) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<string>("shelf://menu-command", (event) => cb(event.payload ?? ""));
+}
+
+/** Enable/disable a native menu item by id, so the menu always matches the
+ *  current screen (Reader Settings only while a book is open, etc.). */
+export function setMenuEnabled(id: string, enabled: boolean): Promise<void> {
+  if (!isTauri) return Promise.resolve();
+  return invoke<void>("set_menu_enabled", { id, enabled }).catch(() => {});
+}
+
+/** Toggle the native window fullscreen (native View > Toggle Full Screen).
+ *  Best-effort — a platform without window fullscreen just stays put. */
+export async function toggleFullscreen(): Promise<void> {
+  if (!isTauri) return;
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const win = getCurrentWindow();
+    await win.setFullscreen(!(await win.isFullscreen()));
+  } catch {
+    /* no window fullscreen — ignore */
+  }
+}
+
+/** Reveal the app's log directory in the OS file manager (Help > Open Logs).
+ *  Best-effort: no-op where there's no file manager to hand the path to. */
+export function openLogs(): Promise<void> {
+  if (!isTauri) return Promise.resolve();
+  return invoke<void>("open_log_dir").catch(() => {});
+}
+
+/* ------------------------------------------------------------- drag/drop */
+
+/** Subscribe to OS file drag-and-drop on the main window (desktop only).
+ *  `onHover(true)` fires as files drag over the window, `onDrop(paths)` on a
+ *  real drop. Resolves to an unlisten function. */
+export async function onFileDrop(
+  onHover: (active: boolean) => void,
+  onDrop: (paths: string[]) => void,
+): Promise<() => void> {
+  if (!isTauri) return () => {};
+  const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+  return getCurrentWebview().onDragDropEvent((event) => {
+    const t = event.payload.type;
+    if (t === "over") onHover(true);
+    else if (t === "drop") {
+      onHover(false);
+      onDrop(event.payload.paths);
+    } else {
+      onHover(false); // leave / cancel
+    }
+  });
 }
 
 /* ---------------------------------------------------------------- downloads */

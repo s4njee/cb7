@@ -70,6 +70,28 @@ export function withGroupThumbnail<T extends { coverComicId: number | null }>(gr
 }
 
 /**
+ * Decide what a folder rescan should scan.
+ *
+ * A folder is a watched root when it has a registered `scanPath` — that path is
+ * authoritative (works for empty / brand-new drop folders). Legacy folders
+ * without a root fall back to deriving the common ancestor of their comics'
+ * directories. Returns `null` when there is nothing to scan (rootless, empty
+ * folder).
+ * @param input The folder's stored scan path (may be null) and its comics' paths.
+ * @returns The resolved target with its source, or `null` when un-resolvable.
+ */
+export function resolveScanTarget(
+  input: { scanPath: string | null; filePaths: string[] },
+): { targetPath: string; source: 'root' | 'derived' } | null {
+  if (input.scanPath && input.scanPath.trim() !== '') {
+    return { targetPath: input.scanPath, source: 'root' };
+  }
+  if (input.filePaths.length === 0) return null;
+  const commonDir = findCommonDir(input.filePaths.map((p) => path.dirname(p)));
+  return commonDir ? { targetPath: commonDir, source: 'derived' } : null;
+}
+
+/**
  * Find the deepest directory that is a common ancestor of all inputs.
  *  Walks each directory up toward the root until it is a prefix of the
  *          running common path. Returns `null` if the paths share no ancestor.

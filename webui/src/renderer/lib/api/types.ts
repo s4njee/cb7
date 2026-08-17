@@ -22,6 +22,10 @@ export interface WebComicRecord {
   thumbnailUrl: string;
   fileExt: string;
   favorited: boolean;
+  /** ISO ts when the server last saw the file was missing from disk; null = file present. */
+  missingAt: string | null;
+  /** Absolute server path for the file (admin-visible contexts only; optional for safety). */
+  filePath?: string;
 }
 
 export interface Folder {
@@ -32,11 +36,33 @@ export interface Folder {
   thumbnailUrl: string | null;
 }
 
+/** A watched library root (a folder with a registered scan path), from GET /api/roots. */
+export interface WatchedRoot {
+  folderId: number;
+  name: string;
+  scanPath: string;
+  enabled: boolean;
+  comicCount: number;
+  /** Whether the server can see the path (false = missing mount / offline). */
+  pathExists: boolean;
+  /** Unix ms of the last successful scan start, from the folder_scan_ts cursor. */
+  lastScanAt: number | null;
+  /** The newest scan_jobs row for this folder (active job or last outcome). */
+  lastScanJob: {
+    status: 'queued' | 'active' | 'done' | 'failed';
+    error: string | null;
+    added: number;
+    updatedAt: string;
+  } | null;
+}
+
 export interface Library {
   id: number;
   name: string;
   comicCount: number;
   mediaType: MediaType;
+  /** When false only explicit members see this collection (P1-1). */
+  everyone: boolean;
 }
 
 export interface SeriesGroup {
@@ -120,6 +146,8 @@ export interface IngestFailuresSummaryEvent {
 
 export interface IngestProgress {
   added: number;
+  /** Files rejected as byte-identical duplicates during the scan. */
+  duplicates: number;
   errors: string[];
   failuresSummary: IngestFailuresSummaryEvent | null;
 }
@@ -128,6 +156,8 @@ export interface UploadResponse {
   added: number;
   skipped?: number;
   reason?: string;
+  /** True when the upload was a byte-identical copy of an existing record. */
+  duplicate?: boolean;
   filePath: string;
 }
 
@@ -158,7 +188,7 @@ export type MediaType = 'comic' | 'book';
 export type SortBy = 'title' | 'dateAdded' | 'fileSize' | 'pageCount' | 'lastRead';
 export type SortOrder = 'asc' | 'desc';
 export type ReadStatus = 'unread' | 'in-progress' | 'completed';
-export type FileExtension = 'cbz' | 'cbr' | 'epub' | 'pdf' | 'mobi';
+export type FileExtension = 'cbz' | 'cbr' | 'cb7' | 'epub' | 'pdf' | 'mobi';
 export type QueryValue = string | number | boolean | null | undefined;
 export type QueryParams = Record<string, QueryValue>;
 
@@ -175,6 +205,8 @@ export interface ComicQueryOptions extends QueryParams {
   limit?: number;
   offset?: number;
   excludeFoldered?: boolean;
+  /** When set, only include records whose file is missing from disk (1) or present (0). */
+  missing?: boolean;
 }
 
 export interface HierarchyQueryOptions extends QueryParams {
@@ -230,6 +262,20 @@ export interface MetadataSearchResponse {
 }
 
 export type MetadataApplyResponse = Record<string, unknown>;
+
+/**
+ * The subset of comic metadata fields a batch edit can write.
+ * `null` clears a field; absent keys are left untouched.
+ */
+export interface BatchMetadataFields {
+  author?: string | null;
+  seriesName?: string | null;
+  volumeNumber?: number | null;
+  year?: number | null;
+  summary?: string | null;
+  genre?: string | null;
+  tags?: string[];
+}
 
 export interface AdminListDirEntry {
   name: string;

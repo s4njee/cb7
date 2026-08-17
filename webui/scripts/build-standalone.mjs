@@ -9,10 +9,26 @@
  * command. All node_modules deps stay external (resolved at runtime against the
  * installed node_modules tree). Only first-party TypeScript is bundled.
  */
-import { build } from 'esbuild';
+import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+
+const require = createRequire(import.meta.url);
+const esbuild = (() => {
+  try {
+    return require('esbuild');
+  } catch {
+    try {
+      const vitePath = require.resolve('vite');
+      const viteRequire = createRequire(vitePath);
+      return viteRequire('esbuild');
+    } catch {
+      throw new Error('Could not resolve esbuild. Ensure vite or esbuild is installed.');
+    }
+  }
+})();
+const { build } = esbuild;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = dirname(here);

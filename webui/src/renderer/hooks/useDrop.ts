@@ -60,7 +60,7 @@ export function useDrop({ onFilesDropped }: UseDropProps) {
       try {
         const items = await gatherFromDrop(e.dataTransfer);
         if (items.length === 0) {
-          showToast('No supported files in drop (.cbz, .cbr, .epub, .pdf, .mobi)');
+          showToast('No supported files in drop (.cbz, .cbr, .cb7, .epub, .pdf)');
           return;
         }
         onFilesDropped(items);

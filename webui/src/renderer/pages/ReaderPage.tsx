@@ -64,17 +64,20 @@ export default function ReaderPage() {
     gcTime: 0,
   });
 
+  const initializedComicRef = React.useRef<number | null>(null);
+
   // Apply the starting page (from the URL route or saved progress) and only then
   // reveal the reader. Reading progress is keyed off store.currentPage, so if the
-  // reader mounted before this ran it would load and save page 1 first. The reset
-  // is a separate unmount-only effect so slider scrubs (which write the URL via
-  // handlePageChange) don't reset the store mid-read.
+  // reader mounted before this ran it would load and save page 1 first.
   useEffect(() => {
     if (!record) return;
 
-    setCurrentPage(initialReaderPage(page, record.lastPage));
-    setReaderReady(true);
-  }, [page, record, setCurrentPage]);
+    if (initializedComicRef.current !== comicId) {
+      initializedComicRef.current = comicId;
+      setCurrentPage(initialReaderPage(page, record.lastPage));
+      setReaderReady(true);
+    }
+  }, [comicId, page, record, setCurrentPage]);
 
   // Reset the reader store when the overlay unmounts (also covers navigation
   // between /read/:id and /read/:id/:page route entries).
@@ -172,6 +175,41 @@ export default function ReaderPage() {
 
   // Determine which format view to mount
   const format = determineReaderFormat(record);
+
+  // P1-8: the file behind this record is gone from disk — don't mount a reader.
+  if (record.missingAt) {
+    return (
+      <div className="flex flex-col items-center justify-center w-screen h-screen bg-black text-zinc-400 gap-4 select-none text-center px-6">
+        <p className="text-sm font-medium text-zinc-300">This file is missing from disk</p>
+        <p className="text-xs text-zinc-500 max-w-sm">
+          The library record is here but the file it points to isn't. Ask an admin to Locate it, or remove the record.
+        </p>
+        <button
+          onClick={() => navigate('/')}
+          className="px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded text-xs transition-colors"
+        >
+          Go Back to Library
+        </button>
+      </div>
+    );
+  }
+
+  if (format === 'unsupported') {
+    return (
+      <div className="flex flex-col items-center justify-center w-screen h-screen bg-black text-zinc-400 gap-4 select-none text-center px-6">
+        <p className="text-sm font-medium text-zinc-300">This format isn't supported by the web reader.</p>
+        <p className="text-xs text-zinc-500">
+          {record.fileExt ? `${record.fileExt.toUpperCase()} files` : 'This file'} can't be opened in a browser here.
+        </p>
+        <button
+          onClick={() => navigate('/')}
+          className="px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded text-xs transition-colors"
+        >
+          Go Back to Library
+        </button>
+      </div>
+    );
+  }
 
   const handlePageChange = (pageNum: number) => {
     setCurrentPage(pageNum);

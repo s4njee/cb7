@@ -6,7 +6,7 @@ import { getPdfPageCount, renderPdfFirstPageCover } from './pdfCoverExtractor';
 import { generateThumbnail } from './thumbnailGenerator';
 import type { ScanProgress } from '../shared/types';
 import { COMIC_EXTENSIONS as COMIC_EXTS_BASE, BOOK_EXTENSIONS as BOOK_EXTS_BASE } from '../shared/mediaTypes';
-import { IngestService, type IngestFailure } from './ingestService';
+import { IngestService, type IngestFailure, type IngestScanResult } from './ingestService';
 import { withTimeout } from './utils/timeout';
 
 /**
@@ -32,14 +32,14 @@ export interface FileScanner {
     signal?: AbortSignal,
     folderId?: number,
     options?: FileScanOptions,
-  ): Promise<{ added: number; failures: IngestFailure[] }>;
+  ): Promise<IngestScanResult>;
   scanBooks(
     directoryPath: string,
     onProgress: (progress: ScanProgress) => void,
     signal?: AbortSignal,
     folderId?: number,
     options?: FileScanOptions,
-  ): Promise<{ added: number; failures: IngestFailure[] }>;
+  ): Promise<IngestScanResult>;
   scanIncremental(
     directoryPath: string,
     since: number,
@@ -47,7 +47,7 @@ export interface FileScanner {
     signal?: AbortSignal,
     folderId?: number,
     options?: FileScanOptions,
-  ): Promise<{ added: number; failures: IngestFailure[] }>;
+  ): Promise<IngestScanResult>;
   scanBooksIncremental(
     directoryPath: string,
     since: number,
@@ -55,7 +55,7 @@ export interface FileScanner {
     signal?: AbortSignal,
     folderId?: number,
     options?: FileScanOptions,
-  ): Promise<{ added: number; failures: IngestFailure[] }>;
+  ): Promise<IngestScanResult>;
 }
 
 export interface FileScanOptions {
@@ -77,7 +77,7 @@ export class FileScannerImpl implements FileScanner {
     signal?: AbortSignal,
     folderId?: number,
     options: FileScanOptions = {},
-  ): Promise<{ added: number; failures: IngestFailure[] }> {
+  ): Promise<IngestScanResult> {
     return this.scanFiles(directoryPath, COMIC_EXTENSIONS, 'comic', onProgress, signal, folderId, options);
   }
 
@@ -87,7 +87,7 @@ export class FileScannerImpl implements FileScanner {
     signal?: AbortSignal,
     folderId?: number,
     options: FileScanOptions = {},
-  ): Promise<{ added: number; failures: IngestFailure[] }> {
+  ): Promise<IngestScanResult> {
     return this.scanFiles(directoryPath, BOOK_EXTENSIONS, 'book', onProgress, signal, folderId, options);
   }
 
@@ -98,7 +98,7 @@ export class FileScannerImpl implements FileScanner {
     signal?: AbortSignal,
     folderId?: number,
     options: FileScanOptions = {},
-  ): Promise<{ added: number; failures: IngestFailure[] }> {
+  ): Promise<IngestScanResult> {
     return this.ingestService.scanDirectoryIncremental(directoryPath, 'comic', onProgress, since, signal, folderId, {
       useFolderNamesAsSeries: options.useFolderNamesAsSeries === true,
       jobId: options.jobId ?? null,
@@ -112,7 +112,7 @@ export class FileScannerImpl implements FileScanner {
     signal?: AbortSignal,
     folderId?: number,
     options: FileScanOptions = {},
-  ): Promise<{ added: number; failures: IngestFailure[] }> {
+  ): Promise<IngestScanResult> {
     return this.ingestService.scanDirectoryIncremental(directoryPath, 'book', onProgress, since, signal, folderId, {
       useFolderNamesAsSeries: options.useFolderNamesAsSeries === true,
       jobId: options.jobId ?? null,
@@ -127,7 +127,7 @@ export class FileScannerImpl implements FileScanner {
     signal?: AbortSignal,
     folderId?: number,
     options: FileScanOptions = {},
-  ): Promise<{ added: number; failures: IngestFailure[] }> {
+  ): Promise<IngestScanResult> {
     return this.ingestService.scanDirectory(directoryPath, mediaType, onProgress, signal, folderId, {
       useFolderNamesAsSeries: options.useFolderNamesAsSeries === true,
       jobId: options.jobId ?? null,

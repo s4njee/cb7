@@ -87,7 +87,7 @@ export default function UploadPanel({ initialFiles, onSuccess, onBack }: UploadP
     try {
       const items = await gatherFromDrop(e.dataTransfer);
       if (items.length === 0) {
-        setErrorMsg('No supported files in drop (.cbz, .cbr, .epub, .pdf, .mobi)');
+        setErrorMsg('No supported files in drop (.cbz, .cbr, .cb7, .epub, .pdf)');
       } else {
         addFiles(items);
       }
@@ -218,7 +218,7 @@ export default function UploadPanel({ initialFiles, onSuccess, onBack }: UploadP
       <UploadPanelHeader uploading={uploading} onBack={onBack} />
 
       <p className="text-xs text-muted-foreground text-left">
-        Drop files or folders here. Supported: .cbz .cbr .epub .pdf .mobi
+        Drop files or folders here. Supported: .cbz .cbr .cb7 .epub .pdf
       </p>
 
       <UploadDropZone

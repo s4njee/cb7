@@ -14,4 +14,7 @@ export default {
   'reverse-proxy': 'Reverse proxy & HTTPS',
   security: 'Security',
   'gpu-services': 'GPU services',
+  reader: 'Native reader',
+  development: 'Development',
+  'project-map': 'Project map',
 }

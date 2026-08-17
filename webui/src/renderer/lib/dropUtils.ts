@@ -1,4 +1,4 @@
-export const ACCEPTED_EXTS = ['cbz', 'cbr', 'epub', 'pdf', 'mobi'];
+export const ACCEPTED_EXTS = ['cbz', 'cbr', 'cb7', 'epub', 'pdf'];
 export const ACCEPT_ATTR = ACCEPTED_EXTS.map((e) => `.${e}`).join(',');
 
 export function isAccepted(file: File) {

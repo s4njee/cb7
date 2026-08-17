@@ -48,6 +48,10 @@ webui/library/
 *.pdf
 *.mobi
 
+# ...except committed reader test fixtures (procedurally generated, safe).
+!reader/src-tauri/tests/data/*.cbr
+!reader/src-tauri/tests/data/*.rar
+
 # Rust / Tauri (reader)
 reader/src-tauri/target/
 **/target/

@@ -1,17 +1,20 @@
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { sendJson, sendError } from '../middleware';
 import { requireAdmin, type RouteHandler, type RequestContext } from '../context';
+import type { LibraryDatabase } from '../../libraryDatabase';
 import { enqueueScan } from '../../jobs/producer';
 import { QUEUE } from '../../jobs/queues';
 import { readJsonBody, requireNumberArray, requireTrimmedString } from './validation';
 import {
-  findCommonDir,
   folderScanMetaKey,
   folderThumbnailUrl,
   parseFolderRouteOptions,
+  resolveScanTarget,
   withGroupThumbnail,
 } from './folderRouteHelpers';
 import { formatPagedComicResponse, type PagedComicResult } from './routeResponseHelpers';
+import { handle as rootsHandle } from './roots';
 
 /**
  * @module
@@ -55,7 +58,7 @@ async function handleHierarchy(ctx: RequestContext, folderId: number | null, sub
   const { res, db, method, query, currentUser } = ctx;
   if (method !== 'GET') return false;
   const userId = currentUser?.id ?? null;
-  const opts = parseFolderRouteOptions(query);
+  const opts = { ...parseFolderRouteOptions(query), admin: currentUser?.isAdmin === true };
 
   // Scope-aware DB accessors so the path dispatch below is identical for both
   // trees; the folder-vs-global choice lives only in these one-liners.
@@ -116,6 +119,31 @@ async function handleHierarchy(ctx: RequestContext, folderId: number | null, sub
   }
 
   return false;
+}
+
+/**
+ * Enqueue an incremental scan of a folder's watched root, mirroring progress into
+ * a `scan_jobs` row the UI polls. Reads the `folder_scan_ts:<folderId>` cursor so
+ * only directories modified since the last successful scan are re-checked.
+ * Deduped per path by the queue's singletonKey — returns `null` when a scan of
+ * the same path is already queued/active.
+ */
+async function enqueueFolderScan(
+  db: LibraryDatabase,
+  folderId: number,
+  targetPath: string,
+): Promise<string | null> {
+  const lastScanRaw = await db.getAppMeta(folderScanMetaKey(folderId));
+  const since = lastScanRaw ? parseInt(lastScanRaw, 10) : undefined;
+  // Snapshot the start time so the worker can persist it as the next cursor on
+  // success, without missing files added mid-scan.
+  const scanStartMs = Date.now();
+  const jobId = await enqueueScan(
+    { targetPath, folderId, since, scanMetaTs: scanStartMs },
+    { lane: 'normal' },
+  );
+  if (jobId) await db.createScanJob({ id: jobId, kind: QUEUE.ingestScan, targetPath, folderId });
+  return jobId;
 }
 
 export const handle: RouteHandler = async (ctx) => {
@@ -190,7 +218,11 @@ export const handle: RouteHandler = async (ctx) => {
   const folderThumbMatch = pathname.match(/^\/api\/folders\/(\d+)\/thumbnail$/);
   if (method === 'GET' && folderThumbMatch) {
     const folderId = parseInt(folderThumbMatch[1], 10);
-    const thumb = await db.getFolderThumbnail(folderId);
+    const thumb = await db.getFolderThumbnail(
+      folderId,
+      currentUser?.id ?? null,
+      currentUser?.isAdmin === true,
+    );
     if (!thumb || thumb.length === 0) {
       res.writeHead(404);
       res.end();
@@ -216,7 +248,7 @@ export const handle: RouteHandler = async (ctx) => {
   // Query folder comics
   if (method === 'GET' && folderComicsMatch) {
     const folderId = parseInt(folderComicsMatch[1], 10);
-    const opts = parseFolderRouteOptions(query, folderId);
+    const opts = { ...parseFolderRouteOptions(query, folderId), admin: currentUser?.isAdmin === true };
     const result = await db.queryComicsForUser(currentUser?.id ?? null, opts);
     sendJson(res, 200, formatPagedComicResponse(result));
     return true;
@@ -228,46 +260,9 @@ export const handle: RouteHandler = async (ctx) => {
     if (await handleHierarchy(ctx, null, pathname.slice('/api/browse'.length))) return true;
   }
 
-  // Rescan folder: derive the common ancestor directory from the folder's
-  // comics and re-run ingest against it (additive — existing entries are skipped).
-  const folderRescanMatch = pathname.match(/^\/api\/folders\/(\d+)\/rescan$/);
-  if (method === 'POST' && folderRescanMatch) {
-    if (!requireAdmin(ctx)) return true;
-    const folderId = parseInt(folderRescanMatch[1], 10);
-
-    const filePaths = await db.getFolderFilePaths(folderId);
-    if (filePaths.length === 0) {
-      sendError(res, 400, 'Folder has no comics; cannot derive a scan path');
-      return true;
-    }
-
-    const dirs = filePaths.map((p) => path.dirname(p));
-    const commonDir = findCommonDir(dirs);
-    if (!commonDir) {
-      sendError(res, 400, 'Comics span multiple root directories; cannot determine scan path');
-      return true;
-    }
-
-    // Read the last-scan timestamp for incremental mode (only check dirs modified since then).
-    const scanMetaKey = folderScanMetaKey(folderId);
-    const lastScanRaw = await db.getAppMeta(scanMetaKey);
-    const since = lastScanRaw ? parseInt(lastScanRaw, 10) : undefined;
-    // Snapshot the start time so we don't miss files added during the scan. The
-    // worker persists this as the next incremental cursor once the scan succeeds.
-    const scanStartMs = Date.now();
-
-    const jobId = await enqueueScan(
-      { targetPath: commonDir, folderId, since, scanMetaTs: scanStartMs },
-      { lane: 'normal' },
-    );
-    if (!jobId) {
-      const existing = await db.findActiveScanByPath(commonDir);
-      sendJson(res, 200, { jobId: existing?.id ?? null, alreadyQueued: true });
-      return true;
-    }
-    await db.createScanJob({ id: jobId, kind: QUEUE.ingestScan, targetPath: commonDir, folderId });
-    sendJson(res, 202, { jobId });
-    return true;
+  // Watched roots and rescan routes handled by roots.ts
+  if (pathname.startsWith('/api/roots') || pathname.match(/^\/api\/folders\/\d+\/rescan$/)) {
+    return rootsHandle(ctx);
   }
 
   return false;

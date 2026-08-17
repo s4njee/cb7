@@ -1,9 +1,12 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { useUiStore } from '@/store/uiStore';
 import * as api from '@/lib/api';
+import { Users } from 'lucide-react';
 import LibraryGrid from '@/components/library/LibraryGrid';
+import { Button } from '@/components/ui/button';
+import LibraryAccessDialog from '@/components/library/LibraryAccessDialog';
 import FilterStrips from '@/components/library/FilterStrips';
 import SelectionBar from '@/components/library/SelectionBar';
 import Breadcrumb from '@/components/library/Breadcrumb';
@@ -27,6 +30,10 @@ export default function LibraryPage() {
   const selectedIds = useSelectionStore((state) => state.selectedIds);
   const clearSelection = useSelectionStore((state) => state.clearSelection);
 
+  const { data: session } = useQuery({ queryKey: ['session'], queryFn: api.getSession });
+  const isAdmin = session?.user?.isAdmin === true;
+  const [accessOpen, setAccessOpen] = useState(false);
+
   const {
     mediaType,
     sortBy,
@@ -34,6 +41,7 @@ export default function LibraryPage() {
     fileExt,
     readStatus,
     favoritesOnly,
+    missingOnly,
   } = useUiStore();
 
   // Query to find library details
@@ -95,6 +103,7 @@ export default function LibraryPage() {
     fileExt,
     readStatus,
     favoritesOnly,
+    missingOnly,
   });
 
   // Infinite query for library comics list
@@ -123,18 +132,40 @@ export default function LibraryPage() {
       {/* Header section */}
       <div className="p-4 border-b border-border bg-card/10 select-none flex items-center justify-between">
         <Breadcrumb />
-        <EditableCollectionHeaderActions
-          countLabel={activeLibrary ? `${activeLibrary.comicCount} total items` : ''}
-          canEdit={Boolean(activeLibrary)}
-          selectedCount={selectedIds.length}
-          removePending={removeSelectedMutation.isPending}
-          renamePending={renameMutation.isPending}
-          deletePending={deleteMutation.isPending}
-          onRemoveSelected={() => removeSelectedMutation.mutate()}
-          onRename={handleRename}
-          onDelete={handleDelete}
-        />
+        <div className="flex items-center gap-2">
+          {isAdmin && activeLibrary && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 border-border bg-secondary text-foreground gap-1.5"
+              onClick={() => setAccessOpen(true)}
+            >
+              <Users className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Access</span>
+            </Button>
+          )}
+          <EditableCollectionHeaderActions
+            countLabel={activeLibrary ? `${activeLibrary.comicCount} total items` : ''}
+            canEdit={isAdmin && Boolean(activeLibrary)}
+            selectedCount={selectedIds.length}
+            removePending={removeSelectedMutation.isPending}
+            renamePending={renameMutation.isPending}
+            deletePending={deleteMutation.isPending}
+            onRemoveSelected={() => removeSelectedMutation.mutate()}
+            onRename={handleRename}
+            onDelete={handleDelete}
+          />
+        </div>
       </div>
+
+      {activeLibrary && (
+        <LibraryAccessDialog
+          libraryId={activeLibrary.id}
+          libraryName={activeLibrary.name}
+          open={accessOpen}
+          onOpenChange={setAccessOpen}
+        />
+      )}
 
       {/* Filter controls */}
       <FilterStrips />
@@ -151,7 +182,7 @@ export default function LibraryPage() {
         />
       </div>
 
-      <SelectionBar />
+      <SelectionBar matchingScope={{ libraryId }} />
     </div>
   );
 }

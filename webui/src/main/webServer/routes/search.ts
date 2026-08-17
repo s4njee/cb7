@@ -16,7 +16,7 @@ const log = createLogger('search');
  * book) and returns the pg-boss job id — the worker runs the rebuild.
  */
 export const handle: RouteHandler = async (ctx) => {
-  const { res, db, method, pathname, query } = ctx;
+  const { res, db, method, pathname, query, currentUser } = ctx;
 
   if (method === 'GET' && pathname === '/api/search') {
     const q = (typeof query.q === 'string' ? query.q : '').trim();
@@ -31,9 +31,11 @@ export const handle: RouteHandler = async (ctx) => {
       log.warn(`Embedding service unavailable; running keyword-only search: ${err instanceof Error ? err.message : String(err)}`);
     }
     const N = 20;
+    const uid = currentUser?.id ?? null;
+    const admin = currentUser?.isAdmin === true;
     const [kw, sem] = await Promise.all([
-      db.ftsCandidates(q, N),
-      queryVec ? db.vectorCandidates(queryVec, N) : Promise.resolve([]),
+      db.ftsCandidates(q, N, uid, admin),
+      queryVec ? db.vectorCandidates(queryVec, N, uid, admin) : Promise.resolve([]),
     ]);
     const kwIds = new Set(kw.map((r) => r.id));
     const semIds = new Set(sem.map((r) => r.id));

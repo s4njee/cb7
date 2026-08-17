@@ -34,6 +34,8 @@ import {
   type EpubNavigator,
 } from "../lib/readiumView";
 import { installScrollChapterBridge } from "../lib/scrollChapterBridge";
+import { findMatches } from "../lib/searchText";
+import type { SearchHit } from "./readerTypes";
 import { Locator } from "@readium/shared";
 import { epubColors, hostMetrics } from "../lib/epubTheme";
 import { clearLegacyBookmarks, loadLegacyBookmarks } from "../lib/localBookmarks";
@@ -246,14 +248,14 @@ const TextReader = forwardRef<ReaderApi, TextReaderProps>(function TextReader(
       container.replaceChildren();
 
       try {
-        const { data: buffer, localId } = await loadBookData(record);
+        const { source, localId } = await loadBookData(record);
         if (cancelled) return;
         setDownloadPct(null);
         if (localId != null && record.source !== "local") {
           qc.invalidateQueries({ queryKey: ["local"] });
         }
 
-        opened = await openEpubAsPublication(buffer);
+        opened = await openEpubAsPublication(source);
         if (cancelled) return teardown();
         openedRef.current = opened;
         setFixed(opened.isFixedLayout);
@@ -596,6 +598,54 @@ const TextReader = forwardRef<ReaderApi, TextReaderProps>(function TextReader(
     if (spineLink) nav.goLink(spineLink, false, () => {});
   }, []);
 
+  // In-book search: walk the spine, read each section's text through the
+  // publication, and collapse matches to one hit per section (jump target is
+  // the section href, which `goToHref` navigates to). Reading is chunked and
+  // best-effort so a search never hangs on a giant section.
+  const searchBook = useCallback(
+    async (query: string): Promise<SearchHit[]> => {
+      const opened = openedRef.current;
+      if (!opened) return [];
+      const q = query.trim();
+      if (!q) return [];
+      const publication = opened.publication;
+      const items = publication.readingOrder.items;
+      const hits: SearchHit[] = [];
+      const CHUNK = 8;
+      for (let start = 0; start < items.length; start += CHUNK) {
+        const end = Math.min(start + CHUNK, items.length);
+        const chunk = items.slice(start, end);
+        const texts = await Promise.all(
+          chunk.map(async (link) => {
+            try {
+              const res = publication.get(link);
+              const raw = await res.readAsString();
+              return raw ?? "";
+            } catch {
+              return "";
+            }
+          }),
+        );
+        chunk.forEach((link, i) => {
+          const text = texts[i];
+          if (!text) return;
+          const matches = findMatches(text, q);
+          if (!matches.length) return;
+          const tocEntry = opened.toc.find((t) => t.href === link.href);
+          hits.push({
+            target: link.href,
+            label: tocEntry?.label ?? link.href,
+            snippet: matches[0].snippet,
+            count: matches.length,
+          });
+        });
+        if (hits.length >= 200) break;
+      }
+      return hits;
+    },
+    [],
+  );
+
   useImperativeHandle(
     ref,
     (): ReaderApi => ({
@@ -635,8 +685,9 @@ const TextReader = forwardRef<ReaderApi, TextReaderProps>(function TextReader(
         if (loc) navRef.current?.go(loc, false, () => {});
       },
       removeHighlight,
+      search: (query) => searchBook(query),
     }),
-    [toggleBookmark, removeHighlight, goToHref],
+    [toggleBookmark, removeHighlight, goToHref, searchBook],
   );
 
   useEffect(() => {

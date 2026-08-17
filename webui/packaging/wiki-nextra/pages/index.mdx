@@ -1,21 +1,21 @@
 # CB8
 
-**CB8** is a self-hosted reader for the comic and e-book library you already own. Point it at the folders where your `.cbz`, `.cbr`, `.epub`, `.pdf`, and `.mobi` files live and it builds a browsable, searchable catalog over them — covers, metadata, series grouping, tags, collections, and per-user reading progress — without ever moving, renaming, or rewriting the originals.
+**CB8** is a self-hosted comic and e-book library with a native offline reader. Point the server at the folders where your `.cbz`, `.cbr`, `.epub`, `.pdf`, and `.mobi` files live and it builds a browsable catalog over them. Use the native reader for local files, CB7/7z, image folders, offline reading, and desktop workflows.
 
 ![The CB8 app](/img/app/library.png)
 
-This wiki documents **deploying and running the CB8 server**. The reading experience comes from two kinds of client that talk to it.
+This wiki documents the server, browser UI, and native reader.
 
 ## The two halves of CB8
 
 | Component | What it is | This wiki |
 | --- | --- | --- |
 | **Server** | A headless Node.js + Fastify service backed by Postgres. Scans your library, serves covers and pages, and stores progress. Also serves a built-in browser web UI. | Documented here. |
-| **Clients** | The **Flutter app** (iOS, Android, macOS) plus the **built-in web UI** any browser on your LAN can reach. | The app has its own section — see [The app](/app). |
+| **Clients** | The native Tauri reader plus the built-in browser UI any browser on your LAN can reach. | See [The app](/app) and [Reader](/reader). |
 
 ### The hybrid client model
 
-The Flutter client is **hybrid**: the same UI reads from either an **on-device local library** (files copied into the app, catalog in local SQLite, fully offline) *or* a **remote CB8 server** over the server's REST API. Switching between *this device* and a server is a one-tap action — the UI never branches on where content comes from.
+The native reader is **hybrid**: the same UI reads from either an on-device local library (files copied into the app or linked in place) or a remote CB8 server over the REST API. Switching between this device and a server is a one-tap action.
 
 Against a server, the client supports **guest browsing** and **sign-in to sync reading progress**. Guests can browse and read; signing in lets the server save where you left off so it follows you across devices. (Guest writes are rejected by the server by design, and the client surfaces this with a guest badge plus a sign-in prompt.) See [The app](/app) for the full client walkthrough.
 
@@ -25,7 +25,7 @@ Against a server, the client supports **guest browsing** and **sign-in to sync r
 - **Organized catalog** — search, tags, collections/libraries, auto-grouped series/volume/chapter folders, a Recent view, and a *Continue Reading* shelf.
 - **Reading modes** — page-by-page comic reader with single-page and two-page spreads, left-to-right or right-to-left paging for manga, plus a reflowable EPUB reader and a PDF reader.
 - **Per-user progress sync** — reading position is tracked per user and restored across the desktop, web, and mobile clients pointed at the same server.
-- **Optional GPU services** — semantic *search inside your e-books* (vector search over extracted text) and HD *comic page upscaling* (Real-ESRGAN). Both are optional sidecars; the core reader works without any GPU.
+- **Optional GPU services** — semantic *search inside your e-books* and HD *comic page upscaling*. Both are optional sidecars; the core server works without any GPU.
 
 ## Start here
 
@@ -42,7 +42,8 @@ Pick a deployment path, then configure and use it:
 - [Install on bare metal](/installation/bare-metal) — *advanced.* Run it directly on a server without containers.
 - [Configuration](/configuration) — every setting (environment variable), port, and path.
 - [Usage](/usage) — first sign-in, adding your library, and day-to-day reading.
-- [The app](/app) — the iOS / Android / macOS reader: library, reading, importing, and pairing with a server.
+- [The app](/app) — the browser and native clients.
+- [Reader](/reader) — native local-first reading, desktop workflows, and format support.
 - [Format support](/formats) — which comic and book formats CB8 can read.
 - [Glossary](/glossary) — plain-language definitions of the terms used across this wiki.
 - [Architecture](/architecture) — *optional background:* how the pieces fit together.
@@ -62,7 +63,7 @@ Already running CB8? These pages cover the operational side:
 | Requirement | Notes |
 | --- | --- |
 | **Postgres (with `pgvector`)** | The source of truth — catalog, covers, users, sessions, and the e-book search vectors all live here. The server **requires** `DATABASE_URL`; the schema is created on first connect. |
-| **A 7-Zip binary** | Needed to read CBZ/CBR archives (via `node-7z`). Docker images install this automatically; the default path is `/usr/bin/7z`. |
+| **A 7-Zip binary** | Needed by the server to read CBZ/CBR archives. Docker images install this automatically; the default path is `/usr/bin/7z`. |
 | **A data directory** | `CB8_DATA_DIR` (default `/var/lib/cb8`) holds only the regenerable image cache and uploaded archives — nothing durable. |
 | **GPUs** | Only for the optional `cb8-embeddings` (e-book semantic search) and `cb8-upscale` (comic HD upscaling) services. Not required for the core reader. |
 

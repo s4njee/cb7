@@ -1,4 +1,14 @@
-# Features Checklist — Shelf (reader client)
+# Features Checklist — CB8 (reader client)
+
+Desktop (macOS/Windows/Linux) shares this checklist; the desktop-specific
+surface — local-first import, window/menu/keyboard, CBR, release packaging —
+is tracked in [plan-desktop.md](plan-desktop.md) with its own support matrix
+([docs/desktop-support-matrix.md](docs/desktop-support-matrix.md)).
+
+Desktop-verified on the packaged macOS build (2026-08-16, see plan-desktop
+phases 0–5): local EPUB/PDF/CBZ/**CBR** import and read, offline reopen with
+persisted progress, native menus + shortcuts, window-state persistence,
+drag/drop import, and file-association open (cold and warm).
 
 What a full-featured ebook/comic reader client should support, scoped to this
 app (the CB8 server handles ingest/metadata/search server-side — see

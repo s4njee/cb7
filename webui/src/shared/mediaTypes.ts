@@ -14,8 +14,13 @@
  */
 
 // Sets WITHOUT leading dots (matches filename.split('.').pop() pattern)
-export const COMIC_EXTENSIONS = new Set(['cbz', 'cbr']);
-export const BOOK_EXTENSIONS = new Set(['pdf', 'epub', 'mobi']);
+export const COMIC_EXTENSIONS = new Set(['cbz', 'cbr', 'cb7']);
+// Note: `.mobi` is deliberately not listed. It used to be a supported "book"
+// extension, but nothing can read it (no cover extraction, no reader), so
+// accepting it created coverless, unreadable library records. It is
+// de-supported: existing MOBI records still exist and are downloadable, but
+// the reader shows an "unsupported format" state for them.
+export const BOOK_EXTENSIONS = new Set(['pdf', 'epub']);
 export const ALL_EXTENSIONS = new Set([...COMIC_EXTENSIONS, ...BOOK_EXTENSIONS]);
 
 export const ALL_EXTENSIONS_ARRAY = Array.from(ALL_EXTENSIONS);
@@ -23,9 +28,9 @@ export const ALL_EXTENSIONS_ARRAY = Array.from(ALL_EXTENSIONS);
 export const EXTENSION_LABELS: Record<string, string> = {
   cbz: 'Comic Archive (CBZ)',
   cbr: 'Comic Archive (CBR)',
+  cb7: 'CB7',
   pdf: 'PDF Document',
   epub: 'EPUB Book',
-  mobi: 'MOBI Book',
 };
 
 /**

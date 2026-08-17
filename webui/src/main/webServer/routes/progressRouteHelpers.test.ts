@@ -18,6 +18,7 @@ describe('progressRouteHelpers', () => {
     expect(buildProgressUpdate({ page: 99 }, 9, 10)).toEqual({
       page: 9,
       completed: true,
+      percent: 100,
     });
   });
 
@@ -47,6 +48,14 @@ describe('progressRouteHelpers', () => {
     expect(hasProgressUpdate({ completed: false })).toBe(true);
     expect(hasProgressUpdate({ location: '' })).toBe(true);
     expect(hasProgressUpdate({ percent: 0 })).toBe(true);
+  });
+
+  it('mark-read without a page still writes the last page and 100%', () => {
+    expect(buildProgressUpdate({ completed: true }, undefined, 12)).toEqual({
+      completed: true,
+      page: 11,
+      percent: 100,
+    });
   });
 
   it('chooses the legacy progress mirror update', () => {

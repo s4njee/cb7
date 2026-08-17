@@ -36,6 +36,15 @@ CREATE TABLE IF NOT EXISTS comics (
   page_count INTEGER NOT NULL,
   file_size BIGINT NOT NULL,
   cover_thumbnail BYTEA,
+  -- Where the catalog record's file came from. 'scan' = discovered on a
+  -- library path (the file lives on the host, never touched). 'upload' = the
+  -- file was uploaded to this server and lives under <dataDir>/web-uploads —
+  -- removing the record also removes that file. Existing rows default to
+  -- 'scan' so legacy data is never deleted unexpectedly.
+  source TEXT NOT NULL DEFAULT 'scan',
+  -- SHA-256 of the file contents, set at ingest for duplicate detection
+  -- (P1-4). Null for legacy rows that predate hashing.
+  content_hash TEXT,
   date_added TEXT NOT NULL DEFAULT ${NOW_TEXT},
   last_page INTEGER,
   last_location TEXT,
@@ -63,6 +72,28 @@ CREATE TABLE IF NOT EXISTS comics (
 -- formats (EPUB) persist whole-book progress here for shared/guest reading.
 -- Postgres supports IF NOT EXISTS, so this is safe to re-run on every startup.
 ALTER TABLE comics ADD COLUMN IF NOT EXISTS last_percent INTEGER;
+ALTER TABLE comics ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'scan';
+ALTER TABLE comics ADD COLUMN IF NOT EXISTS content_hash TEXT;
+-- Embedded metadata at ingest (P1-3): language + publisher come from the file's
+-- own metadata (ComicInfo.xml / EPUB OPF) and are stored on the comics row.
+ALTER TABLE comics ADD COLUMN IF NOT EXISTS language TEXT;
+ALTER TABLE comics ADD COLUMN IF NOT EXISTS publisher TEXT;
+CREATE INDEX IF NOT EXISTS idx_comics_content_hash ON comics(content_hash);
+-- Missing-file tracking (P1-8): stamped when the file on disk disappears (post-scan
+-- sweep or a media read that hits ENOENT), NULLed when it returns. The UI badges /
+-- filters on it; the prune endpoint removes the row. Idempotent, safe to re-run.
+ALTER TABLE comics ADD COLUMN IF NOT EXISTS missing_at TEXT;
+CREATE INDEX IF NOT EXISTS idx_comics_missing_at ON comics(missing_at);
+
+-- Cover thumbnails moved off the comics row (P0-3): one row per comic holding
+-- the generated JPEG. comics.cover_thumbnail remains as a legacy read fallback
+-- until the worker's backfill copies it here and NULLs the column, after which
+-- this table is the single source of truth.
+CREATE TABLE IF NOT EXISTS comic_covers (
+  comic_id INTEGER PRIMARY KEY REFERENCES comics(id) ON DELETE CASCADE,
+  data BYTEA NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT ${NOW_TEXT}
+);
 
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -219,8 +250,25 @@ CREATE TABLE IF NOT EXISTS libraries (
   id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
   media_type TEXT NOT NULL DEFAULT 'comic',
+  -- Per-user library access (P1-1): when true (the default) every user and
+  -- guest sees this collection; when false, only explicit library_members
+  -- see it. Defaults to true so existing installs keep working after a deploy.
+  everyone BOOLEAN NOT NULL DEFAULT true,
   date_created TEXT NOT NULL DEFAULT ${NOW_TEXT}
 );
+
+-- Membership for restricted libraries (P1-1): the users allowed to see a
+-- collection whose everyone flag is false. Role is reserved for later
+-- (member / manager); membership itself is what gates visibility today.
+CREATE TABLE IF NOT EXISTS library_members (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  library_id INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+  role TEXT NOT NULL DEFAULT 'member',
+  PRIMARY KEY (user_id, library_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_library_members_library ON library_members(library_id);
+ALTER TABLE libraries ADD COLUMN IF NOT EXISTS everyone BOOLEAN NOT NULL DEFAULT true;
 
 CREATE TABLE IF NOT EXISTS library_comics (
   library_id INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
@@ -237,6 +285,12 @@ CREATE TABLE IF NOT EXISTS folders (
   cover_comic_id INTEGER REFERENCES comics(id) ON DELETE SET NULL,
   date_created TEXT NOT NULL DEFAULT ${NOW_TEXT}
 );
+-- Watched library roots (drop-folder ingest): a folder whose files live under a
+-- durable scan root on the host. scan_path is the absolute path the worker
+-- scans (NULL = a plain virtual collection); auto_scan_enabled gates whether
+-- the worker's scheduler walks it on the global auto_rescan_interval_min.
+ALTER TABLE folders ADD COLUMN IF NOT EXISTS scan_path TEXT;
+ALTER TABLE folders ADD COLUMN IF NOT EXISTS auto_scan_enabled INTEGER NOT NULL DEFAULT 1;
 
 CREATE TABLE IF NOT EXISTS folder_comics (
   folder_id INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
@@ -293,6 +347,7 @@ CREATE TABLE IF NOT EXISTS scan_jobs (
   discovered   INTEGER NOT NULL DEFAULT 0,
   processed    INTEGER NOT NULL DEFAULT 0,
   added        INTEGER NOT NULL DEFAULT 0,
+  duplicates   INTEGER NOT NULL DEFAULT 0,
   current_file TEXT,
   error        TEXT,
   created_at   TEXT NOT NULL DEFAULT ${NOW_TEXT},
@@ -300,6 +355,9 @@ CREATE TABLE IF NOT EXISTS scan_jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_scan_jobs_status ON scan_jobs(status);
 CREATE INDEX IF NOT EXISTS idx_scan_jobs_path ON scan_jobs(target_path);
+-- Folder-scoped latest-job lookups for the watched-roots status column.
+CREATE INDEX IF NOT EXISTS idx_scan_jobs_folder ON scan_jobs(folder_id, created_at);
+ALTER TABLE scan_jobs ADD COLUMN IF NOT EXISTS duplicates INTEGER NOT NULL DEFAULT 0;
 
 -- Per-file ingest failures (corrupt archive, missing file, extract timeout, …).
 -- Both processes share this table: the cb8-worker writes scan failures while the

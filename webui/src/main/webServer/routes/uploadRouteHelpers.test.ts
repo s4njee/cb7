@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   directorySuggestions,
+  isInsideDirectory,
   parseIngestErrorLimit,
   parseUploadHeaders,
   resolveAddPathFolderTarget,
@@ -52,6 +53,14 @@ describe('uploadRouteHelpers', () => {
     const root = path.join(path.sep, 'uploads');
     expect(resolveUploadDestination(root, ['Series', 'book.cbz'])).toBe(path.join(root, 'Series', 'book.cbz'));
     expect(resolveUploadDestination(root, ['..', 'book.cbz'])).toBeNull();
+  });
+
+  it('isInsideDirectory rejects paths that escape the root', () => {
+    const root = path.join(path.sep, 'var', 'lib', 'cb8', 'web-uploads');
+    expect(isInsideDirectory(root, path.join(root, 'Saga.cbz'))).toBe(true);
+    expect(isInsideDirectory(root, path.join(root, 'Series', 'Saga.cbz'))).toBe(true);
+    expect(isInsideDirectory(root, path.join(path.sep, 'library', 'owned.cbz'))).toBe(false);
+    expect(isInsideDirectory(root, path.join(root, '..', 'owned.cbz'))).toBe(false);
   });
 
   it('filters, sorts, and limits directory suggestions', () => {

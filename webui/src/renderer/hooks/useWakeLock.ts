@@ -7,7 +7,13 @@ export default function useWakeLock() {
     async function requestWakeLock() {
       if (!('wakeLock' in navigator)) return;
       try {
-        wakeLockRef.current = await navigator.wakeLock.request('screen');
+        const lock = await navigator.wakeLock.request('screen');
+        lock.addEventListener('release', () => {
+          if (wakeLockRef.current === lock) {
+            wakeLockRef.current = null;
+          }
+        });
+        wakeLockRef.current = lock;
       } catch (err) {
         console.debug('Wake lock request denied/failed:', err);
       }
@@ -16,7 +22,7 @@ export default function useWakeLock() {
     requestWakeLock();
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && !wakeLockRef.current) {
+      if (document.visibilityState === 'visible' && (!wakeLockRef.current || wakeLockRef.current.released)) {
         requestWakeLock();
       }
     };
