@@ -8,6 +8,22 @@ This monorepo contains the complete CB8 platform:
 
 ---
 
+## Screenshots
+
+| **Library & Shelf** | **Comic & Manga Reader** |
+|:---:|:---:|
+| ![Library Shelf](docs/screenshots/library.png) | ![Comic Reader](docs/screenshots/reader-comic.png) |
+
+| **Reflowable EPUB Reader** | **Typography & Theming Options** |
+|:---:|:---:|
+| ![EPUB Reader](docs/screenshots/reader-epub.png) | ![Reader Settings](docs/screenshots/reader-epub-options.png) |
+
+| **Table of Contents & Bookmarks** | **Watched Folders & Library Admin** |
+|:---:|:---:|
+| ![Table of Contents](docs/screenshots/reader-toc-gutenberg.png) | ![Watched Folders](docs/screenshots/watched-folders.png) |
+
+---
+
 ## System Architecture
 
 ```
