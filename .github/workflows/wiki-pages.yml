@@ -39,7 +39,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: webui/packaging/wiki-nextra/pnpm-lock.yaml
       - name: Install
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-workspace
       - name: Build static site
         run: pnpm build
         env:
