@@ -1,0 +1,15 @@
+# Reader formats
+
+The native reader supports the following local formats:
+
+| Format | Import | Read | Notes |
+| --- | --- | --- | --- |
+| EPUB | Yes | Yes | Reflowable and fixed-layout EPUB through Readium. |
+| PDF | Yes | Yes | pdf.js with range loading, text search, and highlights. |
+| CBZ | Yes | Yes | ZIP comics; pages and ComicInfo.xml are read on demand. |
+| CBR | Yes | Desktop | Native RAR extraction is enabled in desktop builds. |
+| CB7 / 7z | Yes | Yes | Pure-Rust 7z extraction; encrypted archives are rejected. |
+| Image folder | Yes | Yes | Direct images become comic pages in natural filename order. |
+| MOBI / AZW3 | Yes | Yes | Converted to EPUB during import; DRM is not bypassed. |
+
+Common page images include JPEG, PNG, GIF, WebP, AVIF, and BMP. The server/browser format matrix is documented on the [full format support](/formats) page.

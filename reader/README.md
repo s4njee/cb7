@@ -1,5 +1,7 @@
 # CB8
 
+Project documentation: [CB8 Wiki](https://s4njee.github.io/cb7/)
+
 A Tauri v2 ebook & comic reader for **CB8 servers** (the server in `../webui`).
 Primary deployment targets are **iOS and Android**, plus a **supported desktop
 build** (macOS, Windows, Linux) — the same codebase, packaged as native apps.

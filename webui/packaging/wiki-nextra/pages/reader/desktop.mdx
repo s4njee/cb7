@@ -1,0 +1,43 @@
+# Desktop reader
+
+The desktop build is a Tauri application: the React frontend renders the interface, while Rust owns filesystem access, cookies, archive extraction, and local catalog writes.
+
+## Build from source
+
+```bash
+cd reader
+pnpm install
+pnpm tauri dev
+```
+
+For a browser-only frontend loop:
+
+```bash
+CB8_SERVER=http://localhost:4218 pnpm dev
+```
+
+Release targets are macOS universal `.dmg`, Windows x64 MSI/NSIS, and Linux x64 AppImage/deb. See [`reader/docs/RELEASE-WORKFLOW.md`](https://github.com/s4njee/CB8/blob/main/reader/docs/RELEASE-WORKFLOW.md).
+
+## Desktop behavior
+
+- Files dropped onto the window go through the same importer as the native picker.
+- A dropped or selected folder is previewed before recursive import.
+- Linked folders are read in place and watched for changes; the originals are never modified.
+- Imported files are copied into the app data directory.
+- Local books open even when the server is unavailable.
+- `Cmd/Ctrl+F` searches inside the open EPUB or PDF; library search stays at the shelf level.
+
+## Verification
+
+```bash
+cd reader
+pnpm test
+pnpm typecheck
+pnpm build
+cd src-tauri
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+```
+
+The desktop contract and platform details are maintained in [`reader/DESKTOP.md`](https://github.com/s4njee/CB8/blob/main/reader/DESKTOP.md) and [`reader/docs/CONTRACT.md`](https://github.com/s4njee/CB8/blob/main/reader/docs/CONTRACT.md).

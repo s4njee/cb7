@@ -1,10 +1,8 @@
 # CB8 Docs (Nextra)
 
-A static documentation site for CB8, built with [Nextra](https://nextra.site)
-(the same framework Kavita's wiki uses). It renders the **same Markdown** as the
-Wiki.js setup — the pages under `pages/` are generated from
-[`../wiki/content`](../wiki/content) — but ships as a fast static site served by
-nginx, with no database.
+A static documentation site for CB8, built with [Nextra](https://nextra.site).
+It combines the server's user-facing docs with current native-reader and
+development guidance, and ships as a fast static site with no database.
 
 Deployed two ways from one source: on freya at **http://192.168.1.156:4220/**
 (k8s namespace `wiki-nextra`), and on **https://s4njee.github.io/CB8/** via
@@ -86,8 +84,9 @@ PAGES_BASE_PATH=/CB8 pnpm build && python3 -m http.server -d out 8000
 
 ## Updating the docs
 
-Edit the Markdown in [`../wiki/content`](../wiki/content), re-run the converter
-(see the project history / `pages/` are a 1:1 copy minus the Wiki.js frontmatter,
-with `home.md` → `index.mdx` and `/home` links → `/`), then rebuild the static
-site, push a new image tag, and re-apply. Because the site is baked into the
-image, a redeploy is image-only — no data to migrate.
+Edit the relevant MDX page in `pages/` for reader/development content. Server
+user-facing source pages remain in [`../wiki/content`](../wiki/content). Keep
+implementation facts aligned with [`reader/docs/`](../../../../reader/docs/)
+and [`webui/docs/`](../../docs/), then run `pnpm build`. The GitHub Pages
+workflow builds on changes to those source documentation trees and publishes
+the static export at `https://s4njee.github.io/CB8/`.
