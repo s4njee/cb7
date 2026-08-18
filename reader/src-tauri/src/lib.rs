@@ -116,6 +116,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_config,
             commands::set_server,
+            commands::list_servers,
+            commands::rename_server,
+            commands::remember_server_user,
+            commands::forget_server,
             commands::login,
             commands::logout,
             commands::open_log_dir,

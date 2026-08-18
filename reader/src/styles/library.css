@@ -79,6 +79,75 @@
   margin: 5px 6px;
 }
 
+/* --------------------------------------------------------- saved servers */
+
+.server-list {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+.server-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+}
+.server-row.active {
+  border-color: var(--accent);
+}
+.server-pick {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.server-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 650;
+}
+.server-current {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.server-url {
+  color: var(--muted);
+  font-size: 12px;
+  word-break: break-all;
+}
+.server-actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+.server-rename {
+  flex: 1;
+}
+.menu-servers {
+  padding: 4px 0;
+  border-top: 1px solid var(--line);
+}
+.menu-servers-label {
+  padding: 6px 12px 2px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
 /* ----------------------------------------------------------- active filters */
 /* What is narrowing the shelf right now, and one tap to undo any of it. */
 

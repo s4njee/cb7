@@ -5,7 +5,7 @@
  *  scanned QR code, or a typed address. They all funnel through `connectTo()` —
  *  the single probe → route path — so routing, guest handling and error copy
  *  can never fork between them. */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import * as api from "../lib/api";
 import { toApiError } from "../lib/transport";
 import { allGuestProgress } from "../lib/guestProgress";
@@ -53,6 +53,19 @@ export default function Connect() {
 
   const [server, setServer] = useState(serverUrl || "");
   const [username, setUsername] = useState(lastUsername || "");
+  // Prefill from the *server's* remembered user once its profile is known,
+  // unless the field has already been typed into.
+  useEffect(() => {
+    if (!serverUrl) return;
+    let live = true;
+    void api.listServers().then((servers) => {
+      const saved = servers.find((s) => s.url === serverUrl)?.lastUsername;
+      if (live && saved) setUsername((current) => current || saved);
+    });
+    return () => {
+      live = false;
+    };
+  }, [serverUrl]);
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   // Set once a sign-in succeeds while guest progress is waiting to be uploaded.
@@ -93,6 +106,9 @@ export default function Connect() {
   /** Shared tail of every real sign-in (credentials or pairing token): offer to
    *  upload anything captured while browsing as a guest, then enter. */
   function finishSignIn(user: api.User, resolved: string) {
+    // Remember who signs in *here*: with several servers saved, the last
+    // username is a per-server fact, not a global one.
+    void api.rememberServerUser(resolved, user.username);
     void api.syncBookmarksOutbox();
     const hasGuestProgress = Object.keys(allGuestProgress(resolved)).length > 0;
     if (hasGuestProgress) {

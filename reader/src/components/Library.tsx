@@ -16,7 +16,7 @@ import {
 } from "../lib/bookContext";
 import { metaLine, percentRead, statusLabel, titleInitials } from "../lib/format";
 import { parseLibraryQuery } from "../lib/searchText";
-import { localSearch, type LocalSearchHit } from "../lib/transport";
+import { localSearch, toApiError, type LocalSearchHit } from "../lib/transport";
 import { fromQuery, LOAD_MESSAGES } from "../lib/loadState";
 import {
   ContentSkeleton,
@@ -30,6 +30,7 @@ import CoverCard, { type CardActionAnchor } from "./library/CoverCard";
 import BookDetailSheet from "./library/BookDetailSheet";
 import LinkedFoldersPanel from "./library/LinkedFoldersPanel";
 import SearchIndexPanel from "./library/SearchIndexPanel";
+import ServersPanel from "./library/ServersPanel";
 import OpdsPanel from "./opds/OpdsPanel";
 import ScopeRow from "./library/ScopeRow";
 import SortControl from "./library/SortControl";
@@ -63,6 +64,7 @@ export default function Library() {
     openBook,
     reset,
     goConnect,
+    enterAsUser,
     openSheet,
     showToast,
     importTick,
@@ -94,6 +96,9 @@ export default function Library() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [linkedOpen, setLinkedOpen] = useState(false);
   const [searchIndexOpen, setSearchIndexOpen] = useState(false);
+  const [serversOpen, setServersOpen] = useState(false);
+  /** Saved server profiles, for the quick switcher in the account menu. */
+  const [servers, setServers] = useState<api.SavedServer[]>([]);
   const [opdsOpen, setOpdsOpen] = useState(false);
   const [sheet, setSheet] = useState<{ record: api.WebComicRecord; anchor: CardActionAnchor } | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -196,6 +201,39 @@ export default function Library() {
 
   // A server is usable once we're actually on it (signed in or as a guest).
   const serverReady = !!serverUrl && (!!user || guest);
+
+  // Saved server profiles. Re-read whenever the active server changes, so a
+  // freshly added or forgotten one shows up in the switcher immediately.
+  useEffect(() => {
+    void api.listServers().then(setServers).catch(() => setServers([]));
+  }, [serverUrl]);
+
+  /** Switch to a saved server.
+   *
+   *  Every server-scoped query key carries the server URL, so the previous
+   *  library's pages simply stop being addressed rather than being flushed —
+   *  switching back is instant and nothing from one server is ever rendered
+   *  under another's name. A still-valid session lands straight in the library;
+   *  otherwise this routes to sign-in for that server. */
+  const switchServer = useCallback(
+    async (url: string) => {
+      if (url === serverUrl) return;
+      setMenuOpen(false);
+      setServersOpen(false);
+      try {
+        const session = (await api.setServer(url)) as api.SessionPayload;
+        if (session.authenticated && session.user) {
+          enterAsUser(session.user, url);
+          setShelfChoice("server");
+        } else {
+          goConnect("signin", { serverUrl: url, guestAccess: !!session.guestAccess });
+        }
+      } catch (err) {
+        showToast(toApiError(err).message);
+      }
+    },
+    [serverUrl, enterAsUser, goConnect, showToast],
+  );
 
   // Open on the shelf that has something to show: your own books if you have
   // any, otherwise the server you're already connected to. Local-first does not
@@ -316,6 +354,10 @@ export default function Library() {
   const paged = useInfiniteQuery({
     queryKey: [
       "comics",
+      // Every server-scoped key carries the server: two libraries can hold the
+      // same comic id, and a cached page from one must never be rendered under
+      // the other's name. Switching back is then instant instead of a refetch.
+      serverUrl ?? "",
       scopeKey(scope),
       mediaType ?? "all",
       search,
@@ -354,24 +396,24 @@ export default function Library() {
 
   // Series scope is a bare, unpaged array — filter/sort it client-side.
   const seriesQuery = useQuery({
-    queryKey: ["seriesComics", isSeries ? scope.name : ""],
+    queryKey: ["seriesComics", serverUrl ?? "", isSeries ? scope.name : ""],
     queryFn: () => api.seriesComics(isSeries ? scope.name : ""),
     enabled: isSeries && onServer && serverReady,
   });
 
   const continueQuery = useQuery({
-    queryKey: ["continue"],
+    queryKey: ["continue", serverUrl ?? ""],
     queryFn: () => api.continueReading(1),
     enabled: onServer && serverReady,
   });
 
   const librariesQuery = useQuery({
-    queryKey: ["libraries"],
+    queryKey: ["libraries", serverUrl ?? ""],
     queryFn: api.listLibraries,
     enabled: onServer && serverReady,
   });
   const seriesListQuery = useQuery({
-    queryKey: ["seriesList"],
+    queryKey: ["seriesList", serverUrl ?? ""],
     queryFn: api.listSeries,
     enabled: onServer && serverReady,
   });
@@ -675,16 +717,19 @@ export default function Library() {
     }
   }
 
-  /** Host of the connected server, for the shelf tab. A full URL is too long
-   *  for a tab and the scheme+port tell the reader nothing they care about. */
+  /** What to call the connected server on the shelf tab: the name the user gave
+   *  it, else its host. A full URL is too long for a tab, and the scheme+port
+   *  tell the reader nothing they care about. */
   const serverLabel = useMemo(() => {
     if (!serverUrl) return "Server";
+    const saved = servers.find((s) => s.url === serverUrl);
+    if (saved) return saved.name;
     try {
       return new URL(serverUrl).hostname || "Server";
     } catch {
       return "Server";
     }
-  }, [serverUrl]);
+  }, [serverUrl, servers]);
 
   /** An empty grid is only an *invitation* when the shelf itself is empty. With
    *  a filter or search active it's a normal no-results, and offering "Add
@@ -868,9 +913,42 @@ export default function Library() {
                   Sign in
                 </button>
               )}
-              <button className="menu-item" onClick={changeServer}>
-                {serverUrl ? "Change server" : "Connect a server"}
-              </button>
+              {/* The fast switcher: the servers you actually use, one tap each,
+                  with the current one marked. Managing them (rename, forget) is
+                  a rarer errand and lives behind "Servers…". */}
+              {servers.filter((s) => s.url !== serverUrl).length > 0 && (
+                <div className="menu-servers">
+                  <div className="menu-servers-label">Switch to</div>
+                  {servers
+                    .filter((s) => s.url !== serverUrl)
+                    .slice(0, 4)
+                    .map((s) => (
+                      <button
+                        key={s.url}
+                        className="menu-item"
+                        onClick={() => void switchServer(s.url)}
+                        title={s.url}
+                      >
+                        {s.name}
+                      </button>
+                    ))}
+                </div>
+              )}
+              {servers.length > 0 ? (
+                <button
+                  className="menu-item"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setServersOpen(true);
+                  }}
+                >
+                  Servers…
+                </button>
+              ) : (
+                <button className="menu-item" onClick={changeServer}>
+                  Connect a server
+                </button>
+              )}
               <button className="menu-item" onClick={clearCache}>
                 Clear image cache
               </button>
@@ -1202,6 +1280,22 @@ export default function Library() {
             <LinkedFoldersPanel
               onChanged={() => void localQuery.refetch()}
               onClose={() => setLinkedOpen(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {serversOpen && (
+        <div className="sheet-backdrop" onClick={() => setServersOpen(false)}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <ServersPanel
+              active={serverUrl}
+              onSwitch={(url) => void switchServer(url)}
+              onAdd={() => {
+                setServersOpen(false);
+                changeServer();
+              }}
+              onClose={() => setServersOpen(false)}
             />
           </div>
         </div>

@@ -288,11 +288,64 @@ v3 makes them a system you can rely on for a decade of marginalia.
 
 ### 6. Multi-device and accounts
 
-- [ ] **Multiple saved servers — L.** Named connection profiles with a
-  fast switcher; cookies, cache keys, guest progress, highlights, and
-  query keys namespaced by server+user (the bookmark store already keys
-  this way — extend the pattern). The on-device shelf stays always
-  available.
+- [x] **Multiple saved servers — L.** Server profiles (`{ url, name,
+  lastUsername }`) persist in the app config, with a fast switcher in the
+  account menu and a Servers panel to rename or forget one. Signing out or
+  forgetting a server drops only that server's cookies; every server-scoped
+  query key now carries the server URL; the on-device shelf is untouched by
+  any of it.
+
+  <details><summary>Implementation report</summary>
+
+  **Profiles.** `Config` gains `servers`, ordered most-recently-used, while
+  `server_url` stays as the *active* pointer — so every existing reader of the
+  config, and any older build, keeps working. `set_server` upserts and
+  activates: re-connecting to a known server moves it to the front and keeps
+  the name the user gave it. New commands: `list_servers`, `rename_server`,
+  `remember_server_user`, `forget_server`. The URL is the identity — it is what
+  every namespaced store already keys by — so the name is purely cosmetic and a
+  rename never moves data.
+
+  **Sessions stop bleeding.** `logout` used to wipe the whole cookie jar, which
+  with several servers saved means signing out of one signs you out of all.
+  Cookies are domain-scoped, so one jar serves every host correctly; the fix is
+  `clear_cookies_for(url)`, which removes only the cookies that would be sent to
+  that server. `forget_server` uses the same path, and is deliberately not a
+  data wipe: downloads, pins and on-device annotations stay keyed by the URL, so
+  re-adding the server finds them again — the confirm dialog says so.
+
+  **Namespacing audit.** Against the bookmark store's `server+user` pattern:
+  bookmarks and the progress outbox already key by server+user; guest progress,
+  highlights (EPUB and PDF), stats and the new shelf view memory key by server;
+  media cache keys and pin directories hash the server origin. The gap was
+  React Query — `["comics", …]`, `["seriesComics", …]`, `["continue"]`,
+  `["libraries"]`, `["seriesList"]` and the reader's `["comic", …]` were
+  server-agnostic, so a cached page from one library could render under
+  another's name (the same comic id exists on both). Each now carries the
+  server URL, which also makes switching back instant instead of a refetch.
+  Prefix-matched invalidation still works unchanged. The remaining `+user` gap
+  — highlights and stats are per-device, not per-account — belongs to the
+  "multiple user profiles on one device" item, which this plan defers on
+  purpose.
+
+  **Sign-in remembers per server.** The last username is a per-server fact, so
+  it lives on the profile and prefills that server's sign-in form. Passwords are
+  never stored.
+
+  **Verified.** `serverIsolation` vector module (registered in `vectorSuite`)
+  writes guest progress, highlights, PDF highlights, bookmarks, queued progress
+  and a shelf view under server A **using the same book id on both servers** —
+  the only way a leak would be visible — and asserts none of it is readable as
+  server B's, including same-server/different-user for bookmarks. Rust unit
+  tests cover activation ordering, host labelling and loading an older config
+  with no `servers` key. Full gates: 94 Rust tests, clippy `-D warnings`,
+  `cargo fmt`, iOS target check, `tsc`, `vitest` (14), `vite build`. In the dev
+  preview the account menu renders its empty-list fallback correctly and the
+  library screen is clean. Not exercised: the populated switcher, rename and
+  forget flows — `list_servers` is a Tauri command, so the browser dev vehicle
+  always sees an empty list; these need the desktop app.
+
+  </details>
 - [ ] **Progress conflict handling — M.** The outbox already resolves
   same-session conflicts to the furthest position; add the cross-session
   prompt ("You're at p.212 here, p.240 on iPad — jump?") with a

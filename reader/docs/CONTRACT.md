@@ -36,10 +36,14 @@ and connecting to a CB8 server is optional. Desktop release details live in
 
 | command | args | returns |
 |---|---|---|
-| `get_config` | — | `{ server_url: string \| null }` |
-| `set_server` | `{ url }` | probes `GET {url}/api/auth/session`, persists config, returns the session JSON |
+| `get_config` | — | `{ server_url: string \| null, servers: SavedServer[] }` — `server_url` is the **active** server; `servers` is every remembered one, most recently used first |
+| `set_server` | `{ url }` | probes `GET {url}/api/auth/session`, saves + activates the server profile, returns the session JSON. Re-connecting to a known server moves it to the front and keeps its name. |
+| `list_servers` | — | `SavedServer[]` = `{ url, name, lastUsername? }`, most recently used first |
+| `rename_server` | `{ url, name }` | `SavedServer[]` — the label is cosmetic; nothing is keyed by it |
+| `remember_server_user` | `{ url, username }` | — records who last signed in there (never a password) |
+| `forget_server` | `{ url }` | `SavedServer[]` — drops the profile and clears **only that server's** cookies. Not a data wipe: downloads, pins and on-device annotations stay keyed by the URL. |
 | `login` | `{ username, password }` | `POST /api/auth/login` → `{ ok: true, user: { id, username, isAdmin } }` |
-| `logout` | — | `POST /api/auth/logout`, then clears local cookies |
+| `logout` | — | `POST /api/auth/logout`, then clears the **active server's** cookies only — signing out of one saved server leaves the others signed in |
 | `api_get` | `{ path }` | JSON of `GET {server}{path}`; path must start with `/api/` |
 | `api_send` | `{ method, path, body? }` | JSON of the write request |
 | `clear_media_cache` | — | bytes freed |

@@ -22,6 +22,7 @@ import { runVirtualWindowVectors } from "./virtualWindow.test";
 import { runBookmarkVectors } from "./bookmarks.test";
 import { runHighlightVectors } from "./highlights.test";
 import { runViewMemoryVectors } from "../components/library/viewMemory.test";
+import { runServerIsolationVectors } from "./serverIsolation.test";
 
 const runners = [
   ["bookmarks", runBookmarkVectors],
@@ -34,6 +35,7 @@ const runners = [
   ["pair", runPairVectors],
   ["scrubPreview", runScrubPreviewVectors],
   ["searchText", runSearchTextVectors],
+  ["serverIsolation", runServerIsolationVectors],
   ["viewMemory", runViewMemoryVectors],
   ["virtualWindow", runVirtualWindowVectors],
 ] as const;

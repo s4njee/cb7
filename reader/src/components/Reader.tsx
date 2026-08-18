@@ -69,7 +69,9 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
   // newer progress written from another device. Always refetch on open (the
   // first-party SPA does the same with staleTime 0).
   const freshQuery = useQuery({
-    queryKey: ["comic", listRecord.source ?? "server", listRecord.id],
+    // Server records are addressed *per server* — the same comic id exists on
+    // every library — while a local record is device-wide.
+    queryKey: ["comic", listRecord.source ?? "server", listRecord.source === "local" ? "" : serverUrl, listRecord.id],
     queryFn: () => api.refreshRecord(listRecord),
     staleTime: 0,
     gcTime: 0,

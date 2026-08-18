@@ -30,11 +30,72 @@ pub struct OpdsCatalogStored {
     pub password: Option<String>,
 }
 
-/// Persisted app configuration (server connection).
+/// One remembered CB8 server. The `url` is the identity — it is what every
+/// namespaced store (cookies, media cache keys, pins, on-device highlights and
+/// bookmarks) already keys by — while `name` is only ever a label the user can
+/// change without moving any data.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+// The frontend sees `lastUsername`; the field is camelCase on the wire *and*
+// in `config.json`, which is written by this same impl.
+#[serde(rename_all = "camelCase")]
+pub struct SavedServer {
+    /// Normalized origin, e.g. `http://192.168.1.20:8080`.
+    pub url: String,
+    /// User-facing label; defaults to the host when first saved.
+    pub name: String,
+    /// Last username that signed in here, to prefill the next sign-in. Never a
+    /// password — those are not ours to keep.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_username: Option<String>,
+}
+
+/// Persisted app configuration (server connections).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Config {
-    /// Normalized origin of the CB8 server, e.g. `http://192.168.1.20:8080`.
+    /// Normalized origin of the *active* CB8 server. Kept as its own field
+    /// (rather than an index into `servers`) so every existing reader of the
+    /// config — and every older build — keeps working unchanged.
     pub server_url: Option<String>,
+    /// Every server the user has connected to, most recently used first.
+    #[serde(default)]
+    pub servers: Vec<SavedServer>,
+}
+
+impl Config {
+    /// Remember `url` and make it active, keeping the list most-recent-first.
+    /// Re-connecting to a known server never duplicates it and never renames
+    /// it — the label is the user's, not the address bar's.
+    pub fn activate(&mut self, url: String, default_name: String) {
+        match self.servers.iter().position(|s| s.url == url) {
+            Some(at) => {
+                let existing = self.servers.remove(at);
+                self.servers.insert(0, existing);
+            }
+            None => self.servers.insert(
+                0,
+                SavedServer {
+                    url: url.clone(),
+                    name: default_name,
+                    last_username: None,
+                },
+            ),
+        }
+        self.server_url = Some(url);
+    }
+}
+
+/// The label a newly saved server gets: its host (and port), which is how
+/// people actually refer to their home server before naming it.
+pub fn default_server_name(url: &str) -> String {
+    url::Url::parse(url)
+        .ok()
+        .and_then(|parsed| {
+            parsed.host_str().map(|host| match parsed.port() {
+                Some(port) => format!("{host}:{port}"),
+                None => host.to_string(),
+            })
+        })
+        .unwrap_or_else(|| url.to_string())
 }
 
 /// Live handle to an in-flight pin, kept in `AppState.downloads` while the
@@ -230,6 +291,38 @@ impl AppState {
         Ok(())
     }
 
+    /// Drop the session for **one** server only.
+    ///
+    /// With several servers saved, signing out of one must not sign you out of
+    /// the others: the jar is shared (cookies are domain-scoped, so one jar
+    /// serves every host correctly), and only the cookies that would be sent to
+    /// this server are removed.
+    pub fn clear_cookies_for(&self, server_url: &str) -> ApiResult<()> {
+        let parsed = url::Url::parse(server_url).map_err(|err| ApiError::local(format!("Invalid server: {err}")))?;
+        {
+            let mut store = self
+                .cookies
+                .lock()
+                .map_err(|_| ApiError::local("cookie store poisoned"))?;
+            let doomed: Vec<(String, String, String)> = store
+                .iter_any()
+                .filter(|cookie| cookie.matches(&parsed))
+                .map(|cookie| {
+                    (
+                        String::from(&cookie.domain),
+                        cookie.path().unwrap_or("/").to_string(),
+                        cookie.name().to_string(),
+                    )
+                })
+                .collect();
+            for (domain, path, name) in doomed {
+                store.remove(&domain, &path, &name);
+            }
+        }
+        self.save_cookies()
+    }
+
+    /// Drop every session on the device (used when the whole config is reset).
     pub fn clear_cookies(&self) -> ApiResult<()> {
         {
             let mut store = self
@@ -325,4 +418,40 @@ fn copy_dir_recursive(from: &std::path::Path, to: &std::path::Path) -> std::io::
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{default_server_name, Config};
+
+    #[test]
+    fn activating_keeps_the_list_most_recent_first_without_duplicating() {
+        let mut config = Config::default();
+        config.activate("http://a.local:4218".into(), "a.local:4218".into());
+        config.activate("http://b.local:4218".into(), "b.local:4218".into());
+        assert_eq!(config.server_url.as_deref(), Some("http://b.local:4218"));
+        assert_eq!(config.servers.len(), 2);
+        assert_eq!(config.servers[0].url, "http://b.local:4218");
+
+        // Re-connecting moves a known server to the front and keeps its label.
+        config.servers[1].name = "Basement".into();
+        config.activate("http://a.local:4218".into(), "ignored".into());
+        assert_eq!(config.servers.len(), 2);
+        assert_eq!(config.servers[0].name, "Basement");
+        assert_eq!(config.server_url.as_deref(), Some("http://a.local:4218"));
+    }
+
+    #[test]
+    fn a_new_server_is_labelled_by_host_and_port() {
+        assert_eq!(default_server_name("http://freya.local:4218"), "freya.local:4218");
+        assert_eq!(default_server_name("https://books.example.com"), "books.example.com");
+        assert_eq!(default_server_name("not a url"), "not a url");
+    }
+
+    #[test]
+    fn an_older_config_without_servers_still_loads() {
+        let config: Config = serde_json::from_str(r#"{"server_url":"http://a.local:4218"}"#).unwrap();
+        assert_eq!(config.server_url.as_deref(), Some("http://a.local:4218"));
+        assert!(config.servers.is_empty());
+    }
 }

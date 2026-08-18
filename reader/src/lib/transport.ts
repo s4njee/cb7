@@ -19,6 +19,18 @@ export interface ApiError {
 
 export interface AppConfig {
   server_url: string | null;
+  /** Every remembered server, most recently used first. Absent on older
+   *  configs, so callers treat it as optional. */
+  servers?: SavedServer[];
+}
+
+/** One remembered CB8 server. The `url` is the identity every namespaced store
+ *  already keys by (cookies, media cache, pins, on-device annotations); `name`
+ *  is only a label, so renaming never moves data. */
+export interface SavedServer {
+  url: string;
+  name: string;
+  lastUsername?: string | null;
 }
 
 // `isTauri` and the media protocol base now come from the platform boundary
@@ -123,6 +135,31 @@ async function browserRequest<T>(
 export function getConfig(): Promise<AppConfig> {
   if (isTauri) return invoke<AppConfig>("get_config");
   return Promise.resolve({ server_url: browserServer });
+}
+
+/** Every saved server, most recently used first. The active one is
+ *  `getConfig().server_url`. */
+export function listServers(): Promise<SavedServer[]> {
+  if (!isTauri) return Promise.resolve([]);
+  return invoke<SavedServer[]>("list_servers");
+}
+
+export function renameServer(url: string, name: string): Promise<SavedServer[]> {
+  if (!isTauri) return Promise.resolve([]);
+  return invoke<SavedServer[]>("rename_server", { url, name });
+}
+
+/** Drop the profile and its session. Downloads, pins and on-device annotations
+ *  stay keyed by this URL, so re-adding the server later finds them again. */
+export function forgetServer(url: string): Promise<SavedServer[]> {
+  if (!isTauri) return Promise.resolve([]);
+  return invoke<SavedServer[]>("forget_server", { url });
+}
+
+/** Remember who signed in here so the next sign-in prefills. Never a password. */
+export function rememberServerUser(url: string, username: string): Promise<void> {
+  if (!isTauri) return Promise.resolve();
+  return invoke<void>("remember_server_user", { url, username });
 }
 
 export async function setServer(url: string): Promise<unknown> {

@@ -3,7 +3,7 @@ use tauri::{Manager, State};
 
 use crate::error::{ApiError, ApiResult};
 use crate::proxy;
-use crate::state::{AppState, Config};
+use crate::state::{default_server_name, AppState, Config, SavedServer};
 
 /// Normalize user input like `192.168.1.20:8080/` → `http://192.168.1.20:8080`.
 fn normalize_server_url(input: &str) -> ApiResult<String> {
@@ -110,10 +110,73 @@ pub async fn set_server(state: State<'_, AppState>, url: String) -> Result<Value
     }
     {
         let mut config = state.config.write().await;
-        config.server_url = Some(normalized);
+        let name = default_server_name(&normalized);
+        config.activate(normalized, name);
     }
     state.save_config().await?;
     Ok(payload)
+}
+
+/// Every remembered server, most recently used first. The active one is
+/// `get_config().server_url`.
+#[tauri::command]
+pub async fn list_servers(state: State<'_, AppState>) -> Result<Vec<SavedServer>, ApiError> {
+    Ok(state.config.read().await.servers.clone())
+}
+
+/// Rename a saved server. The label is cosmetic: nothing is keyed by it, so a
+/// rename never moves cookies, cache, pins or on-device annotations.
+#[tauri::command]
+pub async fn rename_server(
+    state: State<'_, AppState>,
+    url: String,
+    name: String,
+) -> Result<Vec<SavedServer>, ApiError> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err(ApiError::local("Give the server a name"));
+    }
+    {
+        let mut config = state.config.write().await;
+        let Some(server) = config.servers.iter_mut().find(|s| s.url == url) else {
+            return Err(ApiError::local("No such server"));
+        };
+        server.name = name;
+    }
+    state.save_config().await?;
+    list_servers(state).await
+}
+
+/// Record who signed in here, so the next sign-in on this server prefills the
+/// right username. Passwords are never stored.
+#[tauri::command]
+pub async fn remember_server_user(state: State<'_, AppState>, url: String, username: String) -> Result<(), ApiError> {
+    {
+        let mut config = state.config.write().await;
+        if let Some(server) = config.servers.iter_mut().find(|s| s.url == url) {
+            server.last_username = Some(username.trim().to_string());
+        }
+    }
+    state.save_config().await
+}
+
+/// Forget a server: drop the profile and its session. Deliberately *not* a data
+/// wipe — downloads, pins and on-device annotations stay keyed by this URL, so
+/// re-adding the server later finds them again. Forgetting the active server
+/// leaves the app with no server, which is a fine place to be: the on-device
+/// shelf never depended on one.
+#[tauri::command]
+pub async fn forget_server(state: State<'_, AppState>, url: String) -> Result<Vec<SavedServer>, ApiError> {
+    state.clear_cookies_for(&url)?;
+    {
+        let mut config = state.config.write().await;
+        config.servers.retain(|s| s.url != url);
+        if config.server_url.as_deref() == Some(url.as_str()) {
+            config.server_url = config.servers.first().map(|s| s.url.clone());
+        }
+    }
+    state.save_config().await?;
+    list_servers(state).await
 }
 
 /// Sign in via CB8's own wrapper endpoint (`POST /api/auth/login`), which does
@@ -126,9 +189,15 @@ pub async fn login(state: State<'_, AppState>, username: String, password: Strin
 
 #[tauri::command]
 pub async fn logout(state: State<'_, AppState>) -> Result<(), ApiError> {
-    // Best-effort server-side sign-out; always drop local cookies.
+    // Best-effort server-side sign-out; always drop the local session. Only
+    // *this* server's cookies go: signing out of one saved server must leave
+    // the others signed in.
     let _ = request_json(&state, reqwest::Method::POST, "/api/auth/logout", None).await;
-    state.clear_cookies()?;
+    let active = state.config.read().await.server_url.clone();
+    match active {
+        Some(url) => state.clear_cookies_for(&url)?,
+        None => state.clear_cookies()?,
+    }
     Ok(())
 }
 

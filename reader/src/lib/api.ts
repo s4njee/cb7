@@ -169,6 +169,16 @@ export async function login(
 
 export { toApiError } from "./transport";
 
+/* ------------------------------------------------------- saved servers */
+
+export {
+  listServers,
+  renameServer,
+  forgetServer,
+  rememberServerUser,
+  type SavedServer,
+} from "./transport";
+
 export const logout = tLogout;
 export const getConfig = tGetConfig;
 export const clearMediaCache = tClearMediaCache;
