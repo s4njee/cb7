@@ -81,6 +81,23 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
+			<string>com.cb8.shelf.cb7</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>cb7</string>
+				</array>
+				<key>public.mime-type</key>
+				<string>application/x-7z-compressed</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
 			<string>com.cb8.shelf.cbr</string>
 			<key>UTTypeConformsTo</key>
 			<array>
@@ -130,6 +147,19 @@
 		<dict>
 			<key>CFBundleTypeExtensions</key>
 			<array>
+				<string>mobi</string>
+				<string>azw3</string>
+			</array>
+			<key>CFBundleTypeName</key>
+			<string>Kindle Book</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
 				<string>cbz</string>
 			</array>
 			<key>LSItemContentTypes</key>
@@ -142,6 +172,22 @@
 			<string>Viewer</string>
 			<key>LSHandlerRank</key>
 			<string>Owner</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>cb7</string>
+			</array>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.cb8.shelf.cb7</string>
+			</array>
+			<key>CFBundleTypeName</key>
+			<string>Comic Book 7z</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
 		</dict>
 		<dict>
 			<key>CFBundleTypeExtensions</key>
