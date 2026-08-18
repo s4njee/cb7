@@ -312,9 +312,55 @@ v3 makes them a system you can rely on for a decade of marginalia.
   (`/api/tags` → `[]`).
 
   </details>
-- [ ] **Richer home shelves — M.** Continue reading, up next in series,
-  recently added, favorites as independent, hide-when-empty rows; local
-  and server sources feed the same shelves.
+- [x] **Richer home shelves — M.** Four independent rows above the grid —
+  Continue reading, Up next in series, Recently added, Favorites — each
+  hiding when empty, on both shelves. Replaces the single server-only
+  "continue" hero card.
+
+  <details><summary>Implementation report</summary>
+
+  **Four questions, four rows.** What am I part-way through, what comes next in
+  a series I finished, what just arrived, what did I mark as worth keeping. A
+  row with nothing in it never renders: an empty "Favorites" strip makes the
+  surface look broken rather than uncluttered. The old hero card was one book,
+  server-only; it is gone, and its CSS with it.
+
+  **One builder, two sources.** `buildHomeShelves` takes four record lists and
+  a pool, and knows nothing about where they came from. The device shelf holds
+  its whole catalog in memory, so `localHomeSources` derives all four by
+  sorting it. A server answers with `/api/continue-reading` plus two small list
+  queries — asked for directly rather than sifted out of the grid's current
+  page, because the grid is sorted and paged by whatever the user chose, so
+  "recently added" read from it would really mean "the newest of the first
+  page". That is what "local and server sources feed the same shelves" buys:
+  the rows and the rules for showing them are identical, only the fetching
+  differs.
+
+  **Up next** reuses the existing `pickSequel` heuristic, driven by finished
+  books newest-first — that is when the question arises — and excludes anything
+  already started, since a book cannot be both what you are reading and what
+  you should read next. The heuristic stays silent rather than guessing when a
+  numbered title has no siblings ("Fahrenheit 451"), and on a server it can
+  only see the pool the three row queries brought back.
+
+  **Rows may overlap** and that is correct: a favorite that arrived yesterday
+  belongs in both "Recently added" and "Favorites", and hiding it from one
+  would answer that row's question wrongly. "Up next" is the single exception.
+
+  **Home means unfiltered.** The rows appear only on an untouched shelf — the
+  moment someone searches, filters, or browses into a scope they have asked a
+  specific question, and burying it under four rows of suggestions is the wrong
+  answer.
+
+  **Verified.** `homeShelves` vector module (registered in `vectorSuite`, 16
+  tests green): empty shelves produce no rows, each row's membership and order,
+  the sequel/continue exclusion, the lone-numbered-title case, deliberate
+  overlap, and the per-row cap. `tsc`, `vitest`, `vite build`; library screen
+  clean in the dev preview. Not exercised: the rows rendered with real books —
+  the browser dev vehicle has no on-device library and cannot reach the server
+  shelf.
+
+  </details>
 - [ ] **Library display controls — M.** Compact/comfortable density,
   optional metadata lines, and a list view; persisted per device class;
   one "Reset view" action. (From backlog P3.)

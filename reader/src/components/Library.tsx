@@ -14,7 +14,7 @@ import {
   canSaveToDevice,
   sourceBadge,
 } from "../lib/bookContext";
-import { metaLine, percentRead, statusLabel, titleInitials } from "../lib/format";
+import { titleInitials } from "../lib/format";
 import { parseLibraryQuery } from "../lib/searchText";
 import { localSearch, toApiError, type LocalSearchHit } from "../lib/transport";
 import { fromQuery, LOAD_MESSAGES } from "../lib/loadState";
@@ -25,7 +25,6 @@ import {
 } from "./ui/StatusView";
 import { usePrefs } from "../store/prefs";
 import { useSession } from "../store/session";
-import CoverArt from "./CoverArt";
 import CoverCard, { type CardActionAnchor } from "./library/CoverCard";
 import BookDetailSheet from "./library/BookDetailSheet";
 import LinkedFoldersPanel from "./library/LinkedFoldersPanel";
@@ -33,6 +32,7 @@ import SearchIndexPanel from "./library/SearchIndexPanel";
 import ServersPanel from "./library/ServersPanel";
 import OpdsPanel from "./opds/OpdsPanel";
 import ScopeRow from "./library/ScopeRow";
+import HomeShelves from "./library/HomeShelves";
 import SortControl from "./library/SortControl";
 import StatusChips from "./library/StatusChips";
 import { useLibrarySort } from "./library/librarySort";
@@ -44,6 +44,7 @@ import {
   tagChipsFromRecords,
   type Scope,
 } from "./library/libraryData";
+import { buildHomeShelves, localHomeSources } from "./library/homeShelfData";
 import ActiveFilters, { type FilterChip } from "./library/ActiveFilters";
 import {
   forgetLibraryView,
@@ -56,6 +57,9 @@ import {
 import "../styles/library.css";
 
 const PAGE_SIZE = 200;
+/** Cards per home row. Enough to browse sideways, few enough that the rows
+ *  never become a second grid. */
+const HOME_ROW_LIMIT = 12;
 
 export default function Library() {
   const {
@@ -120,6 +124,12 @@ export default function Library() {
 
   const mediaType = filter === "all" ? undefined : filter;
   const isSeries = scope.type === "series";
+
+  /** The home rows belong to the *unfiltered* shelf. The moment someone
+   *  searches, filters or browses into a scope they have asked a specific
+   *  question, and answering it under four rows of suggestions buries it. */
+  const homeSurface =
+    scope.type === "all" && filter === "all" && !search && !effFav && !effStatus && !tagFilter && !collectionFilter;
 
   // Opening navigates away, so a second tap in the same beat would re-open on top.
   const openingRef = useRef(false);
@@ -410,7 +420,7 @@ export default function Library() {
 
   const continueQuery = useQuery({
     queryKey: ["continue", serverUrl ?? ""],
-    queryFn: () => api.continueReading(1),
+    queryFn: () => api.continueReading(HOME_ROW_LIMIT),
     enabled: onServer && serverReady,
   });
 
@@ -419,6 +429,21 @@ export default function Library() {
     queryFn: api.listLibraries,
     enabled: onServer && serverReady,
   });
+  // Home-row sources for the *server* shelf. Asked for directly rather than
+  // sifted out of the grid's current page: the grid is sorted and paged by
+  // whatever the user chose, so "recently added" read from it would mean "the
+  // newest of the first page", which is not the same thing at all.
+  const recentQuery = useQuery({
+    queryKey: ["recentlyAdded", serverUrl ?? ""],
+    queryFn: () => api.listComics({ sortBy: "dateAdded", sortOrder: "desc", limit: HOME_ROW_LIMIT }),
+    enabled: onServer && serverReady && homeSurface,
+  });
+  const favoritesQuery = useQuery({
+    queryKey: ["homeFavorites", serverUrl ?? ""],
+    queryFn: () => api.listComics({ favorites: true, limit: HOME_ROW_LIMIT }),
+    enabled: onServer && serverReady && homeSurface && signedIn,
+  });
+
   // Server tags. Optional like everything else on a server: a failure means no
   // Tags group, not an error.
   const tagsQuery = useQuery({
@@ -631,15 +656,38 @@ export default function Library() {
       ? gridState.detail
       : null;
 
-  const featured = continueQuery.data?.[0];
-  const showContinue =
-    onServer &&
-    scope.type === "all" &&
-    filter === "all" &&
-    !search &&
-    !effFav &&
-    !effStatus &&
-    !!featured;
+  // One shelf-builder, two sources: the device answers from its own catalog,
+  // the server from `/api/continue-reading` plus two small list queries. The
+  // rows themselves — and the rules for which ones appear — are identical.
+  const homeShelves = useMemo(() => {
+    if (!homeSurface) return [];
+    if (!onServer) return buildHomeShelves(localHomeSources(localBooks), HOME_ROW_LIMIT);
+    if (!serverReady) return [];
+    const continueReading = continueQuery.data ?? [];
+    const recentlyAdded = recentQuery.data?.records ?? [];
+    const favorites = favoritesQuery.data?.records ?? [];
+    return buildHomeShelves(
+      {
+        continueReading,
+        recentlyAdded,
+        favorites,
+        // Whatever the three rows brought back, plus the loaded grid: enough
+        // siblings for the sequel heuristic to find a next volume, and it
+        // returns nothing rather than guessing when they aren't there.
+        pool: [...continueReading, ...recentlyAdded, ...favorites, ...records],
+      },
+      HOME_ROW_LIMIT,
+    );
+  }, [
+    homeSurface,
+    onServer,
+    serverReady,
+    localBooks,
+    continueQuery.data,
+    recentQuery.data,
+    favoritesQuery.data,
+    records,
+  ]);
 
   const initials = useMemo(
     () => (user ? titleInitials(user.username) : "G"),
@@ -1094,27 +1142,7 @@ export default function Library() {
             />
           )}
 
-          {showContinue && featured && (
-            <div className="continue-card">
-              <button className="cont-cover" onClick={() => open(featured)}>
-                <CoverArt record={featured} className="cont-cover-art" variant="continue" width={320} />
-              </button>
-              <div className="cont-right">
-                <div className="cont-eyebrow">Continue reading</div>
-                <div className="cont-title">{featured.title}</div>
-                <div className="cont-meta">{metaLine(featured)}</div>
-                <div className="cont-progress-row">
-                  <div className="progress-track" style={{ maxWidth: 280 }}>
-                    <div style={{ width: `${percentRead(featured)}%` }} />
-                  </div>
-                  <div className="progress-pct">{statusLabel(featured)}</div>
-                </div>
-                <button className="resume-btn" onClick={() => open(featured)}>
-                  Resume →
-                </button>
-              </div>
-            </div>
-          )}
+          <HomeShelves shelves={homeShelves} onOpen={open} />
 
           {scope.type === "all" ? (
             <div className="section-label">{onServer ? "All titles" : "On this device"}</div>

@@ -24,6 +24,7 @@ import { runHighlightVectors } from "./highlights.test";
 import { runViewMemoryVectors } from "../components/library/viewMemory.test";
 import { runServerIsolationVectors } from "./serverIsolation.test";
 import { runTagChipVectors } from "../components/library/tagChips.test";
+import { runHomeShelfVectors } from "../components/library/homeShelfData.test";
 
 const runners = [
   ["bookmarks", runBookmarkVectors],
@@ -37,6 +38,7 @@ const runners = [
   ["scrubPreview", runScrubPreviewVectors],
   ["searchText", runSearchTextVectors],
   ["serverIsolation", runServerIsolationVectors],
+  ["homeShelves", runHomeShelfVectors],
   ["tagChips", runTagChipVectors],
   ["viewMemory", runViewMemoryVectors],
   ["virtualWindow", runVirtualWindowVectors],
