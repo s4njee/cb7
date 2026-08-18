@@ -5,6 +5,7 @@
 import { useState } from "react";
 import * as api from "../../lib/api";
 import type { WebComicRecord } from "../../lib/api";
+import { CloseIcon } from "../icons";
 
 export default function LocalMetadataEditor({
   record,
@@ -152,7 +153,7 @@ export default function LocalMetadataEditor({
                   onClick={() => toggleCollection(c)}
                   title="Remove from this collection"
                 >
-                  ✕
+                  <CloseIcon size={13} />
                 </button>
               </span>
             ))}

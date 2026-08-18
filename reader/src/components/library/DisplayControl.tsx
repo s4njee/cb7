@@ -7,6 +7,7 @@
  *  visibly does not follow you to your iPad reads as a bug rather than as the
  *  feature it is. */
 import { useEffect, useRef, useState } from "react";
+import { CheckIcon } from "../icons";
 import {
   DISPLAY_DEFAULTS,
   isDisplayCustomized,
@@ -86,7 +87,7 @@ export default function DisplayControl({
               onClick={() => onChange({ layout: option.value })}
             >
               {option.label}
-              {prefs.layout === option.value && <span className="sort-check">✓</span>}
+              {prefs.layout === option.value && <CheckIcon size={14} className="sort-check" />}
             </button>
           ))}
 
@@ -101,7 +102,7 @@ export default function DisplayControl({
               onClick={() => onChange({ density: option.value })}
             >
               {option.label}
-              {prefs.density === option.value && <span className="sort-check">✓</span>}
+              {prefs.density === option.value && <CheckIcon size={14} className="sort-check" />}
             </button>
           ))}
 
@@ -113,7 +114,7 @@ export default function DisplayControl({
             onClick={() => onChange({ showMeta: !prefs.showMeta })}
           >
             Show details
-            {prefs.showMeta && <span className="sort-check">✓</span>}
+            {prefs.showMeta && <CheckIcon size={14} className="sort-check" />}
           </button>
 
           <div className="sort-menu-sep" />

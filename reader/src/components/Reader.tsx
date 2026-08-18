@@ -6,6 +6,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useQuery } from "@tanstack/react-query";
 import * as api from "../lib/api";
 import { sourceChromeLabel } from "../lib/bookContext";
+import { dominantColorFor } from "../lib/cover";
 import { metaLine, readerFormat } from "../lib/format";
 import { applyImmersive } from "../lib/immersive";
 import { hapticForTurn, type TurnState } from "../lib/haptics";
@@ -21,11 +22,20 @@ const ComicReader = lazy(() => import("./ComicReader"));
 const PdfReader = lazy(() => import("./PdfReader"));
 const TextReader = lazy(() => import("./TextReader"));
 import { ErrorBoundary } from "./ErrorBoundary";
-import SettingsDrawer from "./SettingsDrawer";
+import Settings from "./Settings";
 import SearchDrawer from "./SearchDrawer";
 import TocDrawer, { type TocTab } from "./TocDrawer";
 import FinishedOverlay from "./flows/FinishedOverlay";
-import { RibbonIcon } from "./icons";
+import {
+  BackIcon,
+  BookmarkIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ContentsIcon,
+  ReturnIcon,
+  SearchIcon,
+  TypeIcon,
+} from "./icons";
 import {
   EMPTY_READER_STATE,
   type ReaderApi,
@@ -50,6 +60,9 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
   const serverUrl = useSession((s) => s.serverUrl) ?? "";
   const readerSettingsTick = useSession((s) => s.readerSettingsTick);
   const readerSearchTick = useSession((s) => s.readerSearchTick);
+  const openSettings = useSession((s) => s.openSettings);
+  const closeSettings = useSession((s) => s.closeSettings);
+  const settingsOpen = useSession((s) => s.settingsOpen);
   const openTarget = useSession((s) => s.openTarget);
   const clearOpenTarget = useSession((s) => s.clearOpenTarget);
   const comicMode = usePrefs((s) => s.comicMode);
@@ -133,8 +146,11 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
 
   // Native menu "View > Reader Settings…" bumps this tick; open the drawer.
   useEffect(() => {
-    if (readerSettingsTick > 0) setPanel("settings");
-  }, [readerSettingsTick]);
+    if (readerSettingsTick > 0) {
+      openSettings("reading");
+      setPanel("settings");
+    }
+  }, [readerSettingsTick, openSettings]);
 
   // Native menu "Edit > Find in Library…" (Cmd/Ctrl+F) routes here while
   // reading; open the in-book search drawer.
@@ -510,14 +526,24 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
 
   const openPanel = (p: Exclude<Panel, null>) =>
     setPanel((cur) => (cur === p ? null : p));
-  const closePanel = () => setPanel(null);
+  const closePanel = () => {
+    setPanel(null);
+    closeSettings();
+  };
+  const openReaderSettings = () => {
+    openSettings("reading");
+    setPanel("settings");
+  };
 
   const showSideArrows = chrome && !scrollMode;
   const showProgressRow = rstate.pageLabel != null;
   const showBottom = chrome && (rstate.bottomExtra != null || showProgressRow);
+  const readerStyle = {
+    "--book-dominant": dominantColorFor(shown),
+  } as React.CSSProperties;
 
   return (
-    <div className="reader">
+    <div className="reader" style={readerStyle}>
       <div
         className="reader-stage"
         onClick={scrollMode ? onStageClick : undefined}
@@ -582,7 +608,8 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
       {chrome && (
         <div className={`chrome-top${panel ? " over-panel" : ""}`}>
           <button className="back-btn" onClick={closeReader}>
-            ‹ Library
+            <BackIcon size={18} className="icon-back" />
+            <span>Library</span>
           </button>
           <div className="center-title">
             <div className="center-title-main">{shown.title}</div>
@@ -602,7 +629,7 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
                 aria-label="Return to previous location"
                 title="Return to previous location"
               >
-                <span aria-hidden="true">↩</span>
+                <ReturnIcon size={18} className="icon-return" />
                 <span className="return-btn-label">Return</span>
               </button>
             )}
@@ -612,28 +639,28 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
               aria-label="Search this book"
               title="Search this book (Cmd/Ctrl+F)"
             >
-              🔍
+              <SearchIcon size={20} className="icon-search" />
             </button>
             <button
               className={`nav-btn${panel === "toc" ? " active" : ""}`}
               onClick={() => openPanel("toc")}
               aria-label="Table of contents"
             >
-              ☰
+              <ContentsIcon size={20} className="icon-contents" />
             </button>
             <button
               className={`nav-btn${rstate.isBookmarked ? " active" : ""}`}
               onClick={() => apiRef.current?.toggleBookmark()}
               aria-label="Toggle bookmark"
             >
-              <RibbonIcon size={15} />
+              <BookmarkIcon size={19} className="icon-bookmark" filled={rstate.isBookmarked} />
             </button>
             <button
-              className={`nav-btn serif${panel === "settings" ? " active" : ""}`}
-              onClick={() => openPanel("settings")}
+              className={`nav-btn serif${settingsOpen ? " active" : ""}`}
+              onClick={openReaderSettings}
               aria-label="Reading settings"
             >
-              Aa
+              <TypeIcon size={20} className="icon-type" />
             </button>
           </div>
         </div>
@@ -642,10 +669,10 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
       {showSideArrows && (
         <>
           <button className="side-arrow left" onClick={prev} aria-label="Previous">
-            ‹
+            <ChevronLeftIcon size={22} className="icon-chevron-left" />
           </button>
           <button className="side-arrow right" onClick={next} aria-label="Next">
-            ›
+            <ChevronRightIcon size={22} className="icon-chevron-right" />
           </button>
         </>
       )}
@@ -778,7 +805,7 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
                 onClose={closePanel}
               />
             ) : panel === "settings" ? (
-              <SettingsDrawer format={format} bookId={shown.id} onClose={closePanel} />
+              <Settings format={format} bookId={shown.id} readerMode onClose={() => { closeSettings(); closePanel(); }} />
             ) : (
               <TocDrawer
                 bookTitle={shown.title}

@@ -9,6 +9,8 @@
 
 const ENDPOINT = "https://api.dictionaryapi.dev/api/v2/entries/en";
 
+import { usePrivacyPrefs } from "../store/privacyPrefs";
+
 export interface DictionarySense {
   partOfSpeech: string;
   definitions: string[];
@@ -111,6 +113,7 @@ function parse(word: string, payload: unknown): DictionaryResult {
 export async function lookup(raw: string, signal?: AbortSignal): Promise<DictionaryResult> {
   const word = normalizeWord(raw);
   if (!word) return { status: "missing", word };
+  if (!usePrivacyPrefs.getState().dictionaryLookups) return { status: "unavailable", word };
 
   const hit = cache.get(word);
   if (hit) return hit;

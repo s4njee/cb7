@@ -29,6 +29,10 @@
 .epub-wrap[data-reading-theme="dark"] {
   color-scheme: dark;
 }
+.epub-wrap.flourishes .chapter-label {
+  font-variant: small-caps;
+  letter-spacing: .08em;
+}
 
 /* Readium EpubNavigator mounts frames inside this host. */
 .epub-host.readium-host {
@@ -91,12 +95,12 @@
 .epub-pop-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: var(--z-pop);
 }
 
 .epub-pop {
   position: fixed;
-  z-index: 61;
+  z-index: calc(var(--z-pop) + 1);
   max-width: min(340px, calc(100vw - 20px));
   background: var(--surface);
   border: 1px solid var(--line);
@@ -136,8 +140,9 @@
 /* Pushes the close affordance to the far edge whatever precedes it. */
 .epub-pop-x {
   margin-left: auto;
-  font-size: 18px;
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--muted);
   padding: 0 2px;
 }
@@ -209,7 +214,7 @@
   border-radius: 50%;
   border: 2px solid transparent;
   /* The ring sits outside the border so the swatch color stays a full circle. */
-  box-shadow: 0 0 0 1px var(--line);
+  border-color: var(--line);
 }
 
 .hl-swatch.active {

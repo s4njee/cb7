@@ -1,8 +1,13 @@
 /** Cover art box: real thumbnail image with the typographic gradient treatment
  *  as the loading / error fallback. A thin progress bar is pinned to the bottom. */
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import * as api from "../lib/api";
-import { coverTreatment } from "../lib/cover";
+import {
+  coverTreatment,
+  dominantColorFor,
+  rememberDominantColor,
+  sampleDominantColor,
+} from "../lib/cover";
 import { kindLabel, metaLine, percentRead } from "../lib/format";
 
 type Variant = "grid" | "continue";
@@ -20,13 +25,18 @@ export default function CoverArt({
 }) {
   const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
   const treat = coverTreatment(record.title);
+  const [dominantColor, setDominantColor] = useState(() => dominantColorFor(record));
   const pct = percentRead(record);
   const showFallback = status !== "loaded";
+  const coverStyle = {
+    background: treat.gradient,
+    ...(dominantColor ? { "--cover-dominant": dominantColor } : {}),
+  } as CSSProperties;
 
   return (
     <div
       className={`${className}${status === "loading" ? " cover-loading" : ""}`}
-      style={{ background: treat.gradient }}
+      style={coverStyle}
     >
       {status !== "error" && (
         <img
@@ -35,7 +45,14 @@ export default function CoverArt({
           alt=""
           loading="lazy"
           style={{ opacity: status === "loaded" ? 1 : 0, transition: "opacity .25s ease" }}
-          onLoad={() => setStatus("loaded")}
+          onLoad={(event) => {
+            setStatus("loaded");
+            const color = sampleDominantColor(event.currentTarget);
+            if (color) {
+              rememberDominantColor(record, color);
+              setDominantColor(color);
+            }
+          }}
           onError={() => setStatus("error")}
         />
       )}
@@ -43,7 +60,7 @@ export default function CoverArt({
       {/* Keep typographic treatment while loading or after error — never blank. */}
       {showFallback &&
         (variant === "grid" ? (
-          <div className="cover-inner" style={{ color: treat.ink }}>
+          <div className="cover-inner cover-fallback" style={{ color: treat.ink }}>
             <div>
               <div className="cover-kind">{kindLabel(record)}</div>
               <div className="cover-title">{record.title}</div>
@@ -51,7 +68,7 @@ export default function CoverArt({
             <div className="cover-author">{metaLine(record)}</div>
           </div>
         ) : (
-          <div className="cover-inner" style={{ color: treat.ink }}>
+          <div className="cover-inner cover-fallback continue" style={{ color: treat.ink }}>
             <div className="cover-title" style={{ fontSize: 15, marginTop: 0 }}>
               {record.title}
             </div>

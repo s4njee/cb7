@@ -834,6 +834,42 @@ pub async fn local_delete(state: State<'_, AppState>, id: i64) -> Result<u64, Ap
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LocalClearAllResult {
+    pub removed: u64,
+    pub freed: u64,
+    pub linked_unlinked: u64,
+}
+
+/// Remove every catalog entry and every app-owned book/cover. Linked books are
+/// only unlinked: their external files never live under the app library and
+/// must not be touched by this operation.
+#[tauri::command]
+pub async fn local_clear_all(state: State<'_, AppState>) -> Result<LocalClearAllResult, ApiError> {
+    let _write = state.catalog_write.lock().await;
+    let books = state.catalog.lock().await.books.clone();
+    let linked_unlinked = books.iter().filter(|book| book.source.as_deref() == Some("linked")).count() as u64;
+
+    let mut freed = 0;
+    for book in &books {
+        if book.source.as_deref() == Some("linked") { continue; }
+        for rel in [Some(book.file.clone()), book.cover.clone()].into_iter().flatten() {
+            let path = resolve(&state, &rel);
+            if let Ok(meta) = tokio::fs::metadata(&path).await { freed += meta.len(); }
+            let _ = tokio::fs::remove_file(&path).await;
+        }
+    }
+    let mut catalog = state.catalog.lock().await;
+    let before = Catalog { books: books.clone(), ..catalog.clone() };
+    let after = Catalog { version: catalog.version, books: Vec::new(), next_id: 1, linked_folders: Vec::new() };
+    state.catalog_store.persist(&before, &after).map_err(|err| ApiError::local(err.to_string()))?;
+    *catalog = after;
+    crate::local_search::clear_index(&state)?;
+    crate::local_search::invalidate_index(&state);
+    Ok(LocalClearAllResult { removed: books.len() as u64, freed, linked_unlinked })
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct DownloadProgress {
     comic_id: i64,
     received: u64,

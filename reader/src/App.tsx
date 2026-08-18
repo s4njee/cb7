@@ -7,6 +7,7 @@ import { importReportMessage } from "./lib/format";
 import { isDesktop, isTauri } from "./lib/transport";
 import * as platform from "./lib/platform";
 import { usePrefs } from "./store/prefs";
+import { usePrivacyPrefs } from "./store/privacyPrefs";
 import { useSession } from "./store/session";
 import Connect from "./components/Connect";
 import Library from "./components/Library";
@@ -20,6 +21,9 @@ export default function App() {
   const qc = useQueryClient();
   const accent = usePrefs((s) => s.accent);
   const brightness = usePrefs((s) => s.brightness);
+  const reducedMotion = usePrivacyPrefs((s) => s.reducedMotion);
+  const highContrast = usePrivacyPrefs((s) => s.highContrast);
+  const nightWarmth = usePrivacyPrefs((s) => s.nightWarmth);
   const {
     screen,
     openRecord,
@@ -36,11 +40,21 @@ export default function App() {
     requestLibrarySearch,
     importProgress,
     setImportProgress,
+    openSettings,
   } = useSession();
   const toast = useSession((s) => s.toast);
   const dismissToast = useSession((s) => s.dismissToast);
   const sheet = useSession((s) => s.sheet);
   const [dropActive, setDropActive] = useState(false);
+  const routeStoragePressure = useCallback((err: unknown, operation: string) => {
+    const message = err instanceof Error ? err.message : String(err ?? "");
+    if (/disk full|no space|out of space|storage|quota/i.test(message)) {
+      openSettings("storage");
+      showToast(`${operation} needs more space. Storage settings opened.`);
+      return true;
+    }
+    return false;
+  }, [openSettings, showToast]);
 
   // Auto-clear a toast after a few seconds; a fresh toast restarts the timer.
   useEffect(() => {
@@ -169,8 +183,8 @@ export default function App() {
         // Clear any store copy of this open so a remount cannot re-import.
         await api.takeOpenedPaths().catch(() => []);
         await finishImport(report, opts);
-      } catch {
-        showToast("Couldn't add that file.");
+      } catch (err) {
+        if (!routeStoragePressure(err, "Adding this book")) showToast("Couldn't add that file.");
       } finally {
         importingOpen.current = false;
         setImportProgress(null);
@@ -201,11 +215,13 @@ export default function App() {
             await finishImport(report, { open: false });
           }
         }
+      } catch (err) {
+        if (!routeStoragePressure(err, "Importing this folder")) showToast("Couldn't add those files.");
       } finally {
         setImportProgress(null);
       }
     },
-    [importPaths, finishImport, setImportProgress],
+    [importPaths, finishImport, setImportProgress, routeStoragePressure],
   );
 
   // Native menu "Add Books…" routes through the same picker as the shelf.
@@ -217,12 +233,12 @@ export default function App() {
       if (report.added.length || report.skipped.length || report.failed.length) {
         await finishImport(report, { open: false });
       }
-    } catch {
-      showToast("Couldn't add those files.");
+    } catch (err) {
+      if (!routeStoragePressure(err, "Adding these books")) showToast("Couldn't add those files.");
     } finally {
       importingOpen.current = false;
     }
-  }, [finishImport, showToast]);
+  }, [finishImport, showToast, routeStoragePressure]);
 
   useEffect(() => {
     if (!isTauri) return;
@@ -308,7 +324,7 @@ export default function App() {
   const dim = (1 - brightness) * 0.6;
 
   return (
-    <div className="app-root">
+    <div className={`app-root${reducedMotion ? " reduced-motion" : ""}${highContrast ? " high-contrast" : ""}${nightWarmth ? " night-warmth" : ""}`}>
       {screen === "boot" && <div className="reader-message">Loading…</div>}
       {screen === "connect" && <Connect />}
       {screen === "library" && <Library />}

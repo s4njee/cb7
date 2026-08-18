@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import * as api from "../../lib/api";
 import { toApiError } from "../../lib/transport";
 import OpdsBrowser from "./OpdsBrowser";
+import { CloseIcon } from "../icons";
 import "../../styles/library.css";
 import "../../styles/opds.css";
 
@@ -93,7 +94,7 @@ export default function OpdsPanel({
       <div className="panel-header">
         <div className="panel-title">OPDS catalogs</div>
         <button type="button" className="panel-close" onClick={onClose} aria-label="Close">
-          ✕
+          <CloseIcon size={17} />
         </button>
       </div>
       <p className="panel-sub">

@@ -30,14 +30,18 @@ use crate::downloads;
 use crate::error::{ApiError, ApiResult};
 use crate::local;
 use crate::state::{AppState, CacheInflight};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Custom scheme name registered with the Tauri builder.
 pub const SCHEME: &str = "cb8";
 
 /// Soft cap on the on-disk media cache (768 MiB).
-const CACHE_CAP: u64 = 768 * 1024 * 1024;
-/// After the cap is exceeded we evict down to this watermark (90% of the cap).
-const EVICT_TARGET: u64 = CACHE_CAP / 10 * 9;
+const CACHE_DEFAULT: u64 = 768 * 1024 * 1024;
+static CACHE_CAP: AtomicU64 = AtomicU64::new(CACHE_DEFAULT);
+
+fn cache_cap() -> u64 {
+    CACHE_CAP.load(Ordering::Relaxed)
+}
 
 const HDR_CACHE_CONTROL: &str = "public, max-age=3600";
 const CT_OCTET: &str = "application/octet-stream";
@@ -265,10 +269,36 @@ async fn record_write(state: &AppState, added: u64) {
         Some(current) => current + added,
         None => scan_dir_size(&state.cache_dir),
     };
-    if total > CACHE_CAP {
-        total = evict(&state.cache_dir, EVICT_TARGET);
+    if total > cache_cap() {
+        total = evict(&state.cache_dir, cache_cap() / 10 * 9);
     }
     *guard = Some(total);
+}
+
+pub async fn cache_info(state: &AppState) -> ApiResult<(u64, u64)> {
+    let bytes = match *state.cache_size.lock().await {
+        Some(value) => value,
+        None => scan_dir_size(&state.cache_dir),
+    };
+    Ok((bytes, cache_cap()))
+}
+
+pub async fn set_cache_cap(state: &AppState, cap: u64) -> ApiResult<(u64, u64)> {
+    let allowed = [256 * 1024 * 1024, 768 * 1024 * 1024, 1536 * 1024 * 1024];
+    if !allowed.contains(&cap) {
+        return Err(ApiError::local("Unsupported cache ceiling"));
+    }
+    CACHE_CAP.store(cap, Ordering::Relaxed);
+    let bytes = match *state.cache_size.lock().await {
+        Some(value) => value,
+        None => scan_dir_size(&state.cache_dir),
+    };
+    if bytes > cap {
+        let total = evict(&state.cache_dir, cap / 10 * 9);
+        *state.cache_size.lock().await = Some(total);
+        return Ok((total, cap));
+    }
+    Ok((bytes, cap))
 }
 
 /// Sum of every file's length under `dir` (non-recursive; cache is flat).

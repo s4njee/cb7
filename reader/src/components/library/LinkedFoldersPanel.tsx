@@ -2,6 +2,7 @@
  *  Rescan and missing-book Locate/Remove flows. Desktop-only. */
 import { useCallback, useEffect, useState } from "react";
 import * as api from "../../lib/api";
+import { CloseIcon } from "../icons";
 
 export default function LinkedFoldersPanel({
   onChanged,
@@ -75,7 +76,7 @@ export default function LinkedFoldersPanel({
       <div className="panel-header">
         <div className="panel-title">Linked folders</div>
         <button type="button" className="panel-close" onClick={onClose} aria-label="Close">
-          ✕
+          <CloseIcon size={17} />
         </button>
       </div>
       <p className="panel-sub">

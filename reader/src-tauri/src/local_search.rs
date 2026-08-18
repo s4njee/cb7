@@ -16,9 +16,11 @@
 //! The index remains disposable: it is derived entirely from files on disk, it
 //! is capped, and it can be turned off (which drops it).
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -38,6 +40,14 @@ const SETTINGS_FILE: &str = "search-settings.json";
 const MAX_INDEX_BYTES: i64 = 64 * 1024 * 1024;
 /// Per book, so one enormous file cannot eat the whole budget.
 const MAX_BOOK_BYTES: usize = 4 * 1024 * 1024;
+/// Never decompress an individual EPUB spine entry beyond this amount. A
+/// malformed or unusually large chapter should not monopolize memory.
+const MAX_EPUB_ENTRY_BYTES: usize = 8 * 1024 * 1024;
+/// lopdf loads a document before extracting pages; skip very large PDFs rather
+/// than putting hundreds of megabytes on the indexer's heap.
+const MAX_PDF_SOURCE_BYTES: u64 = 128 * 1024 * 1024;
+/// Give the reader and other native work a chance between books.
+const INDEX_PAUSE: Duration = Duration::from_millis(60);
 /// Segment size. Small enough that a hit's progression lands the reader on the
 /// passage, large enough that a query's words usually share one segment.
 const SEGMENT_CHARS: usize = 1200;
@@ -62,6 +72,7 @@ pub struct SearchSettings {
     /// Books completed / queued in the run that is currently in flight.
     pub done: u64,
     pub total: u64,
+    pub current_book: Option<String>,
 }
 
 /// Only the user's choice is persisted; every count is derived from the index.
@@ -113,6 +124,8 @@ pub struct SearchFlags {
     stale: AtomicBool,
     /// (done, total) of the run in flight, for the settings/status readout.
     progress: Mutex<(u64, u64)>,
+    /// Title currently being extracted, for the library status bar.
+    current_book: Mutex<Option<String>>,
 }
 
 // ------------------------------------------------------------------- hits
@@ -299,17 +312,21 @@ fn locator_json(href: &str, progression: f64, highlight: &str) -> String {
 }
 
 fn zip_entry_text<R: std::io::Read + std::io::Seek>(archive: &mut ZipArchive<R>, name: &str) -> Option<String> {
-    let mut raw = String::new();
+    fn read_entry<R: std::io::Read>(mut entry: R) -> Option<String> {
+        let mut bytes = Vec::new();
+        std::io::Read::take(&mut entry, MAX_EPUB_ENTRY_BYTES as u64)
+            .read_to_end(&mut bytes)
+            .ok()?;
+        Some(String::from_utf8_lossy(&bytes).into_owned())
+    }
     if let Ok(mut entry) = archive.by_name(name) {
-        std::io::Read::read_to_string(&mut entry, &mut raw).ok()?;
-        return Some(raw);
+        return read_entry(&mut entry);
     }
     // Manifest hrefs may be percent-encoded while zip entry names are not.
     let decoded = percent_decode(name);
     if decoded != name {
         if let Ok(mut entry) = archive.by_name(&decoded) {
-            std::io::Read::read_to_string(&mut entry, &mut raw).ok()?;
-            return Some(raw);
+            return read_entry(&mut entry);
         }
     }
     None
@@ -436,6 +453,10 @@ fn epub_segments(path: &Path) -> Result<Vec<Segment>, ApiError> {
 /// cannot parse simply yields nothing rather than failing the whole run — the
 /// reader's own pdf.js search still covers that book in-book.
 fn pdf_segments(path: &Path) -> Result<Vec<Segment>, ApiError> {
+    if std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0) > MAX_PDF_SOURCE_BYTES {
+        log::info!("skipping large PDF in background search index: {}", path.display());
+        return Ok(Vec::new());
+    }
     let doc = lopdf::Document::load(path).map_err(|e| ApiError::local(format!("open PDF: {e}")))?;
     let mut segments = Vec::new();
     let mut budget = MAX_BOOK_BYTES;
@@ -513,10 +534,10 @@ pub fn kick<R: Runtime>(app: &AppHandle<R>, state: &AppState) {
     // work (zip reads, PDF parsing) and must never sit on a runtime worker.
     std::thread::spawn(move || {
         drop_legacy_sidecar(&library_dir);
-        let report = |done: u64, total: u64| {
+        let report = |done: u64, total: u64, current: Option<&str>| {
             let _ = app.emit(
                 PROGRESS_EVENT,
-                serde_json::json!({ "indexing": true, "done": done, "total": total }),
+                serde_json::json!({ "indexing": true, "done": done, "total": total, "currentBook": current }),
             );
         };
         loop {
@@ -531,9 +552,10 @@ pub fn kick<R: Runtime>(app: &AppHandle<R>, state: &AppState) {
         }
         *flags.progress.lock().unwrap_or_else(|e| e.into_inner()) = (0, 0);
         flags.indexing.store(false, Ordering::SeqCst);
+        *flags.current_book.lock().unwrap_or_else(|e| e.into_inner()) = None;
         let _ = app.emit(
             PROGRESS_EVENT,
-            serde_json::json!({ "indexing": false, "done": 0, "total": 0 }),
+            serde_json::json!({ "indexing": false, "done": 0, "total": 0, "currentBook": null }),
         );
     });
 }
@@ -563,7 +585,7 @@ fn reconcile(
     library_dir: &Path,
     store: &CatalogStore,
     flags: &SearchFlags,
-    report: &dyn Fn(u64, u64),
+    report: &dyn Fn(u64, u64, Option<&str>),
 ) -> Result<(), ApiError> {
     let catalog = store
         .load()
@@ -608,12 +630,14 @@ fn reconcile(
     }
     let mut used: i64 = conn.query_row("SELECT COALESCE(SUM(bytes), 0) FROM search_books", [], |r| r.get(0))?;
     let mut done = 0u64;
-    progress(flags, report, done, total);
+    progress(flags, report, done, total, None);
 
     for (book, path, fp) in work {
         if flags.cancel.load(Ordering::SeqCst) {
             break;
         }
+        *flags.current_book.lock().unwrap_or_else(|e| e.into_inner()) = Some(book.title.clone());
+        report(done, total, Some(&book.title));
         used -= forget_book(&conn, book.id)?;
 
         let (mut status, mut segments) = match extract(&path, &book.ext) {
@@ -659,7 +683,11 @@ fn reconcile(
 
         used += bytes;
         done += 1;
-        progress(flags, report, done, total);
+        progress(flags, report, done, total, None);
+        // The worker is deliberately cooperative: a short pause after each
+        // book keeps indexing off the foreground path without making a large
+        // library feel abandoned. Cancellation is checked on the next pass.
+        std::thread::sleep(INDEX_PAUSE);
     }
     Ok(())
 }
@@ -671,9 +699,16 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-fn progress(flags: &SearchFlags, report: &dyn Fn(u64, u64), done: u64, total: u64) {
+fn progress(
+    flags: &SearchFlags,
+    report: &dyn Fn(u64, u64, Option<&str>),
+    done: u64,
+    total: u64,
+    current: Option<&str>,
+) {
     *flags.progress.lock().unwrap_or_else(|e| e.into_inner()) = (done, total);
-    report(done, total);
+    *flags.current_book.lock().unwrap_or_else(|e| e.into_inner()) = current.map(str::to_string);
+    report(done, total, current);
 }
 
 // ------------------------------------------------------------- the queries
@@ -763,6 +798,12 @@ fn search_index(library_dir: &Path, query: &str) -> Result<Vec<LocalSearchHit>, 
 fn read_settings(state: &AppState) -> SearchSettings {
     let enabled = read_stored(state).enabled;
     let (done, total) = *state.search.progress.lock().unwrap_or_else(|e| e.into_inner());
+    let current_book = state
+        .search
+        .current_book
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     let (indexed_books, indexed_bytes, capped_books) = open_db(&state.library_dir)
         .and_then(|conn| {
             let indexed: i64 =
@@ -786,10 +827,11 @@ fn read_settings(state: &AppState) -> SearchSettings {
         indexing: state.search.indexing.load(Ordering::SeqCst),
         done,
         total,
+        current_book,
     }
 }
 
-fn clear_index(state: &AppState) -> Result<(), ApiError> {
+pub(crate) fn clear_index(state: &AppState) -> Result<(), ApiError> {
     let conn = open_db(&state.library_dir)?;
     conn.execute_batch(
         "DELETE FROM search_fts;
@@ -806,8 +848,12 @@ pub async fn local_search_settings<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<SearchSettings, ApiError> {
-    // Opening the panel is also a fine moment to notice pending work.
-    kick(&app, &state);
+    // Opening the panel may discover pending work, but reading settings must
+    // not itself restart a completed pass. The panel reloads after the final
+    // progress event, so an unconditional kick here creates an indexing loop.
+    if state.search.stale.load(Ordering::SeqCst) {
+        kick(&app, &state);
+    }
     Ok(read_settings(&state))
 }
 

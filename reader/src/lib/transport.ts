@@ -206,6 +206,18 @@ export function clearMediaCache(): Promise<number> {
   return Promise.resolve(0);
 }
 
+export interface MediaCacheInfo { bytes: number; ceiling: number; }
+
+export function mediaCacheInfo(): Promise<MediaCacheInfo> {
+  if (isTauri) return invoke<MediaCacheInfo>("media_cache_info");
+  return Promise.resolve({ bytes: 0, ceiling: 768 * 1024 * 1024 });
+}
+
+export function setMediaCacheCeiling(ceiling: number): Promise<MediaCacheInfo> {
+  if (isTauri) return invoke<MediaCacheInfo>("set_media_cache_ceiling", { ceiling });
+  return Promise.resolve({ bytes: 0, ceiling });
+}
+
 /* ------------------------------------------------------------ file ranges */
 
 /** Total byte length of a server file (server-relative `/api/...` path), or
@@ -355,6 +367,7 @@ export interface LocalSearchSettings {
   /** Books completed / queued in the running pass. */
   done: number;
   total: number;
+  currentBook?: string | null;
 }
 
 const NO_SEARCH_INDEX: LocalSearchSettings = {
@@ -389,6 +402,7 @@ export interface SearchIndexProgress {
   indexing: boolean;
   done: number;
   total: number;
+  currentBook?: string | null;
 }
 
 /** Live progress of the background indexer. */
@@ -670,6 +684,13 @@ export function localSize(): Promise<number> {
   return invoke<number>("local_size");
 }
 
+export interface LocalClearAllResult { removed: number; freed: number; linkedUnlinked: number; }
+
+export function localClearAll(): Promise<LocalClearAllResult> {
+  if (!isTauri) return Promise.resolve({ removed: 0, freed: 0, linkedUnlinked: 0 });
+  return invoke<LocalClearAllResult>("local_clear_all");
+}
+
 /** Hand Rust a cover the webview rendered (epub.js cover, pdf.js page 1). */
 export function saveLocalCover(
   id: number,
@@ -754,6 +775,11 @@ export async function toggleFullscreen(): Promise<void> {
 export function openLogs(): Promise<void> {
   if (!isTauri) return Promise.resolve();
   return invoke<void>("open_log_dir").catch(() => {});
+}
+
+export function openLibraryDir(): Promise<void> {
+  if (!isTauri) return Promise.resolve();
+  return invoke<void>("open_library_dir").catch(() => {});
 }
 
 /* ------------------------------------------------------------- drag/drop */

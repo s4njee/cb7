@@ -2,6 +2,7 @@
  *  in — pending, an entry, or a graceful nothing — since an offline reader hits
  *  the last one constantly and it must read as ordinary, not as an error. */
 import EpubPopover, { type PopoverAnchor } from "./EpubPopover";
+import { CloseIcon } from "./icons";
 import type { DictionaryResult } from "../lib/dictionary";
 
 export interface DictionaryState {
@@ -30,7 +31,7 @@ export default function DictionaryPopover({
           <span className="epub-pop-phon">{result.entry.phonetic}</span>
         )}
         <button className="epub-pop-x" onClick={onClose} aria-label="Close">
-          ×
+          <CloseIcon size={15} />
         </button>
       </div>
 

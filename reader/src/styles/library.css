@@ -48,7 +48,7 @@
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
   padding: 6px;
-  z-index: 50;
+  z-index: var(--z-pop);
   animation: rUp var(--duration-med) var(--ease-standard);
 }
 .sort-menu-item {
@@ -204,7 +204,8 @@
 }
 .active-chip-x {
   color: var(--muted);
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
 }
 .active-chip:hover .active-chip-x {
   color: var(--accent);
@@ -389,14 +390,14 @@
   justify-content: center;
   font-size: 15px;
   line-height: 1;
-  color: #fff;
-  background: rgba(0, 0, 0, 0.4);
+  color: var(--fg);
+  background: var(--scrim-soft);
   backdrop-filter: blur(4px);
   opacity: 0;
   transition:
     opacity var(--duration-fast) var(--ease-standard),
     transform var(--duration-instant) var(--ease-standard);
-  z-index: 2;
+  z-index: var(--z-content);
 }
 .cover-wrap:hover .fav-heart,
 .fav-heart:focus-visible {
@@ -407,8 +408,8 @@
 }
 .fav-heart.on {
   opacity: 1;
-  color: #ff6b81;
-  background: rgba(0, 0, 0, 0.34);
+  color: var(--danger);
+  background: var(--scrim-soft);
 }
 /* Touch devices have no hover — keep the heart discoverable only once favorited;
    favorite is also on the detail sheet opened via overflow / long-press. */
@@ -427,7 +428,7 @@
   position: absolute;
   left: 8px;
   bottom: 8px;
-  z-index: 2;
+  z-index: var(--z-content);
   width: 30px;
   height: 26px;
   border-radius: 999px;
@@ -438,8 +439,8 @@
   letter-spacing: 0.08em;
   font-weight: 700;
   color: var(--fg);
-  background: rgba(20, 21, 25, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--scrim-soft);
+  border: 1px solid color-mix(in srgb, var(--fg) 12%, transparent);
   backdrop-filter: blur(8px);
   opacity: 0;
   transition: opacity var(--duration-fast) var(--ease-standard);
@@ -449,7 +450,7 @@
   opacity: 1;
 }
 .cover-overflow:hover {
-  background: rgba(20, 21, 25, 0.88);
+  background: var(--scrim-soft);
 }
 @media (hover: none) {
   .cover-overflow {
@@ -462,11 +463,11 @@
 .book-detail-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 55;
+  z-index: calc(var(--z-panel) + 15);
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--scrim);
   animation: rIn var(--duration-med) var(--ease-standard);
   padding: 0;
 }
@@ -715,7 +716,7 @@
   align-items: center;
   justify-content: center;
   pointer-events: none;
-  z-index: 1;
+  z-index: var(--z-content);
 }
 .lib-ptr-spin {
   width: 22px;
@@ -873,10 +874,10 @@
   justify-content: center;
   font-size: 13px;
   line-height: 1;
-  color: #fff;
-  background: rgba(0, 0, 0, 0.45);
-  border: 1.5px solid rgba(255, 255, 255, 0.7);
-  z-index: 2;
+  color: var(--fg);
+  background: var(--scrim);
+  border: 1.5px solid color-mix(in srgb, var(--fg) 70%, transparent);
+  z-index: var(--z-content);
 }
 .select-check.on {
   background: var(--accent);
@@ -938,7 +939,9 @@
   padding: 0;
   color: var(--muted);
   cursor: pointer;
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .local-collection-chip-x:hover {
   color: var(--danger);
@@ -972,14 +975,32 @@
 .sheet-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 58;
+  z-index: calc(var(--z-panel) + 18);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--scrim);
   animation: rIn var(--duration-med) var(--ease-standard);
   padding: 24px;
 }
+.library-index-status {
+  position: fixed;
+  left: 18px;
+  right: 18px;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  z-index: calc(var(--z-panel) + 8);
+  padding: 10px 13px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 94%, var(--accent));
+  box-shadow: 0 8px 30px rgb(0 0 0 / 24%);
+  pointer-events: none;
+}
+.library-index-status-head { display: flex; justify-content: space-between; gap: 12px; color: var(--fg); font-size: 12px; font-weight: 600; }
+.library-index-status-head span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 500; }
+.library-index-status-book { margin-top: 3px; overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.library-index-status-track { height: 3px; margin-top: 8px; overflow: hidden; border-radius: 999px; background: var(--surface2); }
+.library-index-status-track span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .2s ease; }
 .panel {
   width: min(460px, 100%);
   max-height: min(88vh, 640px);
@@ -1006,7 +1027,9 @@
   background: none;
   border: none;
   color: var(--muted);
-  font-size: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
 }
 .panel-sub {
@@ -1065,11 +1088,11 @@
   position: absolute;
   top: 8px;
   left: 8px;
-  z-index: 2;
+  z-index: var(--z-content);
   padding: 3px 8px;
   border-radius: 10px;
-  background: rgba(120, 20, 20, 0.85);
-  color: #fff;
+  background: color-mix(in srgb, var(--danger) 85%, var(--bg));
+  color: var(--fg);
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -1080,7 +1103,7 @@
 }
 .local-search-results {
   position: absolute;
-  z-index: 20;
+  z-index: var(--z-chrome);
   top: calc(100% + 8px);
   right: 44px;
   width: min(420px, calc(100vw - 32px));
@@ -1088,7 +1111,11 @@
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--surface);
-  box-shadow: 0 18px 45px rgb(0 0 0 / 24%);
+  border-color: var(--popover-border);
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 .local-search-label { padding: 6px 10px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
 .local-search-hit { display: grid; gap: 3px; width: 100%; padding: 9px 10px; border: 0; border-radius: 9px; background: transparent; color: inherit; text-align: left; cursor: pointer; }

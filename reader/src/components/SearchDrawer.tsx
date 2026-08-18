@@ -1,6 +1,7 @@
 /** In-book text search drawer — Cmd/Ctrl+F while reading. Lists per-section
  *  hits from the active reader and jumps through the shell's back-stack. */
 import { useEffect, useRef, useState } from "react";
+import { CloseIcon } from "./icons";
 import type { SearchHit } from "./readerTypes";
 
 export default function SearchDrawer({
@@ -63,7 +64,7 @@ export default function SearchDrawer({
       <div className="drawer-head">
         <div className="drawer-title">Search “{bookTitle}”</div>
         <button className="close-btn" onClick={onClose} aria-label="Close">
-          ×
+          <CloseIcon size={17} />
         </button>
       </div>
 

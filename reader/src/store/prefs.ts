@@ -44,6 +44,8 @@ export interface PrefsState {
   immersive: boolean;
   /** Tap feedback on page turns and chapter boundaries (mobile only). */
   haptics: boolean;
+  /** Chapter drop caps, small caps and hanging punctuation. */
+  typographicFlourishes: boolean;
   setTheme: (t: ThemeName) => void;
   setAccent: (a: AccentName) => void;
   setFontScale: (n: number) => void;
@@ -59,6 +61,8 @@ export interface PrefsState {
   setRtl: (b: boolean) => void;
   setImmersive: (b: boolean) => void;
   setHaptics: (b: boolean) => void;
+  setTypographicFlourishes: (b: boolean) => void;
+  clearBookFonts: () => void;
   /** Clear per-book overrides for one book (typeface today). */
   resetBookOverrides: (bookId: number) => void;
   /** Restore factory reading defaults; keeps app accent. Clears all book fonts. */
@@ -86,6 +90,7 @@ export const READER_DEFAULTS = {
   rtl: false,
   immersive: false,
   haptics: true,
+  typographicFlourishes: true,
 };
 
 export const usePrefs = create<PrefsState>()(
@@ -109,6 +114,7 @@ export const usePrefs = create<PrefsState>()(
       // missing, and a reader who dislikes it (or has haptics off system-wide)
       // is one toggle away. Desktop never fires regardless.
       haptics: READER_DEFAULTS.haptics,
+      typographicFlourishes: READER_DEFAULTS.typographicFlourishes,
       setTheme: (theme) => set({ theme }),
       setAccent: (accent) => set({ accent }),
       setFontScale: (fontScale) => set({ fontScale }),
@@ -130,6 +136,8 @@ export const usePrefs = create<PrefsState>()(
       setRtl: (rtl) => set({ rtl }),
       setImmersive: (immersive) => set({ immersive }),
       setHaptics: (haptics) => set({ haptics }),
+      setTypographicFlourishes: (typographicFlourishes) => set({ typographicFlourishes }),
+      clearBookFonts: () => set({ bookFonts: {} }),
       /** Drop per-book typeface override for one open book. */
       resetBookOverrides: (bookId: number) =>
         set((s) => {
@@ -147,10 +155,10 @@ export const usePrefs = create<PrefsState>()(
     }),
     {
       name: "shelf.prefs",
-      version: 4,
+      version: 5,
       // v1 stored a `serif` boolean; v2 replaces it with a font registry id.
       // v3 adds accent + Hearth Noir default face (newsreader).
-      // v4 adds epubColumns (two-page text).
+      // v4 adds epubColumns (two-page text); v5 adds typographic flourishes.
       migrate: (persisted, version) => {
         const state = (persisted ?? {}) as Record<string, unknown> & {
           serif?: boolean;
@@ -170,6 +178,7 @@ export const usePrefs = create<PrefsState>()(
             state.epubColumns = 1;
           }
         }
+        if (version < 5) state.typographicFlourishes = true;
         return state as unknown as PrefsState;
       },
     },

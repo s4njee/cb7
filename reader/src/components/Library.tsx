@@ -8,7 +8,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import * as api from "../lib/api";
-import { ACCENTS, type AccentName } from "../lib/fonts";
 import {
   canRemoveLocalCopy,
   canSaveToDevice,
@@ -23,7 +22,6 @@ import {
   StatusBanner,
   StatusView,
 } from "./ui/StatusView";
-import { usePrefs } from "../store/prefs";
 import {
   currentDeviceClass,
   displayFor,
@@ -40,8 +38,10 @@ import ServersPanel from "./library/ServersPanel";
 import OpdsPanel from "./opds/OpdsPanel";
 import ScopeRow from "./library/ScopeRow";
 import HomeShelves from "./library/HomeShelves";
+import { BackIcon } from "./icons";
 import SortControl from "./library/SortControl";
 import DisplayControl from "./library/DisplayControl";
+import Settings from "./Settings";
 import StatusChips from "./library/StatusChips";
 import { useLibrarySort } from "./library/librarySort";
 import { usePullToRefresh } from "./library/usePullToRefresh";
@@ -82,9 +82,10 @@ export default function Library() {
     showToast,
     importTick,
     librarySearchTick,
+    openSettings,
+    closeSettings,
+    settingsOpen,
   } = useSession();
-  const accent = usePrefs((s) => s.accent);
-  const setAccent = usePrefs((s) => s.setAccent);
   const signedIn = !!user && !guest;
 
   // Opening a book unmounts this screen, so where you were browsing is restored
@@ -107,6 +108,7 @@ export default function Library() {
   const [shelfChoice, setShelfChoice] = useState<Shelf | null>(restored?.shelf ?? null);
   const [importing, setImporting] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [searchResultsOpen, setSearchResultsOpen] = useState(false);
   /** Record ids selected for bulk operations (Cmd/Ctrl-click on cards). */
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [linkedOpen, setLinkedOpen] = useState(false);
@@ -223,6 +225,23 @@ export default function Library() {
     return () => document.removeEventListener("mousedown", onDown);
   }, [menuOpen]);
 
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setSearchResultsOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSearchResultsOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
   /* --------------------------------------------------------------- queries */
 
   // The on-device shelf. Cheap (a catalog read), never fails for want of a
@@ -296,15 +315,15 @@ export default function Library() {
   // The background indexer's live status, so a search can say "still building"
   // instead of "no matches". Seeded once on mount (a pass may already be
   // running), then kept current by the indexer's own progress events.
-  const [indexStatus, setIndexStatus] = useState({ indexing: false, done: 0, total: 0 });
+  const [indexStatus, setIndexStatus] = useState({ indexing: false, done: 0, total: 0, currentBook: null as string | null });
   useEffect(() => {
     if (!api.localSupported) return;
     let off = () => {};
     let live = true;
-    void api.localSearchSettings().then(({ indexing, done, total }) => {
-      if (live) setIndexStatus({ indexing, done, total });
+    void api.localSearchSettings().then(({ indexing, done, total, currentBook }) => {
+      if (live) setIndexStatus({ indexing, done, total, currentBook: currentBook ?? null });
     });
-    void api.onSearchIndexProgress((p) => setIndexStatus(p)).then((f) => {
+    void api.onSearchIndexProgress((p) => setIndexStatus({ indexing: p.indexing, done: p.done, total: p.total, currentBook: p.currentBook ?? null })).then((f) => {
       if (live) off = f;
       else f();
     });
@@ -313,7 +332,7 @@ export default function Library() {
       off();
     };
   }, []);
-  const { indexing, done: indexDone, total: indexTotal } = indexStatus;
+  const { indexing, done: indexDone, total: indexTotal, currentBook: indexCurrentBook } = indexStatus;
 
   // Content search is intentionally separate from the cheap catalog filter: the
   // native index is disposable and may still be building. It runs on either
@@ -431,6 +450,13 @@ export default function Library() {
       return loaded < last.totalCount ? loaded : undefined;
     },
     enabled: !isSeries && onServer && serverReady,
+  });
+
+  const remoteCountQuery = useQuery({
+    queryKey: ["remoteLibraryCount", serverUrl ?? ""],
+    queryFn: () => api.listComics({ limit: 1 }),
+    enabled: serverReady,
+    staleTime: 30_000,
   });
 
   // Series scope is a bare, unpaged array — filter/sort it client-side.
@@ -805,15 +831,6 @@ export default function Library() {
     goConnect("server", { serverUrl });
   }
 
-  async function clearCache() {
-    setMenuOpen(false);
-    try {
-      await api.clearMediaCache();
-    } catch {
-      /* ignore */
-    }
-  }
-
   /** What to call the connected server on the shelf tab: the name the user gave
    *  it, else its host. A full URL is too long for a tab, and the scheme+port
    *  tell the reader nothing they care about. */
@@ -833,8 +850,10 @@ export default function Library() {
    *  books" there would misread the situation. */
   const emptyInvitation = !onServer && !search && !effFav && !effStatus && filter === "all";
 
-  const emptyMessage = search
-    ? "No titles match your search."
+  const emptyMessage = search && (textGroups.length > 0 || meaningHits.length > 0)
+    ? "No titles match the shelf filters. Full-text matches are shown above."
+    : search
+      ? "No titles match your search."
     : effFav
       ? "No favorites yet."
       : effStatus
@@ -858,12 +877,16 @@ export default function Library() {
               className="search-input"
               placeholder="Search titles"
               value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
+              onFocus={() => setSearchResultsOpen(true)}
+              onChange={(e) => {
+                setSearchResultsOpen(true);
+                setSearchInput(e.target.value);
+              }}
               autoCapitalize="none"
               spellCheck={false}
             />
           </div>
-          {search && (textGroups.length > 0 || meaningHits.length > 0 || indexing) && (
+          {searchResultsOpen && search && (textGroups.length > 0 || meaningHits.length > 0 || indexing) && (
             <div className="local-search-results" role="listbox" aria-label="Search inside books">
               {(textGroups.length > 0 || indexing) && (
                 <div className="local-search-label">Inside your books · on this device</div>
@@ -934,8 +957,17 @@ export default function Library() {
                 <div className="menu-user-name">
                   {user ? user.username : guest ? "Guest" : "On this device"}
                 </div>
-                <div className="menu-user-sub">{serverUrl || "No server connected"}</div>
+              <div className="menu-user-sub">{serverUrl || "No server connected"}</div>
               </div>
+              <button
+                className="menu-item"
+                onClick={() => {
+                  setMenuOpen(false);
+                  openSettings("reading");
+                }}
+              >
+                Settings…
+              </button>
               <button
                 className="menu-item"
                 onClick={() => {
@@ -1046,25 +1078,6 @@ export default function Library() {
                   Connect a server
                 </button>
               )}
-              <button className="menu-item" onClick={clearCache}>
-                Clear image cache
-              </button>
-              <div className="menu-accent">
-                <div className="menu-accent-label">Accent</div>
-                <div className="accent-grid">
-                  {ACCENTS.map((a) => (
-                    <button
-                      key={a.name}
-                      type="button"
-                      className={`accent-swatch${accent === a.name ? " active" : ""}`}
-                      style={{ background: a.hex }}
-                      aria-label={a.label}
-                      title={a.label}
-                      onClick={() => setAccent(a.name as AccentName)}
-                    />
-                  ))}
-                </div>
-              </div>
             </div>
           )}
         </div>
@@ -1093,6 +1106,7 @@ export default function Library() {
             onClick={() => setShelfChoice("server")}
           >
             {serverLabel}
+            {remoteCountQuery.data?.totalCount != null && <span className="shelf-tab-n">{remoteCountQuery.data.totalCount}</span>}
           </button>
         ) : (
           <button className="shelf-tab ghost" onClick={changeServer}>
@@ -1180,13 +1194,13 @@ export default function Library() {
             />
           )}
 
-          <HomeShelves shelves={homeShelves} onOpen={open} />
+          <HomeShelves shelves={homeShelves} onOpen={open} compact={display.density === "compact"} />
 
           {scope.type === "all" ? (
-            <div className="section-label">{onServer ? "All titles" : "On this device"}</div>
+            <div className="eyebrow library-section-label">{onServer ? "All titles" : "On this device"}</div>
           ) : (
             <button className="scope-breadcrumb" onClick={() => setScope({ type: "all" })}>
-              <span className="crumb-root">‹ All titles</span>
+              <span className="crumb-root"><BackIcon size={16} /> All titles</span>
               <span>·</span>
               <span className="crumb-name">{scope.name}</span>
             </button>
@@ -1418,6 +1432,37 @@ export default function Library() {
                 setShelfChoice("local");
               }}
             />
+          </div>
+        </div>
+      )}
+
+      {settingsOpen && (
+        <Settings
+          onClose={closeSettings}
+          onSwitchServer={(url) => void switchServer(url)}
+          onAddServer={changeServer}
+          onSignOut={() => void signOut()}
+          onSignIn={changeServer}
+          onServersChanged={setServers}
+          onLibraryChanged={() => void localQuery.refetch()}
+          onImported={() => {
+            void localQuery.refetch();
+            setShelfChoice("local");
+          }}
+        />
+      )}
+
+      {api.localSupported && indexing && (
+        <div className="library-index-status" role="status" aria-live="polite">
+          <div className="library-index-status-head">
+            <span>Building full-text search</span>
+            <span>{indexTotal > 0 ? `${indexDone} of ${indexTotal}` : "Working…"}</span>
+          </div>
+          <div className="library-index-status-book">
+            {indexCurrentBook ? `Currently indexing “${indexCurrentBook}”` : "Preparing the next book…"}
+          </div>
+          <div className="library-index-status-track" aria-hidden="true">
+            <span style={{ width: indexTotal > 0 ? `${Math.min(100, (indexDone / indexTotal) * 100)}%` : "12%" }} />
           </div>
         </div>
       )}

@@ -30,6 +30,8 @@ const MAX_DAYS = 180;
 const MAX_FLUSH_MS = 5 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+import { usePrivacyPrefs } from "../store/privacyPrefs";
+
 function storageKey(serverUrl: string): string {
   return `shelf.stats.${serverUrl}`;
 }
@@ -107,6 +109,7 @@ export function startSession(
   comicId: number,
   title: string,
 ): ReadingSession {
+  const enabled = usePrivacyPrefs.getState().readingStats;
   let visible =
     typeof document === "undefined" || document.visibilityState !== "hidden";
   let lastTick: number | null = visible ? Date.now() : null;
@@ -122,7 +125,7 @@ export function startSession(
     }
     const pages = pendingPages;
     pendingPages = 0;
-    accumulate(serverUrl, comicId, title, ms, pages);
+    if (enabled) accumulate(serverUrl, comicId, title, ms, pages);
   };
 
   const interval =

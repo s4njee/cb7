@@ -25,6 +25,7 @@ import {
   statusLabel,
 } from "../../lib/format";
 import CoverArt from "../CoverArt";
+import { CloseIcon } from "../icons";
 import LocalMetadataEditor from "./LocalMetadataEditor";
 
 export interface BookDetailActions {
@@ -139,7 +140,7 @@ export default function BookDetailSheet({
             onClick={onClose}
             aria-label="Close"
           >
-            ×
+            <CloseIcon size={17} />
           </button>
         </div>
 

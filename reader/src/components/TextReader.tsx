@@ -775,7 +775,7 @@ const TextReader = forwardRef<ReaderApi, TextReaderProps>(function TextReader(
 
   return (
     <div
-      className={`epub-wrap${fixed ? " fixed" : ""}${twoCol ? " two-col" : ""}${scrolled ? " scrolled" : ""}`}
+      className={`epub-wrap${fixed ? " fixed" : ""}${twoCol ? " two-col" : ""}${scrolled ? " scrolled" : ""}${prefs.typographicFlourishes ? " flourishes" : ""}`}
       data-reading-theme={prefs.theme}
       style={{ background: pageBg, colorScheme: prefs.theme === "dark" ? "dark" : "light" }}
     >

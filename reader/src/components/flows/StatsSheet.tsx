@@ -4,6 +4,7 @@
  *  open/close breadcrumb feed, signed-in only. */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as api from "../../lib/api";
+import { CloseIcon } from "../icons";
 import { toApiError } from "../../lib/transport";
 import {
   currentStreak,
@@ -201,7 +202,7 @@ export default function StatsSheet() {
       <div className="sheet-head">
         <div className="drawer-title">Reading</div>
         <button className="close-btn" onClick={closeSheet} aria-label="Close">
-          ×
+          <CloseIcon size={17} />
         </button>
       </div>
 

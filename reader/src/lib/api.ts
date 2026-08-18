@@ -8,6 +8,8 @@ import {
   setServer as tSetServer,
   getConfig as tGetConfig,
   clearMediaCache as tClearMediaCache,
+  mediaCacheInfo as tMediaCacheInfo,
+  setMediaCacheCeiling as tSetMediaCacheCeiling,
   localSetFavorite,
   localSetCoverFromPath,
   localClearProgress,
@@ -108,6 +110,8 @@ export interface WebComicRecord {
   lastRead: string | null;
   mediaType: MediaType;
   thumbnailUrl: string;
+  /** Sampled once from the decoded cover thumbnail for ambient UI tinting. */
+  dominantColor?: string;
   fileExt: string;
   favorited: boolean;
   /** Local records only: whether a cover has been extracted yet. The readers
@@ -182,6 +186,8 @@ export {
 export const logout = tLogout;
 export const getConfig = tGetConfig;
 export const clearMediaCache = tClearMediaCache;
+export const mediaCacheInfo = tMediaCacheInfo;
+export const setMediaCacheCeiling = tSetMediaCacheCeiling;
 
 /** Consume a single-use QR pairing token, establishing the session cookie for
  *  the bound user. Anonymous by design (that's the point — the device pairing
@@ -235,6 +241,8 @@ export {
   localSearchSettings,
   localSetMetadata,
   localSize,
+  localClearAll,
+  type LocalClearAllResult,
   localToggleCollection,
   onLinkedFoldersChanged,
   onSearchIndexProgress,
@@ -246,6 +254,7 @@ export {
   onMenuCommand,
   onOpenedFiles,
   openLogs,
+  openLibraryDir,
   pickAndImportBooks,
   pickAndImportFolder,
   importFolderAtPath,
@@ -806,4 +815,10 @@ export async function syncBookmarksOutbox(): Promise<void> {
       }
     }
   }
+}
+
+/** Move guest-created bookmarks to the current signed-in account and report
+ *  how many bookmark rows were adopted for the Settings summary. */
+export function adoptGuestBookmarkData(serverUrl: string, userId: string): number {
+  return adoptGuestBookmarks(serverUrl, userId);
 }

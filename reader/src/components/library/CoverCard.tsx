@@ -6,6 +6,7 @@ import { useRef } from "react";
 import { hapticTick, type WebComicRecord } from "../../lib/api";
 import { statusLabel } from "../../lib/format";
 import CoverArt from "../CoverArt";
+import { CheckIcon, HeartIcon, MoreIcon } from "../icons";
 
 /** Just under iOS's own ~500 ms callout threshold. The system menu is disabled
  *  on this card (see `-webkit-touch-callout` in app.css), but matching the
@@ -143,7 +144,7 @@ export default function CoverCard({
       <div className="cover-wrap">
         {onToggleSelect && (
           <span className={`select-check${selected ? " on" : ""}`} aria-hidden="true">
-            {selected ? "✓" : ""}
+            {selected && <CheckIcon size={15} />}
           </span>
         )}
         {record.missing && (
@@ -162,7 +163,7 @@ export default function CoverCard({
               onToggleFavorite(record);
             }}
           >
-            <span aria-hidden="true">{record.favorited ? "♥" : "♡"}</span>
+            <HeartIcon size={17} filled={record.favorited} />
           </button>
         )}
         {onActions && (
@@ -176,7 +177,7 @@ export default function CoverCard({
               openDetailFromCard();
             }}
           >
-            <span aria-hidden="true">···</span>
+            <MoreIcon size={18} />
           </button>
         )}
       </div>

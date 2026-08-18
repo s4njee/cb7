@@ -9,6 +9,7 @@ import * as api from "../../lib/api";
 import { coverTreatment } from "../../lib/cover";
 import { useSession } from "../../store/session";
 import { parseTitle, pickSequel } from "./sequel";
+import { ChevronRightIcon, StarIcon } from "../icons";
 
 /** Gather sibling records that might be the next volume, then pick one. Pulls
  *  from title search and, when a series is named exactly, that series' comics —
@@ -118,7 +119,7 @@ export default function FinishedOverlay({
             aria-pressed={favorited}
           >
             <span className="fin-star" aria-hidden="true">
-              {favorited ? "★" : "☆"}
+              <StarIcon size={16} filled={favorited} />
             </span>
             {favorited ? "Favorited" : "Add to favorites"}
           </button>
@@ -136,7 +137,7 @@ export default function FinishedOverlay({
               <span className="fin-next-title">{sequel.title}</span>
             </span>
             <span className="fin-next-go" aria-hidden="true">
-              ›
+              <ChevronRightIcon size={20} />
             </span>
           </button>
         )}

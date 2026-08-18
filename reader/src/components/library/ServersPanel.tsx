@@ -6,18 +6,21 @@
  *  again; the panel says so rather than making the user guess. */
 import { useCallback, useEffect, useState } from "react";
 import * as api from "../../lib/api";
+import { CloseIcon } from "../icons";
 
 export default function ServersPanel({
   active,
   onSwitch,
   onAdd,
   onClose,
+  onChanged,
 }: {
   /** URL of the server currently in use, if any. */
   active: string | null;
   onSwitch: (url: string) => void;
   onAdd: () => void;
   onClose: () => void;
+  onChanged?: (servers: api.SavedServer[]) => void;
 }) {
   const [servers, setServers] = useState<api.SavedServer[]>([]);
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -45,7 +48,9 @@ export default function ServersPanel({
     setRenaming(null);
     if (!name) return;
     try {
-      setServers(await api.renameServer(url, name));
+      const next = await api.renameServer(url, name);
+      setServers(next);
+      onChanged?.(next);
     } catch {
       setError("That name didn't stick.");
     }
@@ -59,7 +64,9 @@ export default function ServersPanel({
     );
     if (!ok) return;
     try {
-      setServers(await api.forgetServer(server.url));
+      const next = await api.forgetServer(server.url);
+      setServers(next);
+      onChanged?.(next);
     } catch {
       setError("Couldn't forget that server.");
     }
@@ -70,7 +77,7 @@ export default function ServersPanel({
       <div className="panel-header">
         <div className="panel-title">Servers</div>
         <button type="button" className="panel-close" onClick={onClose} aria-label="Close">
-          ✕
+          <CloseIcon size={17} />
         </button>
       </div>
       <p className="panel-sub">

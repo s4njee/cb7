@@ -16,6 +16,7 @@ export interface FilterChip {
   value: string;
   onRemove: () => void;
 }
+import { CloseIcon } from "../icons";
 
 export default function ActiveFilters({
   chips,
@@ -42,7 +43,7 @@ export default function ActiveFilters({
           <span className="active-chip-kind">{chip.kind}</span>
           <span className="active-chip-value">{chip.value}</span>
           <span className="active-chip-x" aria-hidden="true">
-            ✕
+            <CloseIcon size={13} />
           </span>
         </button>
       ))}

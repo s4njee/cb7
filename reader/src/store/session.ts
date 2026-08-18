@@ -16,6 +16,7 @@ import type { User, WebComicRecord } from "../lib/api";
 
 export type Screen = "boot" | "connect" | "library" | "reader";
 export type ConnectStep = "server" | "signin";
+export type SettingsSection = "reading" | "appearance" | "library" | "sources" | "account" | "storage" | "privacy" | "about";
 
 interface PersistedSession {
   guestChosen: boolean;
@@ -57,6 +58,8 @@ interface SessionState extends PersistedSession {
   /** Monotonic counter bumped when the native menu asks to focus the library
    *  search box (Cmd/Ctrl+F). Library watches it. */
   librarySearchTick: number;
+  settingsOpen: boolean;
+  settingsSection: SettingsSection;
 
   setBooting: () => void;
   /** Land on the library with no server involved — the local-first entry. */
@@ -71,6 +74,8 @@ interface SessionState extends PersistedSession {
   requestReaderSearch: () => void;
   /** Focus the library search box (native Edit > Find in Library…, Cmd/Ctrl+F). */
   requestLibrarySearch: () => void;
+  openSettings: (section?: SettingsSection) => void;
+  closeSettings: () => void;
   /** Leave the connect detour without connecting; the local shelf is still there. */
   cancelConnect: () => void;
   showToast: (msg: string) => void;
@@ -112,6 +117,8 @@ export const useSession = create<SessionState>()(
       readerSettingsTick: 0,
       readerSearchTick: 0,
       librarySearchTick: 0,
+      settingsOpen: false,
+      settingsSection: "reading",
       importProgress: null,
 
       setBooting: () => set({ screen: "boot" }),
@@ -124,6 +131,8 @@ export const useSession = create<SessionState>()(
         set((s) => ({ readerSearchTick: s.readerSearchTick + 1 })),
       requestLibrarySearch: () =>
         set((s) => ({ librarySearchTick: s.librarySearchTick + 1 })),
+      openSettings: (settingsSection = "reading") => set({ settingsOpen: true, settingsSection }),
+      closeSettings: () => set({ settingsOpen: false }),
       cancelConnect: () => set({ screen: "library", connectError: null }),
       showToast: (toast) => set({ toast }),
       dismissToast: () => set({ toast: null }),

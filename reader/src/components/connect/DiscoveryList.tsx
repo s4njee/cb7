@@ -7,6 +7,7 @@
  *  no reserved space, no layout shift when nothing is ever found (QR-5). */
 import { useEffect, useState } from "react";
 import * as api from "../../lib/api";
+import { usePrivacyPrefs } from "../../store/privacyPrefs";
 
 interface Props {
   /** Runs the same probe → route path as the manual form (one code path). */
@@ -18,9 +19,10 @@ interface Props {
 export default function DiscoveryList({ onPick, busy }: Props) {
   const [servers, setServers] = useState<api.DiscoveredServer[]>([]);
   const [scanning, setScanning] = useState(false);
+  const discoveryEnabled = usePrivacyPrefs((s) => s.localDiscovery);
 
   useEffect(() => {
-    if (!api.discoverySupported) return;
+    if (!api.discoverySupported || !discoveryEnabled) return;
 
     // `alive` closes the unmount race: the listener may resolve after cleanup
     // has already run, in which case we unlisten immediately rather than leak a
@@ -56,9 +58,9 @@ export default function DiscoveryList({ onPick, busy }: Props) {
       unlisten?.();
       void api.stopDiscovery();
     };
-  }, []);
+  }, [discoveryEnabled]);
 
-  if (!api.discoverySupported || servers.length === 0) return null;
+  if (!api.discoverySupported || !discoveryEnabled || servers.length === 0) return null;
 
   return (
     <section className="disc">

@@ -5,6 +5,7 @@ import { toApiError } from "../../lib/transport";
 import { coverTreatment } from "../../lib/cover";
 import { useDeviceTransfer } from "../../lib/deviceTransfer";
 import { useSession } from "../../store/session";
+import { BackIcon, ChevronRightIcon, CloseIcon } from "../icons";
 import "../../styles/library.css";
 import "../../styles/opds.css";
 
@@ -154,11 +155,12 @@ export default function OpdsBrowser({
     <div className="panel opds-browser">
       <div className="panel-header">
         <button type="button" className="opds-back" onClick={onBack}>
-          ‹ Catalogs
+          <BackIcon size={18} />
+          <span>Catalogs</span>
         </button>
         <div className="panel-title">{catalog.name}</div>
         <button type="button" className="panel-close" onClick={onClose} aria-label="Close">
-          ✕
+          <CloseIcon size={17} />
         </button>
       </div>
 
@@ -217,7 +219,7 @@ export default function OpdsBrowser({
                   disabled={busy}
                 >
                   <span className="opds-nav-title">{entry.title}</span>
-                  <span className="opds-nav-chevron">›</span>
+                  <ChevronRightIcon size={18} className="opds-nav-chevron" />
                 </button>
               ))}
             </div>

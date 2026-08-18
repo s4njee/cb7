@@ -13,17 +13,19 @@ import type { HomeShelf } from "./homeShelfData";
 export default function HomeShelves({
   shelves,
   onOpen,
+  compact = false,
 }: {
   shelves: HomeShelf[];
   onOpen: (record: WebComicRecord) => void;
+  compact?: boolean;
 }) {
   if (shelves.length === 0) return null;
   return (
-    <div className="home-shelves">
+    <div className={`home-shelves${compact ? " is-compact" : ""}`}>
       {shelves.map((shelf) => (
         <section className="home-shelf" key={shelf.key} aria-label={shelf.title}>
-          <h2 className="section-label home-shelf-title">{shelf.title}</h2>
-          <div className="home-strip">
+          <h2 className="eyebrow home-shelf-title">{shelf.title}</h2>
+          <div className={`home-strip${shelf.key === "recent" ? " is-wrapped" : ""}`}>
             {shelf.records.map((record) => (
               <button
                 key={record.id}

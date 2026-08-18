@@ -228,6 +228,18 @@ pub async fn clear_media_cache(state: State<'_, AppState>) -> Result<u64, ApiErr
     proxy::clear_cache(&state).await
 }
 
+#[tauri::command]
+pub async fn media_cache_info(state: State<'_, AppState>) -> Result<serde_json::Value, ApiError> {
+    let (bytes, ceiling) = proxy::cache_info(&state).await?;
+    Ok(serde_json::json!({ "bytes": bytes, "ceiling": ceiling }))
+}
+
+#[tauri::command]
+pub async fn set_media_cache_ceiling(state: State<'_, AppState>, ceiling: u64) -> Result<serde_json::Value, ApiError> {
+    let (bytes, cap) = proxy::set_cache_cap(&state, ceiling).await?;
+    Ok(serde_json::json!({ "bytes": bytes, "ceiling": cap }))
+}
+
 /// Total byte length of a server file (`/api/comics/:id/file`).
 ///
 /// Used by the PDF range reader to size its transport. A `Range: bytes=0-0`
@@ -360,6 +372,12 @@ pub fn open_log_dir(app: tauri::AppHandle) -> Result<(), ApiError> {
     std::fs::create_dir_all(&dir)
         .map_err(|err| ApiError::local(format!("Could not create the log directory: {err}")))?;
     open_in_file_manager(&dir);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn open_library_dir(state: State<'_, AppState>) -> Result<(), ApiError> {
+    open_in_file_manager(&state.library_dir);
     Ok(())
 }
 

@@ -49,7 +49,7 @@ Three things, in order:
 Cheap, mechanical, and the highest ratio of visible improvement to effort.
 Everything here is a find-and-replace with a judgment call attached.
 
-- [ ] **Purge cool grey — S.** `rgba(20, 21, 25, 0)` in `.chrome-top` /
+- [x] **Purge cool grey — S.** `rgba(20, 21, 25, 0)` in `.chrome-top` /
   `.chrome-bottom` ([app.css:1132](src/styles/app.css:1132),
   [:1264](src/styles/app.css:1264)) is `#141519` at zero alpha. Because sRGB
   gradients interpolate the *color* as well as the alpha, the fade genuinely
@@ -59,34 +59,34 @@ Everything here is a find-and-replace with a judgment call attached.
   `.cover-overflow` / `.cover-badge` fills in
   [library.css:441](src/styles/library.css:441) and
   [:452](src/styles/library.css:452).
-- [ ] **Scrim tokens — S.** Six independent `rgba(0, 0, 0, 0.28–0.45)`
+- [x] **Scrim tokens — S.** Six independent `rgba(0, 0, 0, 0.28–0.45)`
   backdrops exist across `app.css`, `flows.css`, `opds.css`, `library.css`.
   Add `--scrim` (modal backdrops) and `--scrim-soft` (cover progress trough,
   badge fills), both warm — `color-mix(in srgb, #000 55%, var(--bg))` rather
   than pure black, so a backdrop over the library still reads as the same room.
-- [ ] **Off-palette one-offs — S.** `#ff6b81`
+- [x] **Off-palette one-offs — S.** `#ff6b81`
   ([library.css:410](src/styles/library.css:410)) is a cool pink where
   `--danger` (`#e0574a`) belongs. `rgba(120, 20, 20, .85)`
   ([library.css:1071](src/styles/library.css:1071)) should be a `--danger`
   mix. `#fff` on badges should be `--fg`. Three lines, three fewer hues.
-- [ ] **Delete the last shadows — S.** DESIGN.md: *depth comes from a border
+- [x] **Delete the last shadows — S.** DESIGN.md: *depth comes from a border
   and a surface step, never a drop shadow.* `.transfer-banner` has
   `0 8px 28px rgba(0,0,0,.28)` ([app.css:718](src/styles/app.css:718));
   `.settings-preview` and `.accent-swatch` carry `inset` hairlines that a
   `--line` border would express honestly. Replace with the surface step the
   rule prescribes.
-- [ ] **One section label — S.** `.section-label` predates `.eyebrow` and is
+- [x] **One section label — S.** `.section-label` predates `.eyebrow` and is
   still used by the home shelves and the grid heading
   ([HomeShelves.tsx:25](src/components/library/HomeShelves.tsx:25),
   [Library.tsx:1186](src/components/Library.tsx:1186)). Fold it into
   `.eyebrow`, which is the style DESIGN.md documents, and delete the duplicate.
-- [ ] **Reconcile the accent table — S.** `tokens.css` now ships orange as
+- [x] **Reconcile the accent table — S.** `tokens.css` now ships orange as
   `#d68a30`, but [docs/DESIGN.md](docs/DESIGN.md) still documents `#ffbf00`.
   The code is right — `#ffbf00` is a pure yellow that blows past the other five
   in chroma — so update the doc, and while there, re-check all six against
   `--on-accent` per DESIGN.md's own instruction that a new accent must be
   measured, not assumed.
-- [ ] **Layer ladder as tokens — S.** `z-index` is currently literal and
+- [x] **Layer ladder as tokens — S.** `z-index` is currently literal and
   slightly wrong: `.dim-overlay` is 60, but `.epub-pop` is 61 — so a dictionary
   popover glows at full brightness over a page the reader deliberately dimmed.
   Introduce `--z-content / --z-chrome / --z-panel / --z-pop / --z-scrim /
@@ -104,19 +104,19 @@ with no artwork. All eight palettes are cool: `#2f3d5c`, `#3a3550`, `#26414c`,
 majority of the screen is cool blue on warm black. DESIGN.md's own warning
 about stock blue on `#0d0b0a` applies directly.
 
-- [ ] **Warm palette family — S.** Retune all eight toward the room: oxblood,
+- [x] **Warm palette family — S.** Retune all eight toward the room: oxblood,
   ochre, moss, ink-brown, plum, teal-slate — the same hue discipline the six
   accents got. Keep the ink colors, which are already warm-neutral.
-- [ ] **Palette from the accent — M.** Better: derive the family at runtime
+- [x] **Palette from the accent — M.** Better: derive the family at runtime
   from `--accent` via `color-mix`, so a reader on the teal accent gets a teal
   shelf. Eight fixed offsets around the accent hue rather than eight literals.
   This makes the accent picker feel like it changes the app, not one button.
-- [ ] **Treatment, not just gradient — M.** The fallback is a *typographic*
+- [x] **Treatment, not just gradient — M.** The fallback is a *typographic*
   cover ([CoverArt.tsx](src/components/CoverArt.tsx)) and should look designed:
   a hairline rule under the kind label, the title set in Newsreader with real
   optical sizing at the card's size, and the author baseline-aligned to the
   card bottom. Today it is three stacked divs with `opacity: 0.6/0.7`.
-- [ ] **Dominant-color tint for real covers — M.** Sample the cover thumbnail
+- [x] **Dominant-color tint for real covers — M.** Sample the cover thumbnail
   once at decode time, store the color on the record, and use it for the card's
   hover border and the reader's ambient matte (§4). One cheap canvas read;
   large payoff in "this app knows what book I'm in."
@@ -128,16 +128,16 @@ first renders as full-color Apple emoji — saturated blue-grey, at a different
 optical weight than everything beside it, immune to `--accent`, and the only
 place in the app where a color arrives that the palette did not choose.
 
-- [ ] **Bundled stroke set — M.** ~24 glyphs at 1.5px stroke, 24px grid, all
+- [x] **Bundled stroke set — M.** ~24 glyphs at 1.5px stroke, 24px grid, all
   `currentColor`: search, contents, bookmark (filled + outline), settings,
   chevrons, close, back, plus/minus, sort, filter, grid/list, download, star,
   server, tag, share. Ship as inline SVG components extending
   [icons.tsx](src/components/icons.tsx) — no icon-font dependency, no CDN, and
   they inherit `--accent` on active states for free.
-- [ ] **Retire text-glyph controls — S.** `‹ Library`, `↩ Return`, `×` in
+- [x] **Retire text-glyph controls — S.** `‹ Library`, `↩ Return`, `×` in
   drawer heads, `‹`/`›` side arrows. Text glyphs vary by platform font and
   don't optically center in a 40px button. Same set, same weight.
-- [ ] **Optical alignment pass — S.** `.nav-btn` is a 40px box with the glyph
+- [x] **Optical alignment pass — S.** `.nav-btn` is a 40px box with the glyph
   centered mathematically; a chevron and a ribbon need different offsets to
   *look* centered. One-time nudge per icon, baked into the components.
 
@@ -324,3 +324,84 @@ whether C and D follow.
 - [src/styles/tokens.css](src/styles/tokens.css) — where most of §1 lands
 - [src/lib/cover.ts](src/lib/cover.ts) — §2
 - [src/components/icons.tsx](src/components/icons.tsx) — §3
+
+## #1 Implementation report
+
+Completed all eight items under **1. Close the seams in Hearth Noir**.
+
+### Completed
+
+- Added warm --scrim and --scrim-soft tokens and replaced the targeted
+  pure-black overlay/backdrop and cover-progress fills.
+- Removed the rejected #141519 gradient stops from the reader chrome and
+  overflow controls.
+- Replaced the off-palette pink, dark-red rgba fill, white control text, and
+  white shimmer/border values with Hearth Noir tokens or color-mix() values.
+- Removed the targeted drop shadows from import progress, transfer banners,
+  settings preview, accent swatches, highlight swatches, and local search;
+  existing borders now provide the intended depth.
+- Folded library shelf/grid headings into the documented .eyebrow style and
+  removed the duplicate .section-label rule.
+- Reconciled the orange accent documentation to #d68a30. Contrast against
+  --on-accent: #0d0b0a was checked for all six accents: red 5.41:1, blue
+  6.03:1, green 6.65:1, purple 5.60:1, orange 7.05:1, and teal 6.97:1.
+- Added the shared layer ladder tokens:
+  --z-content, --z-chrome, --z-panel, --z-pop, --z-scrim, and --z-system.
+  Dimming is intentionally above popovers so it dims the whole reading scene
+  consistently.
+
+### Verification
+
+- pnpm typecheck — passed
+- pnpm test — passed, 17 tests
+- pnpm build — passed
+- git diff --check — passed
+
+## #3 Implementation report
+
+Completed all three items under **3. One icon system**.
+
+### Completed
+
+- Replaced the single bookmark-only icon module with a bundled currentColor
+  SVG stroke set covering navigation, search, contents, bookmark, settings,
+  type, close, sort, filter, layout, download, star, server, tag, share,
+  favorite, check, and overflow controls.
+- Replaced the reader's emoji/text controls and the affected drawer, popover,
+  sheet, library, OPDS, and finished-flow glyph controls with the shared SVG
+  components.
+- Added per-icon optical nudges for the reader navigation cluster and side
+  arrows, with shared flex centering for close and action buttons.
+
+### Verification
+
+- pnpm typecheck — passed
+- pnpm test — passed, 17 tests
+- pnpm build — passed
+- git diff --check — passed
+
+## #2 Implementation report
+
+Completed all four items under **2. Warm the fallback covers**.
+
+### Completed
+
+- Replaced the cool fixed palettes with distinct muted hue anchors: burnt
+  orange, rose pink, moss green, magenta, violet, teal-slate, oxblood,
+  ink-brown, and slate blue. Each title hash selects an anchor and angle, with
+  the anchor blended toward the active accent through color-mix().
+- Refined fallback covers with a hairline under the kind label, Newsreader
+  optical sizing, responsive card-sized title sizing, and an author line
+  anchored to the bottom of the cover.
+- Added a one-time 16x16 canvas sample on decoded real cover thumbnails.
+  The sampled RGB value is stored on the record and in a session cache.
+- Applied the sampled color to real-cover hover borders and the reader's
+  ambient radial matte, while keeping the Hearth Noir fallback when sampling
+  is unavailable.
+
+### Verification
+
+- pnpm typecheck — passed
+- pnpm test — passed, 17 tests
+- pnpm build — passed
+- git diff --check — passed

@@ -26,7 +26,14 @@
   --accent-tint: #241412;
   --avatar-bg: #2e1c17;
   --progress-track: #282219;
-
+  --scrim: color-mix(in srgb, #000 55%, var(--bg));
+  --scrim-soft: color-mix(in srgb, #000 35%, var(--bg));
+  --z-content: 0;
+  --z-chrome: 20;
+  --z-panel: 40;
+  --z-pop: 50;
+  --z-scrim: 60;
+  --z-system: 70;
   /* Signature accent (overridden by [data-accent]) */
   --accent: #e15b47;
   /* Ink on an accent fill. Dark, not white: the six accents were retuned to

@@ -1,6 +1,7 @@
 /** Footnote preview — the resolved note text, shown in place of navigating the
  *  reader away from the paragraph they were mid-sentence in. */
 import EpubPopover, { type PopoverAnchor } from "./EpubPopover";
+import { CloseIcon } from "./icons";
 
 export interface FootnoteState {
   anchor: PopoverAnchor;
@@ -25,7 +26,7 @@ export default function FootnotePopover({
       <div className="epub-pop-head">
         <span className="epub-pop-label">{state.label}</span>
         <button className="epub-pop-x" onClick={onClose} aria-label="Close">
-          ×
+          <CloseIcon size={15} />
         </button>
       </div>
       <div className="epub-pop-body">{state.text}</div>

@@ -3,6 +3,7 @@
  *  (which frees the space), rebuild it, and watch a rebuild run. */
 import { useCallback, useEffect, useState } from "react";
 import * as api from "../../lib/api";
+import { CloseIcon } from "../icons";
 
 function mb(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -13,6 +14,7 @@ export default function SearchIndexPanel({ onClose }: { onClose: () => void }) {
   const [settings, setSettings] = useState<api.LocalSearchSettings | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<"disable" | "rebuild" | null>(null);
 
   const reload = useCallback(() => {
     void api
@@ -68,7 +70,7 @@ export default function SearchIndexPanel({ onClose }: { onClose: () => void }) {
       <div className="panel-header">
         <div className="panel-title">Search index</div>
         <button type="button" className="panel-close" onClick={onClose} aria-label="Close">
-          ✕
+          <CloseIcon size={17} />
         </button>
       </div>
       <p className="panel-sub">
@@ -82,7 +84,7 @@ export default function SearchIndexPanel({ onClose }: { onClose: () => void }) {
           type="checkbox"
           checked={enabled}
           disabled={busy || !settings}
-          onChange={(e) => void run(() => api.setLocalSearchEnabled(e.target.checked))}
+          onChange={(e) => { if (e.target.checked) void run(() => api.setLocalSearchEnabled(true)); else setConfirm("disable"); }}
         />
         <span>Search inside books</span>
       </label>
@@ -123,11 +125,13 @@ export default function SearchIndexPanel({ onClose }: { onClose: () => void }) {
           type="button"
           className="btn-ghost"
           disabled={busy || !enabled}
-          onClick={() => void run(api.reindexLocalSearch)}
+          onClick={() => setConfirm("rebuild")}
         >
           Rebuild index
         </button>
       </div>
+      {confirm === "disable" && <div className="settings-confirm"><p className="settings-confirm-text">Disable search and delete the {mb(used)} full-text index? Your books are not affected; the index can be rebuilt later.</p><div className="settings-confirm-row"><button type="button" className="settings-confirm-btn" onClick={() => setConfirm(null)}>Cancel</button><button type="button" className="settings-confirm-btn danger" onClick={() => { setConfirm(null); void run(() => api.setLocalSearchEnabled(false)); }}>Disable and free {mb(used)}</button></div></div>}
+      {confirm === "rebuild" && <div className="settings-confirm"><p className="settings-confirm-text">Replace the current {mb(used)} search index by rebuilding it from your books? This frees the current index before rebuilding and may take time in the background.</p><div className="settings-confirm-row"><button type="button" className="settings-confirm-btn" onClick={() => setConfirm(null)}>Cancel</button><button type="button" className="settings-confirm-btn danger" onClick={() => { setConfirm(null); void run(api.reindexLocalSearch); }}>Rebuild index</button></div></div>}
     </div>
   );
 }

@@ -2,6 +2,7 @@
  *  status chips are mutually exclusive — tapping the active one clears it. The
  *  favorites chip is an independent toggle rendered alongside. */
 import type { ReadStatus } from "../../lib/api";
+import { HeartIcon } from "../icons";
 
 const STATUS: { value: ReadStatus; label: string }[] = [
   { value: "unread", label: "Unread" },
@@ -41,7 +42,7 @@ export default function StatusChips({
         onClick={() => onFavorites(!favorites)}
       >
         <span className="chip-heart" aria-hidden="true">
-          {favorites ? "♥" : "♡"}
+          <HeartIcon size={15} filled={favorites} />
         </span>
         Favorites
       </button>

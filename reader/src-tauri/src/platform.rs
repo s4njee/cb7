@@ -10,6 +10,9 @@
 //! synchronously at render time — there is no async window to wait on there.
 
 use serde::Serialize;
+use tauri::State;
+
+use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +23,8 @@ pub struct PlatformInfo {
     /// The media protocol base for this platform, e.g. `cb8://localhost` or
     /// `http://cb8.localhost` — see `crate::proxy`.
     pub media_base: &'static str,
+    pub version: &'static str,
+    pub library_dir: String,
 }
 
 /// The protocol base Tauri registers per platform. Windows and Android get the
@@ -34,10 +39,12 @@ fn media_base() -> &'static str {
 }
 
 #[tauri::command]
-pub fn platform_info() -> PlatformInfo {
+pub fn platform_info(state: State<'_, AppState>) -> PlatformInfo {
     PlatformInfo {
         os: std::env::consts::OS,
         is_desktop: !cfg!(any(target_os = "android", target_os = "ios")),
         media_base: media_base(),
+        version: env!("CARGO_PKG_VERSION"),
+        library_dir: state.library_dir.display().to_string(),
     }
 }

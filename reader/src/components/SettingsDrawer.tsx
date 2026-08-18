@@ -4,7 +4,8 @@
  *  Reset this book / Reset all reader defaults are separate confirmed actions. */
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import * as api from "../lib/api";
-import { ACCENTS, FONTS, fontById, type AccentName, type FontId } from "../lib/fonts";
+import { CloseIcon } from "./icons";
+import { FONTS, fontById, type FontId } from "../lib/fonts";
 import type { ReaderFormat } from "../lib/format";
 import {
   fontIdFor,
@@ -64,15 +65,18 @@ export default function SettingsDrawer({
   format,
   bookId,
   onClose,
+  embedded = false,
+  readerMode = false,
 }: {
-  format: ReaderFormat;
-  bookId: number;
-  onClose: () => void;
+  format?: ReaderFormat;
+  bookId?: number;
+  onClose?: () => void;
+  embedded?: boolean;
+  readerMode?: boolean;
 }) {
   const prefs = usePrefs();
   const {
     theme,
-    accent,
     brightness,
     fontScale,
     lineHeight,
@@ -86,7 +90,6 @@ export default function SettingsDrawer({
     immersive,
     haptics,
     setTheme,
-    setAccent,
     setBrightness,
     setFontScale,
     setLineHeight,
@@ -105,7 +108,7 @@ export default function SettingsDrawer({
   } = prefs;
 
   const isPagedMedia = format === "comic" || format === "pdf";
-  const isEpub = format === "epub";
+  const isEpub = !format || format === "epub";
   const isComic = format === "comic";
 
   const [canHaptic, setCanHaptic] = useState(false);
@@ -121,8 +124,8 @@ export default function SettingsDrawer({
     };
   }, []);
 
-  const activeFont = fontIdFor(prefs, bookId);
-  const bookScoped = bookFonts[String(bookId)] != null;
+  const activeFont = bookId == null ? prefs.fontId : fontIdFor(prefs, bookId);
+  const bookScoped = bookId != null && bookFonts[String(bookId)] != null;
   const fontMeta = fontById(activeFont);
   const themeSwatch = THEME_SWATCHES.find((t) => t.name === theme) ?? THEME_SWATCHES[0];
 
@@ -141,12 +144,12 @@ export default function SettingsDrawer({
 
   /** Route a typeface pick to whichever scope is selected. */
   const pickFont = (id: FontId) => {
-    if (bookScoped) setBookFont(bookId, id);
+    if (bookScoped && bookId != null) setBookFont(bookId, id);
     else setFontId(id);
   };
 
   const runConfirm = () => {
-    if (confirm === "book") resetBookOverrides(bookId);
+    if (confirm === "book" && bookId != null) resetBookOverrides(bookId);
     if (confirm === "all") resetAllReaderDefaults();
     setConfirm(null);
   };
@@ -155,13 +158,13 @@ export default function SettingsDrawer({
 
   return (
     <>
-      <div className="drawer-head">
+      {!embedded && <div className="drawer-head">
         <div className="drawer-title">Reading settings</div>
         <button className="close-btn" onClick={onClose} aria-label="Close">
-          ×
+          <CloseIcon size={17} />
         </button>
-      </div>
-      <div className="drawer-body settings-body">
+      </div>}
+      <div className={embedded ? "settings-embedded settings-body" : "drawer-body settings-body"}>
         {/* ── Layout ───────────────────────────────────────────── */}
         {(isPagedMedia || isEpub) && (
           <Section
@@ -310,26 +313,6 @@ export default function SettingsDrawer({
             </div>
           </div>
 
-          <div>
-            <div className="setting-label">Accent</div>
-            <div className="setting-hint" style={{ marginBottom: 8 }}>
-              App-wide — not reset with reader defaults
-            </div>
-            <div className="accent-grid">
-              {ACCENTS.map((a) => (
-                <button
-                  key={a.name}
-                  type="button"
-                  className={`accent-swatch${accent === a.name ? " active" : ""}`}
-                  style={{ background: a.hex }}
-                  aria-label={a.label}
-                  title={a.label}
-                  onClick={() => setAccent(a.name as AccentName)}
-                />
-              ))}
-            </div>
-          </div>
-
           {isEpub && (
             <>
               <div className="settings-preview" style={previewStyle} aria-hidden="true">
@@ -384,14 +367,14 @@ export default function SettingsDrawer({
                   <button
                     type="button"
                     className={`seg-btn small${!bookScoped ? " active" : ""}`}
-                    onClick={() => setBookFont(bookId, null)}
+                    onClick={() => bookId != null && setBookFont(bookId, null)}
                   >
                     All books
                   </button>
                   <button
                     type="button"
                     className={`seg-btn small${bookScoped ? " active" : ""}`}
-                    onClick={() => setBookFont(bookId, activeFont)}
+                    onClick={() => bookId != null && setBookFont(bookId, activeFont)}
                   >
                     This book
                   </button>
@@ -415,7 +398,7 @@ export default function SettingsDrawer({
         </Section>
 
         {/* ── Navigation ───────────────────────────────────────── */}
-        <Section title="Navigation" hint="Chrome and page-turn feedback">
+        {!readerMode && <Section title="Navigation" hint="Chrome and page-turn feedback">
           <label className="setting-toggle">
             <div>
               <div className="setting-label">Immersive</div>
@@ -444,7 +427,7 @@ export default function SettingsDrawer({
               />
             </label>
           )}
-        </Section>
+        </Section>}
 
         {/* ── Accessibility ────────────────────────────────────── */}
         <Section title="Accessibility" hint="Comfort while reading">
@@ -470,7 +453,7 @@ export default function SettingsDrawer({
         </Section>
 
         {/* ── Reset ────────────────────────────────────────────── */}
-        <Section title="Reset" hint="Separate actions for this book vs everything">
+        {!readerMode && <Section title="Reset" hint="Separate actions for this book vs everything">
           {confirm ? (
             <div className="settings-confirm">
               <p className="settings-confirm-text">
@@ -500,7 +483,7 @@ export default function SettingsDrawer({
               <button
                 type="button"
                 className="settings-reset-btn"
-                disabled={!hasBookOverride}
+                disabled={!hasBookOverride || bookId == null}
                 onClick={() => setConfirm("book")}
               >
                 Reset this book
@@ -522,7 +505,7 @@ export default function SettingsDrawer({
               </button>
             </div>
           )}
-        </Section>
+        </Section>}
       </div>
     </>
   );

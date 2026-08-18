@@ -14,6 +14,7 @@ import GuestSyncPrompt from "./flows/GuestSyncPrompt";
 import DiscoveryList from "./connect/DiscoveryList";
 import ScanButton from "./connect/ScanButton";
 import OpdsPanel from "./opds/OpdsPanel";
+import { BackIcon } from "./icons";
 import "../styles/connect.css";
 import "../styles/opds.css";
 
@@ -233,7 +234,8 @@ export default function Connect() {
         {/* Connecting is optional (the local shelf is always there), so there is
             always a way back out of this screen — it is a detour, not a gate. */}
         <button type="button" className="connect-back" onClick={cancelConnect}>
-          ‹ Your shelf
+          <BackIcon size={18} />
+          <span>Your shelf</span>
         </button>
         <div className="eyebrow">CB8</div>
         <div className="connect-title">

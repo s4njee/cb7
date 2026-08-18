@@ -28,6 +28,8 @@ export interface PlatformInfo {
   isDesktop: boolean;
   /** e.g. `cb8://localhost` / `http://cb8.localhost`, or `""` in browser dev (same-origin). */
   mediaBase: string;
+  version: string;
+  libraryDir: string;
 }
 
 let cached: PlatformInfo | null = null;
@@ -45,7 +47,7 @@ async function fetchPlatformInfo(): Promise<PlatformInfo> {
 export function initPlatform(): Promise<PlatformInfo> {
   if (!isTauri) {
     // Browser dev: same-origin media through the Vite proxy — no scheme.
-    if (!cached) cached = { os: "browser", isDesktop: false, mediaBase: "" };
+    if (!cached) cached = { os: "browser", isDesktop: false, mediaBase: "", version: "dev", libraryDir: "browser storage" };
     return Promise.resolve(cached);
   }
   if (!cached && !inflight) {

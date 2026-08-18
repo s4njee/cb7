@@ -2,7 +2,7 @@
  *  and no highlights, so they show only the Bookmarks list (no segmented
  *  switch, default tab). */
 import { useState } from "react";
-import { RibbonIcon } from "./icons";
+import { CloseIcon, RibbonIcon } from "./icons";
 import { swatchById } from "../lib/highlights";
 import type { BookmarkItem, ChapterItem, HighlightItem } from "./readerTypes";
 
@@ -101,7 +101,7 @@ export default function TocDrawer({
       <div className="drawer-head">
         <div className="drawer-title">Table of contents</div>
         <button className="close-btn" onClick={onClose} aria-label="Close">
-          ×
+          <CloseIcon size={17} />
         </button>
       </div>
 
@@ -260,7 +260,7 @@ export default function TocDrawer({
                       onRemoveHighlight(hl.key);
                     }}
                   >
-                    ×
+                    <CloseIcon size={15} />
                   </button>
                 </div>
               ),

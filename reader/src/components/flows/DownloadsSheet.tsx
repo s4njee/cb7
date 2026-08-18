@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as api from "../../lib/api";
+import { CloseIcon } from "../icons";
 import { ACTION_LABELS } from "../../lib/bookContext";
 import {
   canCancelDownload,
@@ -220,7 +221,7 @@ export default function DownloadsSheet() {
       <div className="sheet-head">
         <div className="drawer-title">Downloads</div>
         <button className="close-btn" onClick={closeSheet} aria-label="Close">
-          ×
+          <CloseIcon size={17} />
         </button>
       </div>
 

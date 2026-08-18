@@ -70,8 +70,11 @@ on `#0d0b0a` — a stock blue vibrates against a warm black.
 | blue | `#5b93c7` |
 | green | `#6fa368` |
 | purple | `#9b7bc0` |
-| orange | `#ffbf00` |
+| orange | `#d68a30` |
 | teal | `#5ba79c` |
+
+All six accents have been checked against `--on-accent: #0d0b0a`; the dark
+ink remains the readable choice for filled accent controls across the table.
 
 Only the accent changes. Swapping it must never touch a surface token.
 Picker lives in the library account menu and the reading settings drawer.
