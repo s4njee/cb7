@@ -18,7 +18,7 @@ export interface Swatch {
 }
 
 export const SWATCHES: Swatch[] = [
-  { id: "yellow", label: "Yellow", chip: "#f2c94c" },
+  { id: "yellow", label: "Amber", chip: "#f59e0b" },
   { id: "green", label: "Green", chip: "#6fcf97" },
   { id: "blue", label: "Blue", chip: "#6aa9f2" },
   { id: "pink", label: "Pink", chip: "#f178a8" },

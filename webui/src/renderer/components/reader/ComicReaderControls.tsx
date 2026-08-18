@@ -158,7 +158,7 @@ export default function ComicReaderControls({
               size="icon"
               onClick={onToggleBookmark}
               aria-label="Bookmark current page"
-              className={cn(buttonClass, isBookmarked && 'text-yellow-500 hover:text-yellow-400')}
+              className={cn(buttonClass, isBookmarked && 'text-amber-500 hover:text-amber-400')}
             >
               <Bookmark className={cn('h-4.5 w-4.5', isBookmarked && 'fill-current')} />
             </Button>

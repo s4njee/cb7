@@ -195,7 +195,7 @@ export const ACCENTS: { name: AccentName; label: string; hex: string }[] = [
   { name: "blue", label: "Blue", hex: "#5b93c7" },
   { name: "green", label: "Green", hex: "#6fa368" },
   { name: "purple", label: "Purple", hex: "#9b7bc0" },
-  { name: "orange", label: "Orange", hex: "#ffbf00" },
+  { name: "orange", label: "Orange", hex: "#d68a30" },
   { name: "teal", label: "Teal", hex: "#5ba79c" },
 ];
 
