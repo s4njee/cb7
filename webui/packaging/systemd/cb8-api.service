@@ -1,0 +1,31 @@
+[Unit]
+Description=CB8 API (standalone Node server)
+Documentation=https://github.com/s4njee/cbzreader
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cb8
+WorkingDirectory=/opt/cb8
+ExecStart=/usr/bin/node /opt/cb8/dist/standalone.mjs
+
+# Postgres is required; the standalone server has no embedded database.
+Environment=DATABASE_URL=postgres://cb8:change-me@localhost:5432/cb8
+Environment=CB8_DATA_DIR=/var/lib/cb8
+Environment=CB8_HOST=0.0.0.0
+Environment=CB8_PORT=8008
+Environment=BETTER_AUTH_SECRET=change-me-openssl-rand-hex-32
+Environment=BETTER_AUTH_TRUSTED_ORIGINS=http://192.168.1.10:8008
+# Environment=CB8_SEVENZIP_PATH=/usr/bin/7z   # if 7z isn't on PATH
+
+Restart=on-failure
+RestartSec=5s
+
+# Stdout/stderr go to the journal. The first-boot admin password is printed
+# there — view with:  journalctl -u cb8-api -e
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

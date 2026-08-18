@@ -115,7 +115,7 @@ throwaway pgvector Postgres (see `src/main/test/pgTestDb.ts`).
 - `packaging/docker/` — Dockerfile, `docker-compose.yaml`, and the `cb8-init.sh` secret bootstrap.
 - `packaging/k8s/` — Kubernetes manifests (API, worker, Postgres, optional GPU sidecars) with a kustomization for per-cluster overrides.
 - `packaging/argocd/` — the Argo CD `Application` that deploys `packaging/k8s` via GitOps (see [DEPLOY.md](DEPLOY.md)).
-- `packaging/systemd/` — systemd unit for bare-metal mode.
+- `packaging/systemd/` — systemd units (API + worker) for bare-metal mode.
 - `packaging/wiki/` — the user-facing wiki content (installation, configuration, usage, operations).
 
 ## Documentation map

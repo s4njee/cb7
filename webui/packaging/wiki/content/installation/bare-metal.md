@@ -127,13 +127,10 @@ deletes from them.
 
 ## Step 4 — systemd (recommended for a real server)
 
-The repository ships `packaging/systemd/cb8.service`, but note: **that unit is
-for the headless Electron desktop build** (`/opt/CB8/cb8 --headless`, which uses
-the embedded **SQLite** database), **not** the Postgres standalone server
-described here. Don't use it for this deployment.
-
-Instead, create your own pair of units for the two Node processes. Adapt the
-paths, user, and `DATABASE_URL` to your install — these are **examples**:
+The repository ships the two units this deployment needs:
+`packaging/systemd/cb8-api.service` and `packaging/systemd/cb8-worker.service`,
+one per Node process. Copy them to `/etc/systemd/system/` and adapt the paths,
+user, and `DATABASE_URL` to your install — the values below are **examples**:
 
 `/etc/systemd/system/cb8-api.service`:
 

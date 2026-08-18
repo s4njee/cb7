@@ -1,0 +1,24 @@
+[Unit]
+Description=CB8 background worker
+Documentation=https://github.com/s4njee/cbzreader
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cb8
+WorkingDirectory=/opt/cb8
+ExecStart=/usr/bin/node /opt/cb8/dist/worker.mjs
+
+Environment=DATABASE_URL=postgres://cb8:change-me@localhost:5432/cb8
+Environment=CB8_DATA_DIR=/var/lib/cb8
+Environment=SEARCH_BACKFILL_ON_START=1
+# Environment=CB8_SEVENZIP_PATH=/usr/bin/7z
+
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

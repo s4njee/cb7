@@ -51,8 +51,8 @@ DATABASE_URL=postgres://cb8:<pw>@localhost:5432/cb8 node dist/worker.mjs   # sep
 `CB8_DATA_DIR` (default `/var/lib/cb8`) holds only the regenerable image cache
 and uploaded archives — the catalog, covers, users, sessions, search vectors,
 and job queue all live in Postgres. Run both processes against the same
-`CB8_DATA_DIR` so they see the same uploads and cache. A systemd unit lives in
-`packaging/systemd/`.
+`CB8_DATA_DIR` so they see the same uploads and cache. Systemd units for both
+processes live in `packaging/systemd/`.
 
 ## Docker
 
