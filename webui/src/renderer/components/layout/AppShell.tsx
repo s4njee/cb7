@@ -126,7 +126,7 @@ export default function AppShell() {
       {/* Skip link (P2-2): keyboard/screen-reader users jump past the header. */}
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:rounded-md focus:bg-primary focus:px-3 focus:py-1.5 focus:text-sm focus:font-semibold focus:text-primary-foreground"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[var(--z-system)] focus:rounded-md focus:bg-primary focus:px-3 focus:py-1.5 focus:text-sm focus:font-semibold focus:text-primary-foreground"
       >
         Skip to content
       </a>
@@ -220,7 +220,7 @@ export default function AppShell() {
 
       {/* Global Drag-and-drop Overlay */}
       {dragging && (
-        <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center pointer-events-none transition-all duration-300">
+        <div className="fixed inset-0 z-[var(--z-system)] bg-[hsl(var(--scrim))] backdrop-blur-sm flex flex-col items-center justify-center pointer-events-none transition-all duration-300">
           <div className="border-4 border-dashed border-primary/50 rounded-2xl p-12 flex flex-col items-center gap-4 bg-card/60 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
             <Upload className="h-16 w-16 text-primary animate-bounce" />
             <span className="text-2xl font-bold text-foreground">Drop to add to library</span>

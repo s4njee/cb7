@@ -107,7 +107,7 @@ export default function FilterStrips() {
     <div className="px-4 md:px-10 pt-5 pb-3 select-none">
       {/* Section label + sort field + sort direction */}
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mb-3">
-        <h2 className="text-[11.5px] font-medium uppercase tracking-[0.14em] text-section">
+        <h2 className="eyebrow">
           All books
         </h2>
         <div className="flex flex-wrap items-center gap-2 shrink-0">

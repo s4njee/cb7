@@ -129,7 +129,7 @@ export default function LibraryGrid({
   const compact = density === 'compact';
 
   return (
-    <div className="px-4 md:px-10 py-4 select-none">
+    <div className="px-4 md:px-10 py-6 pb-9 select-none">
       {viewMode === 'list' ? (
         /* List view (P3-4): compact rows. */
         <div className="space-y-0.5">
@@ -171,7 +171,7 @@ export default function LibraryGrid({
         /* Grid view: responsive cover grid. */
         <div
           className={cn(
-            'grid gap-x-5 gap-y-6',
+            'grid gap-x-6 gap-y-7',
             compact ? COMPACT_COLS : COMFORTABLE_COLS,
           )}
         >

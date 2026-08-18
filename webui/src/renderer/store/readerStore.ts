@@ -33,6 +33,8 @@ export interface EpubPrefs {
   pageMargin: number;
   /** epub.js flow: paginated columns vs continuous scroll (P3-5). */
   flow: 'paginated' | 'scrolled';
+  /** Subtle chapter-heading typography for a more book-like reading surface. */
+  typographicFlourishes: boolean;
 }
 
 interface ReaderState {
@@ -65,6 +67,7 @@ const DEFAULT_EPUB_PREFS: EpubPrefs = {
   lineSpacing: 1.6,
   pageMargin: 44,
   flow: 'paginated',
+  typographicFlourishes: true,
 };
 
 function loadPrefs<T>(key: string, defaults: T): T {

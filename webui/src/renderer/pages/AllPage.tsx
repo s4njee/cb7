@@ -154,22 +154,22 @@ export default function AllPage() {
       {isSearchActive ? (
         // Search View: Series-grouped Browse list
         <div className="flex-1 flex flex-col">
-          <div className="p-4 border-b border-border bg-card/10 select-none">
-            <h2 className="text-sm font-bold tracking-wide text-muted-foreground uppercase">
+          <div className="catalog-frame-head px-4 md:px-10 py-4 border-b border-header-rule bg-card/10 select-none">
+            <h2 className="eyebrow">
               Search Results for: <span className="text-primary italic lowercase font-normal">"{search}"</span>
             </h2>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-xs text-muted-foreground mt-2">
               Found {searchGroupsResponse?.totalCount ?? 0} series match{searchGroupsResponse?.totalCount === 1 ? '' : 'es'}.
             </p>
           </div>
           <ActiveFilterChips />
           {inside.length > 0 && (
-            <div className="p-4 border-b border-border select-none">
-              <h3 className="text-sm font-bold tracking-wide text-muted-foreground uppercase mb-3">
+            <div className="px-4 md:px-10 py-4 border-b border-header-rule select-none">
+              <h3 className="eyebrow mb-3">
                 Inside your books{' '}
                 <span className="text-xs font-normal normal-case text-muted-foreground/70">({inside.length})</span>
               </h3>
-              <ul className="space-y-2">
+              <ul className="space-y-2 max-h-[min(70vh,560px)] overflow-y-auto overscroll-contain">
                 {inside.map((hit, i) => (
                   <li key={`${hit.comicId}-${i}`}>
                     <button

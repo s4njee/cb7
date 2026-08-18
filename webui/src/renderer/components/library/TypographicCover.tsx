@@ -13,6 +13,7 @@ function hashHue(s: string): number {
 interface TypographicCoverProps {
   title: string;
   author?: string | null;
+  mediaType?: 'comic' | 'book';
 }
 
 /**
@@ -21,27 +22,33 @@ interface TypographicCoverProps {
  * top-left and an uppercase author/series line bottom. Matches the Flutter app's
  * cover-less fallback and the Folio grid covers. Fills its parent.
  */
-export default function TypographicCover({ title, author }: TypographicCoverProps) {
+export default function TypographicCover({ title, author, mediaType = 'comic' }: TypographicCoverProps) {
   const hue = hashHue(title);
-  const bg = `hsl(${hue} 22% 16%)`;
+  const bg = `linear-gradient(135deg, hsl(${hue} 22% 18%), hsl(${(hue + 28) % 360} 24% 11%))`;
   const titleTint = `hsl(${hue} 24% 82%)`;
   const authorTint = `hsl(${hue} 20% 58%)`;
   const label = (author ?? '').trim();
 
   return (
     <div
-      className="flex h-full w-full flex-col justify-between p-[10%]"
-      style={{ backgroundColor: bg }}
+      className="typographic-cover flex h-full w-full flex-col justify-start p-[10%] [container-type:inline-size]"
+      style={{ background: bg }}
     >
       <div
-        className="font-serif text-[15px] leading-[1.25] line-clamp-4"
+        className="border-b pb-2 text-[8px] font-semibold uppercase tracking-[0.14em] opacity-80"
+        style={{ borderColor: `hsl(${hue} 24% 62% / 0.42)`, color: titleTint }}
+      >
+        {mediaType === 'book' ? 'Book' : 'Comic'}
+      </div>
+      <div
+        className="mt-2 font-serif text-[clamp(14px,10cqw,18px)] font-semibold leading-[1.15] line-clamp-4"
         style={{ color: titleTint }}
       >
         {title}
       </div>
       {label && (
         <div
-          className="truncate font-sans text-[8px] uppercase tracking-[0.1em]"
+          className="mt-auto truncate font-sans text-[8px] uppercase tracking-[0.1em] opacity-80"
           style={{ color: authorTint }}
         >
           {label}

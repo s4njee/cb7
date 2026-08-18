@@ -48,7 +48,7 @@ export function buildEpubTheme(
   mode: ThemeMode,
   fontFamily: string,
   fontSize = 100,
-  opts: { lineSpacing?: number; pageMargin?: number } = {},
+  opts: { lineSpacing?: number; pageMargin?: number; typographicFlourishes?: boolean } = {},
 ) {
   const colors = getThemeColors(mode);
   const fontSizeCss = toEpubFontSizePercent(fontSize);
@@ -56,6 +56,7 @@ export function buildEpubTheme(
   // the original hardcoded values (1.6, 2rem/2.75rem ≈ 32/44px).
   const lineSpacing = opts.lineSpacing ?? 1.6;
   const margin = opts.pageMargin ?? 44;
+  const typographicFlourishes = opts.typographicFlourishes ?? false;
   const textRule = {
     color: `${colors.text} !important`,
     'background-color': 'transparent !important',
@@ -94,6 +95,14 @@ export function buildEpubTheme(
       'margin-top': '0',
       'margin-bottom': '1em',
     },
+    ...(typographicFlourishes
+      ? {
+          'h1, h2, h3': {
+            'font-variant': 'small-caps',
+            'letter-spacing': '0.06em',
+          },
+        }
+      : {}),
   };
 }
 

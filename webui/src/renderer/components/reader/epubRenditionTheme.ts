@@ -42,6 +42,7 @@ export interface EpubThemePrefs {
   /** P3-5: body line-height multiplier and page padding (px). */
   lineSpacing?: number;
   pageMargin?: number;
+  typographicFlourishes?: boolean;
 }
 
 /**
@@ -155,6 +156,7 @@ export function applyEpubThemeToRendition({
     rendition.themes.default(buildEpubTheme(prefs.themeMode, fontFamily, prefs.fontSize, {
       lineSpacing: prefs.lineSpacing,
       pageMargin: prefs.pageMargin,
+      typographicFlourishes: prefs.typographicFlourishes,
     }));
   } catch {}
   try {

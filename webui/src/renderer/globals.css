@@ -72,6 +72,22 @@
     --accent-tint: 8 33% 11%;     /* #241412 */
     --avatar: 13 33% 13%;         /* #2e1c17 */
     --progress-track: 36 23% 13%; /* #282219 */
+
+    /* Shared Hearth Noir depth/motion tokens.  Keeping these in one place
+       prevents catalog sheets, menus, and the persistent header from drifting
+       into competing stacking contexts as the web client grows. */
+    --scrim: 20 13% 4.5% / 0.55;
+    --scrim-soft: 20 13% 4.5% / 0.35;
+    --z-content: 0;
+    --z-chrome: 20;
+    --z-panel: 40;
+    --z-pop: 50;
+    --z-scrim: 60;
+    --z-system: 70;
+    --radius-card: 0.75rem;
+    --radius-cover: 0.3125rem;
+    --duration-fast: 150ms;
+    --duration-med: 220ms;
   }
 
   /* Accent overrides — retuned warm to sit on the true-black surfaces. */
@@ -99,6 +115,59 @@
     --primary: 171 30% 51%;       /* #5ba79c */
     --ring: 171 30% 51%;
   }
+}
+
+/* Small semantic typography primitive shared by shelf and catalog headings. */
+.eyebrow {
+  color: hsl(var(--section-label));
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+/* Catalog surfaces use the same restrained depth as the native library: a
+   border/surface step instead of a heavy drop shadow. */
+.folio-surface {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-card);
+}
+
+.folio-scrim {
+  background: hsl(var(--scrim));
+}
+
+/* The recent shelf answers "what just arrived?" at a glance. Two wrapped
+   rows keep it from becoming a second endlessly scrolling library grid. */
+.recently-added-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 92px);
+  grid-template-rows: repeat(2, max-content);
+  grid-auto-rows: 0;
+  gap: 12px 10px;
+  overflow: hidden;
+  padding-bottom: 4px;
+}
+.recently-added-card {
+  display: grid;
+  min-width: 0;
+  width: 92px;
+  gap: 6px;
+  color: inherit;
+}
+.recently-added-card > div {
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-cover);
+  transition: border-color var(--duration-fast) ease;
+}
+.recently-added-card:hover > div {
+  border-color: hsl(var(--primary));
+}
+.recently-added-grid.is-compact .recently-added-card,
+.recently-added-grid.is-compact .recently-added-card > div {
+  width: 78px;
 }
 
 @layer base {

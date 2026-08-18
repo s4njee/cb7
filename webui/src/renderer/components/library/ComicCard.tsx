@@ -110,19 +110,19 @@ function ComicCard({ record, isAdmin, orderedIds, onContextMenu }: ComicCardProp
       role="link"
       tabIndex={0}
       aria-label={`${record.title}, ${statusLabel}`}
-      className="relative flex flex-col group select-none cursor-pointer h-full focus-visible:ring-2 focus-visible:ring-primary focus-visible:rounded-md focus:outline-none"
+      className="cover-card relative flex flex-col group select-none cursor-pointer h-full focus-visible:ring-2 focus-visible:ring-primary focus-visible:rounded-md focus:outline-none"
       data-id={record.id}
     >
       {/* 1. Thumbnail Area */}
       <div
         className={cn(
-          "relative aspect-[2/3] w-full overflow-hidden rounded-[5px] bg-secondary transition-shadow",
+          "cover relative aspect-[2/3] w-full overflow-hidden rounded-[var(--radius-cover)] border border-border bg-secondary transition-colors group-hover:border-primary",
           isSelected && "ring-2 ring-primary"
         )}
       >
         {hasError ? (
           <div className={cn("h-full w-full", (isCompleted || record.missingAt) && "opacity-55")}>
-            <TypographicCover title={record.title} />
+            <TypographicCover title={record.title} mediaType={record.mediaType} />
           </div>
         ) : (
           <img
@@ -175,14 +175,14 @@ function ComicCard({ record, isAdmin, orderedIds, onContextMenu }: ComicCardProp
 
         {/* Favorites Overlay heart icon */}
         {record.favorited && (
-          <div className="absolute bottom-2 right-2 z-10 bg-black/60 backdrop-blur-xs p-1 rounded-full border border-white/10">
+          <div className="absolute bottom-2 right-2 z-10 rounded-full border border-foreground/10 bg-[hsl(var(--scrim-soft))] p-1 backdrop-blur-sm">
             <Heart className="h-3 w-3 fill-red-500 text-red-500" />
           </div>
         )}
 
         {/* Reading progress bar */}
         {progressPercent > 0 && !isCompleted && (
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/50">
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-[hsl(var(--scrim-soft))]">
             <div
               className="h-full bg-primary"
               style={{ width: `${progressPercent}%` }}

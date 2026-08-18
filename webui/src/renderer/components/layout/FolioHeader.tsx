@@ -123,7 +123,7 @@ export default function FolioHeader({ onOpenAdminModal }: FolioHeaderProps) {
         id={NAVBAR_SEARCH_INPUT_ID}
         type="search"
         placeholder="Search titles, authors…"
-        className="pl-9 bg-card border-border h-9 w-full text-[13px] placeholder:text-placeholder"
+        className="pl-9 rounded-full bg-card border-border h-9 w-full text-[13px] placeholder:text-placeholder focus-visible:ring-1 focus-visible:ring-primary/50"
         value={localSearch}
         onChange={(e) => setLocalSearch(e.target.value)}
       />
@@ -240,7 +240,7 @@ export default function FolioHeader({ onOpenAdminModal }: FolioHeaderProps) {
   );
 
   return (
-    <header className="w-full border-b border-header-rule bg-background">
+    <header className="relative z-[var(--z-chrome)] w-full border-b border-header-rule bg-background/95 backdrop-blur-sm">
       {/* Desktop: everything on one row */}
       <div className="hidden md:flex items-center gap-7 px-10 h-[68px]">
         {wordmark}

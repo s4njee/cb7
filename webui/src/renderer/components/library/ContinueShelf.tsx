@@ -19,9 +19,9 @@ function thumbnailSrc(record: api.WebComicRecord) {
 function ShelfCover({ record, className }: { record: api.WebComicRecord; className?: string }) {
   const [err, setErr] = useState(false);
   return (
-    <div className={cn('overflow-hidden bg-secondary shrink-0', className)}>
+    <div className={cn('overflow-hidden rounded-[var(--radius-cover)] border border-border bg-secondary shrink-0', className)}>
       {err ? (
-        <TypographicCover title={record.title} />
+        <TypographicCover title={record.title} mediaType={record.mediaType} />
       ) : (
         <img
           src={thumbnailSrc(record)}
@@ -61,10 +61,10 @@ export default function ContinueShelf() {
   const [hero, ...upNext] = records;
 
   return (
-    <section className="px-4 md:px-10 pt-6 pb-4 select-none">
+    <section className="home-shelf px-4 md:px-10 pt-6 pb-4 select-none">
       {/* Section label */}
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-[11.5px] font-medium uppercase tracking-[0.14em] text-section">
+        <h2 className="eyebrow">
           Continue reading
         </h2>
         <Link to="/continue" className="text-xs text-faint hover:text-foreground">

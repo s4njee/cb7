@@ -66,9 +66,9 @@ function ComicListRow({ record, isAdmin, orderedIds, compact, onContextMenu }: C
       )}
       data-id={record.id}
     >
-      <div className="h-12 w-9 shrink-0 overflow-hidden rounded-sm bg-secondary">
+      <div className="h-12 w-9 shrink-0 overflow-hidden rounded-[var(--radius-cover)] border border-border bg-secondary">
         {imgFailed ? (
-          <TypographicCover title={record.title} />
+          <TypographicCover title={record.title} mediaType={record.mediaType} />
         ) : (
           <img
             src={`/api/comics/${record.id}/thumbnail?v=${encodeURIComponent(record.dateAdded)}`}

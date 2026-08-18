@@ -37,4 +37,16 @@ describe('buildEpubTheme line spacing and margins (P3-5)', () => {
     expect(theme.body['line-height']).toBe('2');
     expect(theme.body.padding).toBe('24px');
   });
+
+  it('adds optional book-like heading flourishes without changing the default theme', () => {
+    const plain = buildEpubTheme('black', 'Georgia, serif');
+    const flourished = buildEpubTheme('black', 'Georgia, serif', 100, {
+      typographicFlourishes: true,
+    });
+
+    expect(plain['h1, h2, h3']).toBeUndefined();
+    expect(flourished['h1, h2, h3']).toMatchObject({
+      'font-variant': 'small-caps',
+    });
+  });
 });

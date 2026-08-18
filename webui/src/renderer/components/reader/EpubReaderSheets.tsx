@@ -129,7 +129,7 @@ export function EpubSettingsSheet({
       >
         <SheetHeader className="pb-4 p-0">
           <SheetTitle className="text-left text-[11px] font-medium uppercase tracking-[0.14em] text-placeholder">
-            Display Settings
+            Reading settings
           </SheetTitle>
         </SheetHeader>
         <div className="flex-1 space-y-5 mt-2">
@@ -248,6 +248,18 @@ export function EpubSettingsSheet({
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Book-like heading treatment, matching the native reader's flourishes preference. */}
+          <div className="flex items-center justify-between gap-4 border-t border-popover-border pt-3">
+            <div className="flex flex-col gap-0.5">
+              <Label className={settingsLabel}>Typographic flourishes</Label>
+              <span className="text-[10px] text-faint">Small-caps chapter headings</span>
+            </div>
+            <Switch
+              checked={prefs.typographicFlourishes}
+              onCheckedChange={(checked) => onPrefsChange({ typographicFlourishes: checked })}
+            />
           </div>
 
           {/* Google web font */}

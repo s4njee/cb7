@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight, Folder as FolderIcon } from 'lucide-react';
+import { ArrowLeft, ChevronRight } from 'lucide-react';
 import * as api from '@/lib/api';
 import { GROUP_NONE_KEY, numberLabel } from '@/lib/utils';
 
@@ -117,7 +117,7 @@ export default function Breadcrumb() {
   }
 
   return (
-    <nav className="flex items-center gap-1.5 text-sm font-semibold tracking-wide text-foreground uppercase select-none">
+    <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm font-semibold tracking-wide text-foreground select-none">
       {segments.map((segment, index) => {
         const isLast = index === segments.length - 1;
         const isFirst = index === 0;
@@ -132,6 +132,7 @@ export default function Breadcrumb() {
                 to={segment.to}
                 className="text-muted-foreground hover:text-primary transition-colors cursor-pointer hover:underline underline-offset-4 decoration-primary/40 decoration-1"
               >
+                {isFirst && segments.length > 1 && <ArrowLeft className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />}
                 {segment.label}
               </Link>
             ) : (

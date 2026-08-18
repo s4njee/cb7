@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import * as api from '@/lib/api';
 import { useUiStore } from '@/store/uiStore';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Loader2 } from 'lucide-react';
 import TypographicCover from './TypographicCover';
 
@@ -15,7 +14,7 @@ function Cover({ record }: { record: api.WebComicRecord }) {
   return (
     <div className="w-full aspect-[2/3] overflow-hidden rounded-md bg-secondary">
       {err ? (
-        <TypographicCover title={record.title} />
+        <TypographicCover title={record.title} mediaType={record.mediaType} />
       ) : (
         <img
           src={`/api/comics/${record.id}/thumbnail?v=${encodeURIComponent(record.dateAdded)}`}
@@ -35,7 +34,7 @@ function Cover({ record }: { record: api.WebComicRecord }) {
  */
 export default function RecentlyAddedShelf() {
   const navigate = useNavigate();
-  const { mediaType } = useUiStore();
+  const { mediaType, density } = useUiStore();
 
   const { data: records = [], isLoading } = useQuery<api.WebComicRecord[]>({
     queryKey: ['recently-added', mediaType],
@@ -55,20 +54,19 @@ export default function RecentlyAddedShelf() {
   if (records.length === 0) return null;
 
   return (
-    <section className="px-4 md:px-10 pt-6 pb-4 select-none">
+    <section className="recently-added-shelf px-4 md:px-10 pt-6 pb-4 select-none">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-[11.5px] font-medium uppercase tracking-[0.14em] text-section">
+        <h2 className="eyebrow">
           Recently added
         </h2>
         <span className="text-xs text-faint">Newest on disk</span>
       </div>
-      <ScrollArea className="w-full whitespace-nowrap">
-        <div className="flex gap-2 pb-3">
+      <div className={`recently-added-grid${density === 'compact' ? ' is-compact' : ''}`}>
           {records.map((comic) => (
             <button
               key={comic.id}
               onClick={() => navigate(`/read/${comic.id}`)}
-              className="w-[92px] shrink-0 text-left group"
+              className="recently-added-card text-left group"
               aria-label={comic.title}
             >
               <Cover record={comic} />
@@ -77,9 +75,7 @@ export default function RecentlyAddedShelf() {
               </span>
             </button>
           ))}
-        </div>
-        <ScrollBar orientation="horizontal" className="bg-border/20" />
-      </ScrollArea>
+      </div>
     </section>
   );
 }

@@ -1,4 +1,4 @@
-import { List, Settings } from 'lucide-react';
+import { List, Type } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface EpubReaderControlsProps {
@@ -16,7 +16,8 @@ export default function EpubReaderControls({
         variant="ghost"
         size="icon"
         onClick={onOpenChapters}
-        title="Chapters Table of Contents"
+        title="Table of contents"
+        aria-label="Table of contents"
         className="h-9 w-9 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/50"
       >
         <List className="h-4.5 w-4.5" />
@@ -26,10 +27,11 @@ export default function EpubReaderControls({
         variant="ghost"
         size="icon"
         onClick={onOpenSettings}
-        title="Reader Display Settings"
+        title="Reader display settings"
+        aria-label="Reader display settings"
         className="h-9 w-9 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/50"
       >
-        <Settings className="h-4.5 w-4.5" />
+        <Type className="h-4.5 w-4.5" />
       </Button>
     </div>
   );

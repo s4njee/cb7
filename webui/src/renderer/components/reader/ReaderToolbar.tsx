@@ -51,10 +51,12 @@ export default function ReaderToolbar({
         variant="ghost"
         size="sm"
         onClick={onBack}
+        aria-label="Back to library"
+        title="Back to library"
         className="text-muted-foreground hover:text-foreground hover:bg-card flex items-center gap-1.5 shrink-0"
       >
         <ArrowLeft className="h-4.5 w-4.5" />
-        <span className="text-xs font-semibold uppercase tracking-wider hidden sm:inline">Library</span>
+        <span className="text-xs font-semibold uppercase tracking-wider">Library</span>
       </Button>
 
       {/* Title — always a single truncated line, however long the filename gets */}
@@ -69,6 +71,7 @@ export default function ReaderToolbar({
       {pageCount > 1 && (
         <div className="flex-1 max-w-md mx-2 flex items-center gap-3">
           <Slider
+            aria-label="Reader page"
             value={[safeCurrentPage]}
             min={1}
             max={safePageCount}

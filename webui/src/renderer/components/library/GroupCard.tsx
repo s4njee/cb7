@@ -32,10 +32,10 @@ export default function GroupCard({
   return (
     <div
       onClick={handleClick}
-      className="relative flex flex-col group rounded-lg overflow-hidden bg-card border border-border hover:border-primary/50 transition-all duration-200 shadow-md select-none cursor-pointer h-full"
+      className="relative flex flex-col group rounded-[var(--radius-card)] overflow-hidden bg-card border border-border hover:border-primary transition-colors duration-200 select-none cursor-pointer h-full"
     >
       {/* 1. Thumbnail Wrap */}
-      <div className="relative aspect-[2/3] w-full overflow-hidden bg-secondary border-b border-border">
+      <div className="relative aspect-[2/3] w-full overflow-hidden rounded-[var(--radius-cover)] bg-secondary border-b border-border">
         <img
           src={imgSrc}
           alt={title}
@@ -57,8 +57,8 @@ export default function GroupCard({
         </Badge>
 
         {/* Count overlay */}
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-2 pt-6 flex items-end">
-          <span className="text-[10px] text-white font-medium">
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[hsl(var(--scrim))] via-[hsl(var(--scrim-soft))] to-transparent p-2 pt-6 flex items-end">
+          <span className="text-[10px] text-foreground font-medium">
             {metaLabel || `${count} item${count === 1 ? '' : 's'}`}
           </span>
         </div>
