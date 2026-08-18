@@ -284,11 +284,20 @@ export function localList(): Promise<LocalBook[]> {
   return invoke<LocalBook[]>("local_list");
 }
 
+/** One matching passage from the on-device full-text index.
+ *
+ *  `target` is the jump target the matching reader understands — a serialized
+ *  Readium locator (EPUB) or a 0-based page index (PDF) — so a result opens the
+ *  book at the passage rather than at page one. Several hits can share a book;
+ *  they arrive grouped, best-ranked book first. */
 export interface LocalSearchHit {
+  /** Book id, to pair the hit with its catalog record. */
   id: number;
   title: string;
+  /** Section title, or "Page 12". */
+  label: string;
   snippet: string;
-  count: number;
+  target: string | number;
 }
 
 export function localSearch(query: string): Promise<LocalSearchHit[]> {
@@ -298,18 +307,60 @@ export function localSearch(query: string): Promise<LocalSearchHit[]> {
 
 export interface LocalSearchSettings {
   enabled: boolean;
+  /** Extracted text the index is currently holding, against `maxBytes`. */
   indexedBytes: number;
   indexedBooks: number;
+  maxBytes: number;
+  /** Books left out because the index is full. */
+  cappedBooks: number;
+  /** A background pass is running right now. */
+  indexing: boolean;
+  /** Books completed / queued in the running pass. */
+  done: number;
+  total: number;
 }
 
+const NO_SEARCH_INDEX: LocalSearchSettings = {
+  enabled: false,
+  indexedBytes: 0,
+  indexedBooks: 0,
+  maxBytes: 0,
+  cappedBooks: 0,
+  indexing: false,
+  done: 0,
+  total: 0,
+};
+
 export function localSearchSettings(): Promise<LocalSearchSettings> {
-  if (!isTauri) return Promise.resolve({ enabled: false, indexedBytes: 0, indexedBooks: 0 });
+  if (!isTauri) return Promise.resolve(NO_SEARCH_INDEX);
   return invoke<LocalSearchSettings>("local_search_settings");
 }
 
 export function reindexLocalSearch(): Promise<LocalSearchSettings> {
-  if (!isTauri) return Promise.resolve({ enabled: false, indexedBytes: 0, indexedBooks: 0 });
+  if (!isTauri) return Promise.resolve(NO_SEARCH_INDEX);
   return invoke<LocalSearchSettings>("local_reindex_search");
+}
+
+/** Turning the index off deletes it — the storage comes back, not just the
+ *  feature. Turning it on queues a fresh background build. */
+export function setLocalSearchEnabled(enabled: boolean): Promise<LocalSearchSettings> {
+  if (!isTauri) return Promise.resolve(NO_SEARCH_INDEX);
+  return invoke<LocalSearchSettings>("local_set_search_enabled", { enabled });
+}
+
+export interface SearchIndexProgress {
+  indexing: boolean;
+  done: number;
+  total: number;
+}
+
+/** Live progress of the background indexer. */
+export async function onSearchIndexProgress(
+  cb: (p: SearchIndexProgress) => void,
+): Promise<() => void> {
+  if (!isTauri) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<SearchIndexProgress>("local-search-index", (event) => cb(event.payload));
 }
 
 /** Per-file import outcome — every input file gets a verdict, and one bad file

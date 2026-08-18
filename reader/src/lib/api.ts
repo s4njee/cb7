@@ -221,10 +221,15 @@ export {
   localRenameCollection,
   localRescanLinkedFolders,
   localScanFolder,
+  localSearch,
+  localSearchSettings,
   localSetMetadata,
   localSize,
   localToggleCollection,
   onLinkedFoldersChanged,
+  onSearchIndexProgress,
+  reindexLocalSearch,
+  setLocalSearchEnabled,
   onFileDrop,
   onLocalDownloadProgress,
   onLocalImportProgress,
@@ -241,6 +246,9 @@ export {
   toggleFullscreen,
   type FolderScan,
   type ImportNote,
+  type LocalSearchHit,
+  type LocalSearchSettings,
+  type SearchIndexProgress,
   type ImportProgress,
   type ImportReport,
   type LinkedFolder,
@@ -321,6 +329,32 @@ export function continueReading(limit = 1): Promise<WebComicRecord[]> {
 
 export function getComic(id: number): Promise<WebComicRecord> {
   return apiGet<WebComicRecord>(`/api/comics/${id}`);
+}
+
+/* ------------------------------------------ semantic in-book search (server) */
+
+/** One passage from inside a server book. `via` says how it was retrieved:
+ *  `semantic` came from the embeddings sidecar (meaning), `keyword` from the
+ *  server's Postgres FTS, `both` from the fused ranking. */
+export interface ServerSearchHit {
+  comicId: number;
+  book: string;
+  chapter: string | null;
+  snippet: string;
+  via: "both" | "keyword" | "semantic";
+}
+
+/** Search inside the *server's* books by meaning.
+ *
+ *  This is the one library capability the device cannot do for itself: the
+ *  index and the embedding model live on the server. Not every CB8 build has
+ *  the sidecar, and older ones lack the route entirely, so a failure here is a
+ *  missing capability rather than an error worth showing — callers stop asking
+ *  (see `Library`'s support latch) instead of surfacing a red banner. */
+export function searchInside(q: string): Promise<ServerSearchHit[]> {
+  return apiGet<{ results?: ServerSearchHit[] }>(
+    `/api/search?q=${encodeURIComponent(q)}`,
+  ).then((body) => body.results ?? []);
 }
 
 /** Re-read a record from whichever shelf owns it, so the reader restores the

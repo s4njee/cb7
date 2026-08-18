@@ -50,6 +50,8 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
   const serverUrl = useSession((s) => s.serverUrl) ?? "";
   const readerSettingsTick = useSession((s) => s.readerSettingsTick);
   const readerSearchTick = useSession((s) => s.readerSearchTick);
+  const openTarget = useSession((s) => s.openTarget);
+  const clearOpenTarget = useSession((s) => s.clearOpenTarget);
   const comicMode = usePrefs((s) => s.comicMode);
   const immersive = usePrefs((s) => s.immersive);
   const haptics = usePrefs((s) => s.haptics);
@@ -305,6 +307,24 @@ export default function Reader({ record: listRecord }: { record: api.WebComicRec
     backStack.current = [];
     setCanGoBack(false);
   }, [shown.id]);
+
+  /* ------------------------------------------------------- deep link in */
+
+  // A local full-text hit opens the book *at the passage*. The sub-reader
+  // restores saved progress on its own schedule, so wait until it has reported
+  // live content and let that restore settle before overriding it — otherwise
+  // the jump lands first and the restore drags the reader back.
+  const deepLinked = useRef(false);
+  const ready = rstate.pageCount != null || rstate.chapters.length > 0;
+  useEffect(() => {
+    if (openTarget == null || deepLinked.current || !ready) return;
+    deepLinked.current = true;
+    const timer = window.setTimeout(() => {
+      apiRef.current?.goTo(openTarget);
+      clearOpenTarget();
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [openTarget, ready, clearOpenTarget]);
 
   /** Brief pulse on the Return control so a TOC/bookmark jump is obviously
    *  reversible without hunting for the affordance. */

@@ -79,14 +79,75 @@
   margin: 5px 6px;
 }
 
+/* ----------------------------------------------------------- active filters */
+/* What is narrowing the shelf right now, and one tap to undo any of it. */
+
+.active-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-height: 32px;
+}
+.active-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.active-chip:hover {
+  border-color: var(--accent);
+}
+.active-chip-kind {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.active-chip-value {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.active-chip-x {
+  color: var(--muted);
+  font-size: 10px;
+}
+.active-chip:hover .active-chip-x {
+  color: var(--accent);
+}
+.active-filters-count {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.active-clear {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
 /* --------------------------------------------------------------- sub-filter row */
 
 .filters-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 12px 40px 0;
   flex: none;
   /* Stable block when chips mount (sign-in / shelf change) so the grid doesn't jump. */
   min-height: calc(12px + 32px);
 }
+/* `.sort-control` already carries `margin-left: auto`, which parks it at the
+   right edge of this row whether or not the status chips are there. */
 .status-chips {
   display: flex;
   align-items: center;
@@ -930,3 +991,31 @@
 .local-search-hit:hover { background: var(--surface-2); }
 .local-search-hit-title { font-weight: 650; }
 .local-search-hit-snippet { overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.local-search-group { padding: 4px 0; }
+.local-search-group + .local-search-group { border-top: 1px solid var(--line); }
+.local-search-group .local-search-hit-title { padding: 4px 10px; }
+.local-search-hit-where { color: var(--accent); font-size: 11px; letter-spacing: .02em; }
+.local-search-building { padding: 8px 10px; color: var(--muted); font-size: 12px; }
+.local-search-label + .local-search-label,
+.local-search-group + .local-search-label,
+.local-search-building + .local-search-label { margin-top: 4px; border-top: 1px solid var(--line); }
+.local-search-via {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.local-search-via.via-semantic, .local-search-via.via-both { color: var(--accent); }
+
+.search-index-toggle { display: flex; gap: 10px; align-items: center; padding: 6px 0; cursor: pointer; }
+.search-index-usage { display: grid; gap: 6px; padding: 8px 0; }
+.search-index-bar { overflow: hidden; height: 6px; border-radius: 3px; background: var(--surface-2); }
+.search-index-fill { display: block; height: 100%; background: var(--accent); }
+.search-index-figures { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; }
+.search-index-status { padding: 4px 0; color: var(--muted); font-size: 12px; }

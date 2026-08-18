@@ -57,4 +57,10 @@ impl From<std::io::Error> for ApiError {
     }
 }
 
+impl From<rusqlite::Error> for ApiError {
+    fn from(err: rusqlite::Error) -> Self {
+        Self::local(format!("Database error: {err}"))
+    }
+}
+
 pub type ApiResult<T> = Result<T, ApiError>;

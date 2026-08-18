@@ -31,6 +31,11 @@ interface SessionState extends PersistedSession {
   connectStep: ConnectStep;
   connectError: string | null;
   openRecord: WebComicRecord | null;
+  /** Where to land when the reader opens, when the book was opened *at* a
+   *  place rather than from the start — today, a hit from the local full-text
+   *  index. Opaque to the shell: the reader's `goTo` is the only thing that
+   *  understands it. Consumed once, then cleared. */
+  openTarget: string | number | null;
   /** Transient status line (crash recovery, "saved on device", …). Rendered by
    *  App; auto-cleared there. Null when nothing to show. */
   toast: string | null;
@@ -78,7 +83,10 @@ interface SessionState extends PersistedSession {
   setConnectStep: (step: ConnectStep) => void;
   setConnectError: (msg: string | null) => void;
   setGuestAccess: (v: boolean) => void;
-  openBook: (record: WebComicRecord) => void;
+  /** `target` deep-links into the book (a search hit's position). */
+  openBook: (record: WebComicRecord, target?: string | number | null) => void;
+  /** The reader took the pending deep link; don't apply it twice. */
+  clearOpenTarget: () => void;
   closeReader: () => void;
   reset: () => void;
 }
@@ -97,6 +105,7 @@ export const useSession = create<SessionState>()(
       connectStep: "server",
       connectError: null,
       openRecord: null,
+      openTarget: null,
       toast: null,
       sheet: null,
       importTick: 0,
@@ -152,8 +161,10 @@ export const useSession = create<SessionState>()(
       setConnectStep: (connectStep) => set({ connectStep, connectError: null }),
       setConnectError: (connectError) => set({ connectError }),
       setGuestAccess: (guestAccess) => set({ guestAccess }),
-      openBook: (record) => set({ screen: "reader", openRecord: record }),
-      closeReader: () => set({ screen: "library", openRecord: null }),
+      openBook: (record, target = null) =>
+        set({ screen: "reader", openRecord: record, openTarget: target }),
+      clearOpenTarget: () => set({ openTarget: null }),
+      closeReader: () => set({ screen: "library", openRecord: null, openTarget: null }),
       // Signing out drops the server session but not the app: the local shelf
       // is still yours, so we land there rather than on a connect wall.
       reset: () =>
@@ -164,6 +175,7 @@ export const useSession = create<SessionState>()(
           guest: false,
           guestChosen: false,
           openRecord: null,
+          openTarget: null,
           connectError: null,
         }),
     }),

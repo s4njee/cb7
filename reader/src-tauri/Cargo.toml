@@ -45,6 +45,10 @@ mdns-sd = "0.20.2"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 sevenz-rust = "0.6"
 tauri-plugin-dialog = "2.7.2"
+rusqlite = { version = "0.32", features = ["bundled"] }
+# Page-accurate PDF text for the local search index. Pure Rust (builds for
+# mobile), and only the text extraction path is used — rendering stays pdf.js.
+lopdf = "0.44"
 
 # Camera scanning and haptics only exist on phones; keeping them off desktop
 # avoids pulling unusable native dependencies into the dev vehicle.

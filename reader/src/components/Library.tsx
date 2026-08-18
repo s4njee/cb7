@@ -29,6 +29,7 @@ import CoverArt from "./CoverArt";
 import CoverCard, { type CardActionAnchor } from "./library/CoverCard";
 import BookDetailSheet from "./library/BookDetailSheet";
 import LinkedFoldersPanel from "./library/LinkedFoldersPanel";
+import SearchIndexPanel from "./library/SearchIndexPanel";
 import OpdsPanel from "./opds/OpdsPanel";
 import ScopeRow from "./library/ScopeRow";
 import SortControl from "./library/SortControl";
@@ -41,11 +42,16 @@ import {
   scopeKey,
   type Scope,
 } from "./library/libraryData";
+import ActiveFilters, { type FilterChip } from "./library/ActiveFilters";
+import {
+  forgetLibraryView,
+  hasActiveFilters,
+  recallLibraryView,
+  rememberLibraryView,
+  type Filter,
+  type Shelf,
+} from "./library/viewMemory";
 import "../styles/library.css";
-
-type Filter = "all" | "comic" | "book";
-/** Which shelf the grid is showing. */
-type Shelf = "local" | "server";
 
 const PAGE_SIZE = 200;
 
@@ -66,23 +72,28 @@ export default function Library() {
   const setAccent = usePrefs((s) => s.setAccent);
   const signedIn = !!user && !guest;
 
-  const [filter, setFilter] = useState<Filter>("all");
-  const [searchInput, setSearchInput] = useState("");
-  const [search, setSearch] = useState("");
-  const [readStatus, setReadStatus] = useState<api.ReadStatus | null>(null);
-  const [favorites, setFavorites] = useState(false);
-  const [scope, setScope] = useState<Scope>({ type: "all" });
+  // Opening a book unmounts this screen, so where you were browsing is restored
+  // from the session's view memory rather than reset to the top of the shelf.
+  const restored = useRef(recallLibraryView(serverUrl)).current;
+
+  const [filter, setFilter] = useState<Filter>(restored?.filter ?? "all");
+  const [searchInput, setSearchInput] = useState(restored?.search ?? "");
+  const [search, setSearch] = useState(restored?.search ?? "");
+  const [readStatus, setReadStatus] = useState<api.ReadStatus | null>(restored?.readStatus ?? null);
+  const [favorites, setFavorites] = useState(restored?.favorites ?? false);
+  const [scope, setScope] = useState<Scope>(restored?.scope ?? { type: "all" });
   /** Local-only filters by tag / collection (server scopes handle their own). */
-  const [tagFilter, setTagFilter] = useState<string | null>(null);
-  const [collectionFilter, setCollectionFilter] = useState<string | null>(null);
+  const [tagFilter, setTagFilter] = useState<string | null>(restored?.tag ?? null);
+  const [collectionFilter, setCollectionFilter] = useState<string | null>(restored?.collection ?? null);
   // Null until the first local listing settles, so the initial shelf can be
   // chosen from what actually exists rather than flickering between the two.
-  const [shelfChoice, setShelfChoice] = useState<Shelf | null>(null);
+  const [shelfChoice, setShelfChoice] = useState<Shelf | null>(restored?.shelf ?? null);
   const [importing, setImporting] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   /** Record ids selected for bulk operations (Cmd/Ctrl-click on cards). */
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [linkedOpen, setLinkedOpen] = useState(false);
+  const [searchIndexOpen, setSearchIndexOpen] = useState(false);
   const [opdsOpen, setOpdsOpen] = useState(false);
   const [sheet, setSheet] = useState<{ record: api.WebComicRecord; anchor: CardActionAnchor } | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -105,16 +116,54 @@ export default function Library() {
   // Opening navigates away, so a second tap in the same beat would re-open on top.
   const openingRef = useRef(false);
   const open = useCallback(
-    (record: api.WebComicRecord) => {
+    (record: api.WebComicRecord, target?: string | number | null) => {
       if (openingRef.current) return;
       openingRef.current = true;
-      openBook(record);
+      openBook(record, target ?? null);
       setTimeout(() => {
         openingRef.current = false;
       }, 700);
     },
     [openBook],
   );
+
+  // The unmount handler must see the *latest* values, not the ones its closure
+  // captured on mount, so the live snapshot is mirrored into a ref each render.
+  const viewRef = useRef({
+    shelf: shelfChoice,
+    serverUrl,
+    scope,
+    search,
+    filter,
+    readStatus,
+    favorites,
+    tag: tagFilter,
+    collection: collectionFilter,
+  });
+  viewRef.current = {
+    shelf: shelfChoice,
+    serverUrl,
+    scope,
+    search,
+    filter,
+    readStatus,
+    favorites,
+    tag: tagFilter,
+    collection: collectionFilter,
+  };
+  useEffect(
+    () => () => {
+      rememberLibraryView({
+        ...viewRef.current,
+        scrollTop: scrollRef.current?.scrollTop ?? 0,
+      });
+    },
+    [],
+  );
+
+  // Restore the scroll offset once, after the grid actually has rows to scroll
+  // through — setting scrollTop on an empty container silently does nothing.
+  const scrollRestored = useRef(restored == null || restored.scrollTop === 0);
 
   // Debounce the search box → server `?search=`.
   useEffect(() => {
@@ -171,14 +220,97 @@ export default function Library() {
   const shelf: Shelf = shelfChoice ?? "local";
   const onServer = shelf === "server";
 
-  // Content search is local-only and intentionally separate from the cheap
-  // catalog filter: the native index is disposable and may still be building.
+  // The background indexer's live status, so a search can say "still building"
+  // instead of "no matches". Seeded once on mount (a pass may already be
+  // running), then kept current by the indexer's own progress events.
+  const [indexStatus, setIndexStatus] = useState({ indexing: false, done: 0, total: 0 });
+  useEffect(() => {
+    if (!api.localSupported) return;
+    let off = () => {};
+    let live = true;
+    void api.localSearchSettings().then(({ indexing, done, total }) => {
+      if (live) setIndexStatus({ indexing, done, total });
+    });
+    void api.onSearchIndexProgress((p) => setIndexStatus(p)).then((f) => {
+      if (live) off = f;
+      else f();
+    });
+    return () => {
+      live = false;
+      off();
+    };
+  }, []);
+  const { indexing, done: indexDone, total: indexTotal } = indexStatus;
+
+  // Content search is intentionally separate from the cheap catalog filter: the
+  // native index is disposable and may still be building. It runs on either
+  // shelf — the books on this device are yours to search regardless of which
+  // library you happen to be browsing.
   const localTextSearch = useQuery({
     queryKey: ["localTextSearch", search],
     queryFn: () => localSearch(search),
-    enabled: !onServer && !!search && api.localSupported,
+    enabled: !!search && api.localSupported,
   });
+  // A pass that just finished may have indexed the very book being searched.
+  useEffect(() => {
+    if (!indexing && search) void localTextSearch.refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [indexing]);
   const textHits = (localTextSearch.data ?? []) as LocalSearchHit[];
+
+  // Searching the *server's* books by meaning. The embeddings sidecar is
+  // optional and older servers lack the route entirely, so the first failure
+  // latches the capability off for this server rather than retrying — and
+  // failing — on every keystroke. A missing capability is not an error the
+  // reader should show; the section simply doesn't appear.
+  const [meaningOff, setMeaningOff] = useState(false);
+  useEffect(() => setMeaningOff(false), [serverUrl]);
+  const meaningSearch = useQuery({
+    queryKey: ["meaningSearch", serverUrl, search],
+    queryFn: () => api.searchInside(search),
+    enabled: !!search && serverReady && !meaningOff,
+    retry: false,
+    staleTime: 60_000,
+  });
+  useEffect(() => {
+    if (meaningSearch.isError) setMeaningOff(true);
+  }, [meaningSearch.isError]);
+  const meaningHits = meaningSearch.data ?? [];
+  // The server fuses its keyword index with the embeddings sidecar, and falls
+  // back to keyword-only when the sidecar is down. Only claim "by meaning" when
+  // at least one hit actually came from it.
+  const byMeaning = meaningHits.some((hit) => hit.via !== "keyword");
+
+  // Opening a server passage costs a record fetch (hits carry an id, not a
+  // record). The chapter a hit names is a label, not an addressable position,
+  // so this lands on the book — the in-book search (Cmd/Ctrl+F) takes it from
+  // there, unlike the local index whose targets are exact.
+  const openServerHit = useCallback(
+    async (comicId: number) => {
+      try {
+        open(await api.getComic(comicId));
+      } catch {
+        showToast("Couldn't open that book.");
+      }
+    },
+    [open, showToast],
+  );
+
+  // Hits arrive grouped by book (best-ranked book first); pair each group with
+  // its catalog record and drop hits whose book is no longer on the shelf.
+  const textGroups = useMemo(() => {
+    const groups: Array<{ record: api.WebComicRecord; hits: LocalSearchHit[] }> = [];
+    for (const hit of textHits) {
+      const last = groups[groups.length - 1];
+      if (last && last.record.id === hit.id) {
+        last.hits.push(hit);
+        continue;
+      }
+      const record = localBooks.find((book) => book.id === hit.id);
+      if (record) groups.push({ record, hits: [hit] });
+    }
+    return groups;
+  }, [textHits, localBooks]);
 
   // All-library and collection scopes are paged (offset-based infinite query).
   const paged = useInfiniteQuery({
@@ -268,6 +400,12 @@ export default function Library() {
     return paged.data?.pages.flatMap((p) => p.records) ?? [];
   }, [onServer, localBooks, isSeries, seriesQuery.data, paged.data, clientParams]);
 
+  useEffect(() => {
+    if (scrollRestored.current || records.length === 0) return;
+    scrollRestored.current = true;
+    scrollRef.current?.scrollTo({ top: restored?.scrollTop ?? 0 });
+  }, [records.length, restored]);
+
   // Bulk selection: toggle on Cmd/Ctrl-click, Escape to clear, and reset when
   // the visible scope changes so stale ids can't linger across shelves.
   const toggleSelect = useCallback((id: number) => {
@@ -296,10 +434,85 @@ export default function Library() {
   const loadedCount = records.length;
   const totalCount =
     !onServer || isSeries ? loadedCount : paged.data?.pages[0]?.totalCount ?? loadedCount;
+  // How many titles the current filters are hiding — but only where the
+  // unfiltered total is actually known: the local shelf holds its whole catalog
+  // in memory, and a series scope arrives as one array. The paged server scopes
+  // only ever report the *filtered* count, and inventing a second request just
+  // to print a denominator is not worth it.
+  const unfilteredTotal = !onServer
+    ? localBooks.length
+    : isSeries
+      ? seriesQuery.data?.length ?? null
+      : null;
+  const narrowed =
+    unfilteredTotal != null && unfilteredTotal > totalCount ? unfilteredTotal : null;
   const countLabel =
     onServer && !isSeries && loadedCount < totalCount
       ? `${loadedCount} of ${totalCount} titles`
-      : `${totalCount} ${totalCount === 1 ? "title" : "titles"}`;
+      : narrowed != null
+        ? `${totalCount} of ${narrowed} titles`
+        : `${totalCount} ${totalCount === 1 ? "title" : "titles"}`;
+
+  /** One tap back to an unfiltered shelf — the explicit reset the backlog asks
+   *  for, so a narrowing you didn't mean to keep is never a scavenger hunt. */
+  const clearFilters = useCallback(() => {
+    setSearchInput("");
+    setSearch("");
+    setFilter("all");
+    setReadStatus(null);
+    setFavorites(false);
+    setTagFilter(null);
+    setCollectionFilter(null);
+    setScope({ type: "all" });
+  }, []);
+
+  // Only the narrowings that aren't already legible from a control on screen.
+  // The media-type pills and status chips show their own active state a row
+  // above; repeating them here would be noise, not clarity.
+  const filterChips = useMemo<FilterChip[]>(() => {
+    const chips: FilterChip[] = [];
+    if (search) {
+      chips.push({
+        key: "search",
+        kind: "Search",
+        value: search,
+        onRemove: () => {
+          setSearchInput("");
+          setSearch("");
+        },
+      });
+    }
+    if (scope.type !== "all") {
+      chips.push({
+        key: "scope",
+        kind: scope.type === "series" ? "Series" : "Collection",
+        value: scope.name,
+        onRemove: () => setScope({ type: "all" }),
+      });
+    }
+    if (tagFilter) {
+      chips.push({ key: "tag", kind: "Tag", value: tagFilter, onRemove: () => setTagFilter(null) });
+    }
+    if (collectionFilter) {
+      chips.push({
+        key: "collection",
+        kind: "Collection",
+        value: collectionFilter,
+        onRemove: () => setCollectionFilter(null),
+      });
+    }
+    return chips;
+  }, [search, scope, tagFilter, collectionFilter]);
+
+  const filtered = hasActiveFilters({
+    search,
+    filter,
+    readStatus: effStatus,
+    favorites: effFav,
+    tag: tagFilter,
+    collection: collectionFilter,
+    scope,
+  });
 
   const shelfQuery = !onServer
     ? {
@@ -439,11 +652,17 @@ export default function Library() {
     } catch {
       /* ignore */
     }
+    // The remembered scope belongs to a library we are leaving; restoring a
+    // collection id onto someone else's server would be worse than forgetting.
+    forgetLibraryView();
     reset();
   }
 
   function changeServer() {
     setMenuOpen(false);
+    // No forgetting here: cancelling out of the connect screen should land you
+    // back where you were. A view taken on another server is dropped by
+    // `recallLibraryView` on its own terms.
     goConnect("server", { serverUrl });
   }
 
@@ -502,24 +721,62 @@ export default function Library() {
               spellCheck={false}
             />
           </div>
-          {!onServer && search && textHits.length > 0 && (
+          {search && (textGroups.length > 0 || meaningHits.length > 0 || indexing) && (
             <div className="local-search-results" role="listbox" aria-label="Search inside books">
-              <div className="local-search-label">Inside your books</div>
-              {textHits.slice(0, 8).map((hit) => {
-                const record = localBooks.find((book) => book.id === hit.id);
-                if (!record) return null;
-                return (
-                  <button
-                    key={hit.id}
-                    type="button"
-                    className="local-search-hit"
-                    onClick={() => open(record)}
-                  >
-                    <span className="local-search-hit-title">{hit.title}</span>
-                    <span className="local-search-hit-snippet">{hit.snippet}</span>
-                  </button>
-                );
-              })}
+              {(textGroups.length > 0 || indexing) && (
+                <div className="local-search-label">Inside your books · on this device</div>
+              )}
+              {textGroups.map(({ record, hits }) => (
+                <div key={record.id} className="local-search-group">
+                  <div className="local-search-hit-title">{record.title}</div>
+                  {hits.map((hit, i) => (
+                    <button
+                      key={`${hit.label}-${i}`}
+                      type="button"
+                      className="local-search-hit"
+                      onClick={() => open(record, hit.target)}
+                    >
+                      <span className="local-search-hit-where">{hit.label}</span>
+                      <span className="local-search-hit-snippet">{hit.snippet}</span>
+                    </button>
+                  ))}
+                </div>
+              ))}
+              {/* The index builds in the background, so say so rather than
+                  letting a half-built index look like "no matches". */}
+              {indexing && (
+                <div className="local-search-building">
+                  Indexing your books{indexTotal > 0 ? ` — ${indexDone} of ${indexTotal}` : "…"}
+                </div>
+              )}
+              {/* Two indexes, two sources, never blurred together: the device
+                  index finds words, the server's finds meaning, and each hit
+                  says which one produced it. */}
+              {meaningHits.length > 0 && (
+                <>
+                  <div className="local-search-label">
+                    {byMeaning ? "Inside your books, by meaning" : "Inside your books"} · on the
+                    server
+                  </div>
+                  {meaningHits.map((hit, i) => (
+                    <button
+                      key={`${hit.comicId}-${i}`}
+                      type="button"
+                      className="local-search-hit"
+                      onClick={() => void openServerHit(hit.comicId)}
+                    >
+                      <span className="local-search-hit-title">
+                        {hit.book}
+                        <span className={`local-search-via via-${hit.via}`}>
+                          {hit.via === "keyword" ? "keyword" : "by meaning"}
+                        </span>
+                      </span>
+                      {hit.chapter && <span className="local-search-hit-where">{hit.chapter}</span>}
+                      <span className="local-search-hit-snippet">{hit.snippet}</span>
+                    </button>
+                  ))}
+                </>
+              )}
             </div>
           )}
           <button
@@ -577,6 +834,17 @@ export default function Library() {
                   }}
                 >
                   OPDS catalogs…
+                </button>
+              )}
+              {api.localSupported && (
+                <button
+                  className="menu-item"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setSearchIndexOpen(true);
+                  }}
+                >
+                  Search index…
                 </button>
               )}
               {api.downloadsSupported && (
@@ -668,36 +936,31 @@ export default function Library() {
             {f === "all" ? "All" : f === "comic" ? "Comics" : "Books"}
           </button>
         ))}
-        <SortControl sort={sort} onSortBy={setSortBy} onToggleOrder={toggleOrder} />
         <div className="count">{countLabel}</div>
       </div>
 
-      {perUser && (
-        <div className="filters-sub">
+      {/* Sort rides the sub-filter row, right-aligned under the count, so the
+          two rows of controls on the left stay tight against each other rather
+          than being spaced apart by a taller header row. The row is always
+          present (its height is already reserved) even when the status chips
+          are not — signed-out shelves still sort. */}
+      <div className="filters-sub">
+        {perUser && (
           <StatusChips
             readStatus={readStatus}
             onReadStatus={setReadStatus}
             favorites={favorites}
             onFavorites={setFavorites}
           />
-        </div>
-      )}
+        )}
+        <SortControl sort={sort} onSortBy={setSortBy} onToggleOrder={toggleOrder} />
+      </div>
 
-      {!onServer && (tagFilter || collectionFilter) && (
-        <div className="filters-sub meta-filter">
-          <span className="meta-filter-label">
-            {tagFilter ? `Tag: ${tagFilter}` : `Collection: ${collectionFilter}`}
-          </span>
-          <button
-            type="button"
-            className="filter-pill"
-            onClick={() => {
-              setTagFilter(null);
-              setCollectionFilter(null);
-            }}
-          >
-            Clear
-          </button>
+      {/* A search term survives a scope change — but only because it stays
+          visible here, and removable in one tap. */}
+      {filterChips.length > 0 && (
+        <div className="filters-sub">
+          <ActiveFilters chips={filterChips} count={countLabel} onClearAll={clearFilters} />
         </div>
       )}
 
@@ -795,7 +1058,20 @@ export default function Library() {
                 </div>
               </div>
             ) : (
-              <div className="empty-state">{emptyMessage}</div>
+              // A no-results screen should hand back the way out it took to get
+              // here, rather than leaving the user to guess which narrowing did
+              // it — this is the explicit reset for a scope change that ate the
+              // results.
+              <div className="empty-state">
+                <div>{emptyMessage}</div>
+                {filtered && (
+                  <div className="empty-actions">
+                    <button className="btn-ghost" onClick={clearFilters}>
+                      Clear filters
+                    </button>
+                  </div>
+                )}
+              </div>
             )
           ) : (
             <>
@@ -927,6 +1203,14 @@ export default function Library() {
               onChanged={() => void localQuery.refetch()}
               onClose={() => setLinkedOpen(false)}
             />
+          </div>
+        </div>
+      )}
+
+      {searchIndexOpen && (
+        <div className="sheet-backdrop" onClick={() => setSearchIndexOpen(false)}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <SearchIndexPanel onClose={() => setSearchIndexOpen(false)} />
           </div>
         </div>
       )}

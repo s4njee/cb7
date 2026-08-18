@@ -43,7 +43,7 @@ pub struct Origin {
     pub comic_id: i64,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Progress {
     #[serde(default)]
@@ -58,7 +58,7 @@ pub struct Progress {
 }
 
 /// One book in the local library. Paths are **relative to `<app_data>/library`**.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalBook {
     pub id: i64,
@@ -172,6 +172,7 @@ impl Default for Catalog {
 impl Catalog {
     /// Load from disk, or start empty. A corrupt catalog is *not* fatal: it is
     /// logged and replaced, because refusing to launch would strand every book.
+    #[cfg(test)]
     pub fn load(path: &Path) -> Self {
         match std::fs::read(path) {
             Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|err| {
@@ -197,10 +198,6 @@ fn covers_dir(state: &AppState) -> PathBuf {
     state.library_dir.join("covers")
 }
 
-fn catalog_path(state: &AppState) -> PathBuf {
-    state.library_dir.join("catalog.json")
-}
-
 /// Resolve a catalog-relative path against the library root.
 fn resolve(state: &AppState, rel: &str) -> PathBuf {
     state.library_dir.join(rel)
@@ -208,6 +205,7 @@ fn resolve(state: &AppState, rel: &str) -> PathBuf {
 
 /// Write a catalog snapshot atomically (`.tmp` + rename), so a crash mid-write
 /// can never leave a half-written library index behind.
+#[cfg(test)]
 async fn write_catalog_snapshot(path: &Path, snapshot: &Catalog) -> ApiResult<()> {
     let bytes =
         serde_json::to_vec_pretty(snapshot).map_err(|err| ApiError::local(format!("serialize catalog: {err}")))?;
@@ -222,19 +220,30 @@ async fn write_catalog_snapshot(path: &Path, snapshot: &Catalog) -> ApiResult<()
 /// so progress + favorite + cover cannot clobber each other out of order.
 async fn mutate_catalog<R>(state: &AppState, f: impl FnOnce(&mut Catalog) -> R) -> ApiResult<R> {
     let _write = state.catalog_write.lock().await;
-    let (result, snapshot) = {
+    let (result, before, snapshot) = {
         let mut catalog = state.catalog.lock().await;
+        let before = catalog.clone();
         let result = f(&mut catalog);
-        (result, catalog.clone())
+        (result, before, catalog.clone())
     };
-    write_catalog_snapshot(&catalog_path(state), &snapshot).await?;
+    state
+        .catalog_store
+        .persist(&before, &snapshot)
+        .map_err(|err| ApiError::local(format!("persist catalog: {err}")))?;
     Ok(result)
 }
 
 /// Snapshot + write while the caller already holds `catalog_write`.
 async fn save_under_write_lock(state: &AppState) -> ApiResult<()> {
     let snapshot = state.catalog.lock().await.clone();
-    write_catalog_snapshot(&catalog_path(state), &snapshot).await
+    let before = state
+        .catalog_store
+        .load()
+        .map_err(|err| ApiError::local(format!("load catalog before write: {err}")))?;
+    state
+        .catalog_store
+        .persist(&before, &snapshot)
+        .map_err(|err| ApiError::local(format!("persist catalog: {err}")))
 }
 
 fn now_ms() -> i64 {
@@ -786,6 +795,9 @@ pub async fn local_import<R: Runtime>(
         report.added.push(pushed);
     }
 
+    // New books are searchable without the user asking: start the background
+    // index pass as soon as the batch lands.
+    crate::local_search::kick(&app, &state);
     Ok(report)
 }
 
@@ -1578,6 +1590,7 @@ pub async fn local_add_linked_folder<R: Runtime>(
         added.push(pushed);
     }
     crate::local_search::invalidate_index(&state);
+    crate::local_search::kick(&app, &state);
     Ok(added)
 }
 
@@ -1735,6 +1748,9 @@ pub async fn local_remove_linked_folder<R: Runtime>(
     })
     .await?;
     crate::local_search::invalidate_index(&state);
+    // The removed folder's books must leave the search index too, or a hit
+    // would open a book that is no longer on the shelf.
+    crate::local_search::kick(&app, &state);
     Ok(())
 }
 

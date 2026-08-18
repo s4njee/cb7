@@ -14,6 +14,7 @@ use tokio::sync::{Mutex, RwLock};
 use crate::downloads::PinnedManifest;
 use crate::error::{ApiError, ApiResult};
 use crate::local::Catalog;
+use crate::storage::CatalogStore;
 
 /// One user-added OPDS catalog. Passwords stay in `opds.json` and are never
 /// returned by list commands (the frontend only sees `hasAuth`).
@@ -86,9 +87,10 @@ pub struct AppState {
     /// evaporate is not a library.
     pub library_dir: PathBuf,
     /// The local library index. Held in memory because every shelf render and
-    /// every media request consults it; written through to `catalog.json` on
+    /// every media request consults it; written through to SQLite on
     /// each mutation.
     pub catalog: Mutex<Catalog>,
+    pub catalog_store: CatalogStore,
     /// Serializes catalog mutation → snapshot → disk write so concurrent
     /// progress/favorite/cover updates cannot finish out of order (each
     /// rename is atomic, but unordered snapshots would still clobber fields).
@@ -104,6 +106,10 @@ pub struct AppState {
     /// Flip to stop a large recursive import after the current file. Cleared
     /// at the start of each `local_import` batch.
     pub import_cancel: AtomicBool,
+    /// Background full-text indexer state (running / cancel / stale / progress).
+    /// Behind an `Arc` so the worker thread owns a handle of its own rather than
+    /// borrowing the app state for the length of a rebuild.
+    pub search: Arc<crate::local_search::SearchFlags>,
 }
 
 /// Shared handle for one in-flight cache fill. Waiters park on `notify` and
@@ -128,7 +134,7 @@ impl AppState {
         let library_dir = resolve_library_dir(app, &data_dir)?;
         fs::create_dir_all(library_dir.join("books"))?;
         fs::create_dir_all(library_dir.join("covers"))?;
-        let catalog = Catalog::load(&library_dir.join("catalog.json"));
+        let (catalog_store, catalog) = CatalogStore::open(&library_dir)?;
 
         let config_path = data_dir.join("config.json");
         let cookies_path = data_dir.join("cookies.json");
@@ -185,10 +191,12 @@ impl AppState {
             pinned_index: Mutex::new(None),
             library_dir,
             catalog: Mutex::new(catalog),
+            catalog_store,
             catalog_write: Mutex::new(()),
             cache_inflight: Mutex::new(HashMap::new()),
             discovery: Mutex::new(None),
             import_cancel: AtomicBool::new(false),
+            search: Arc::new(crate::local_search::SearchFlags::default()),
         })
     }
 
@@ -274,8 +282,10 @@ fn resolve_library_dir<R: Runtime>(
 #[cfg(target_os = "ios")]
 fn migrate_library_if_needed(from: &std::path::Path, to: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
     let from_catalog = from.join("catalog.json");
+    let from_db = from.join("catalog.sqlite3");
     let to_catalog = to.join("catalog.json");
-    if !from_catalog.is_file() || to_catalog.is_file() {
+    let to_db = to.join("catalog.sqlite3");
+    if (!from_catalog.is_file() && !from_db.is_file()) || to_catalog.is_file() || to_db.is_file() {
         return Ok(());
     }
     if let Some(parent) = to.parent() {

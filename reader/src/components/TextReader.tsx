@@ -678,7 +678,30 @@ const TextReader = forwardRef<ReaderApi, TextReaderProps>(function TextReader(
         locatorRef.current ? locatorToProgressString(locatorRef.current) : null,
       goTo: (target) => {
         const loc = progressStringToLocator(String(target));
-        if (loc) navRef.current?.go(loc, false, () => {});
+        if (!loc) return;
+        const nav = navRef.current;
+        if (!nav) return;
+        // A locator minted outside the navigator (a library full-text hit) may
+        // name the resource slightly differently than the spine does; resolve
+        // it the way TOC links are resolved, keeping the progression so the
+        // jump still lands on the passage rather than at the chapter head.
+        const spineHrefs = nav.publication.readingOrder.items.map((l) => l.href);
+        const { path, fragment } = splitHref(loc.href);
+        if (spineHrefs.includes(path)) {
+          nav.go(loc, false, () => {});
+          return;
+        }
+        const spineHref = matchSpineHref(spineHrefs, path);
+        if (!spineHref) {
+          goToHref(loc.href);
+          return;
+        }
+        const resolved = Locator.deserialize({
+          ...loc.serialize(),
+          href: fragment ? `${spineHref}#${fragment}` : spineHref,
+        });
+        if (resolved) nav.go(resolved, false, () => {});
+        else goToHref(loc.href);
       },
       goToPage: (n) => {
         const positions = openedRef.current?.positions;

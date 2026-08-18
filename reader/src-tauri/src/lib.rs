@@ -18,6 +18,7 @@ mod opens;
 mod platform;
 mod proxy;
 mod state;
+mod storage;
 
 use tauri::Manager;
 
@@ -93,6 +94,11 @@ pub fn run() {
             menu::setup(app)?;
 
             let state = AppState::init(app.handle())?;
+            // The local search index is derived from files on disk, so it may
+            // be behind whatever happened while the app was closed. Reconcile
+            // it in the background from the moment the shelf is up.
+            local_search::invalidate_index(&state);
+            local_search::kick(app.handle(), &state);
             app.manage(state);
 
             // Cold-start "Open with CB8" on Windows/Linux: the file path is in
