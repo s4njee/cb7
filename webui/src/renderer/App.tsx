@@ -12,8 +12,8 @@ import AppShell from './components/layout/AppShell';
  * This is the top of the React tree. It does three jobs:
  *  1. Provides the React Query client to the whole app (`QueryClientProvider`),
  *     so any component can fetch/cache server data.
- *  2. Sets up hash-based routing (`HashRouter`) — hash routes work whether the
- *     bundle is loaded by Electron or directly from the server.
+ *  2. Sets up hash-based routing (`HashRouter`) — hash routes work wherever the
+ *     bundle is served from, including a subpath behind a reverse proxy.
  *  3. Renders the application shell immediately; session-aware components query
  *     the current browser session where needed.
  */

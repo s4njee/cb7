@@ -3,9 +3,9 @@
  * Desktop Window Title Builder
  *
  * Architecture overview for Junior Devs:
- * In the Electron desktop app the OS window title should reflect what's open.
- * This helper turns a full file path into a tidy "<filename> - CB8" title, and
- * falls back to plain "CB8" when there's nothing meaningful to show.
+ * The browser tab title should reflect what's open. This helper turns a full
+ * file path into a tidy "<filename> - CB8" title, and falls back to plain
+ * "CB8" when there's nothing meaningful to show.
  */
 
 /**

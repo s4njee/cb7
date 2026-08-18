@@ -161,9 +161,10 @@ export interface UploadResponse {
   filePath: string;
 }
 
+/** What `/api/admin/host-info` actually returns. It used to carry `isElectron`
+ *  and `platform` for the retired desktop app; the standalone server sends
+ *  neither, so declaring them was a type that lied to its only consumer. */
 export interface HostInfo {
-  isElectron: boolean;
-  platform: string;
   homePath?: string;
 }
 
