@@ -370,11 +370,21 @@ ones:
 The catalog is about to grow from "progress + favorites" to metadata,
 collections, annotations, and search state. Protect it first.
 
-- [ ] **Catalog storage upgrade — L.** `catalog.json` full-file rewrites won't
+- [x] **Catalog storage upgrade — L.** `catalog.json` full-file rewrites won't
   scale to thousands of records with per-page progress writes. Move local
   state to SQLite (rusqlite) with a one-time migration from `catalog.json`;
   keep the write-through + crash-safe semantics v1 established. Do this
   *before* linked folders and annotations multiply row counts.
+  → Implemented 2026-08-17. Added `src-tauri/src/storage.rs` with a bundled
+  SQLite catalog store (`catalog.sqlite3`) using WAL + `synchronous=FULL` and
+  transactional commits. The existing in-memory catalog/write-lock API stays
+  intact, while persistence now updates/deletes only changed book rows and
+  stores linked folders and catalog counters transactionally. First launch
+  migrates legacy `catalog.json` once; the legacy file is retained as a
+  recovery copy, and subsequent launches read SQLite directly. Local search
+  now reads from the SQLite store as well. Added migration, changed-row, and
+  deleted-row tests. Verified: 85 Rust tests pass, Clippy is clean with
+  warnings denied, `pnpm typecheck` passes, and `pnpm build` passes.
 - [ ] **Backup and restore — M.** File > Export Library Backup produces one
   archive (catalog DB, annotations, prefs, — optionally the copied books);
   restore replays it on a new machine. This is also the honest standalone
