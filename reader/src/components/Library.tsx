@@ -24,6 +24,13 @@ import {
   StatusView,
 } from "./ui/StatusView";
 import { usePrefs } from "../store/prefs";
+import {
+  currentDeviceClass,
+  displayFor,
+  gridClassName,
+  useDisplay,
+  type DeviceClass,
+} from "../store/display";
 import { useSession } from "../store/session";
 import CoverCard, { type CardActionAnchor } from "./library/CoverCard";
 import BookDetailSheet from "./library/BookDetailSheet";
@@ -34,6 +41,7 @@ import OpdsPanel from "./opds/OpdsPanel";
 import ScopeRow from "./library/ScopeRow";
 import HomeShelves from "./library/HomeShelves";
 import SortControl from "./library/SortControl";
+import DisplayControl from "./library/DisplayControl";
 import StatusChips from "./library/StatusChips";
 import { useLibrarySort } from "./library/librarySort";
 import { usePullToRefresh } from "./library/usePullToRefresh";
@@ -113,7 +121,21 @@ export default function Library() {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
-  const { sort, setSortBy, toggleOrder } = useLibrarySort();
+  const { sort, setSortBy, setSort, toggleOrder } = useLibrarySort();
+
+  // Display settings are per device class, and the class can change under us
+  // when a tablet is rotated across the breakpoint — so it is state, watched,
+  // not a value read once at mount.
+  const [device, setDevice] = useState<DeviceClass>(currentDeviceClass);
+  useEffect(() => {
+    const onResize = () => setDevice(currentDeviceClass());
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const byDevice = useDisplay((s) => s.byDevice);
+  const setDisplay = useDisplay((s) => s.set);
+  const resetDisplay = useDisplay((s) => s.reset);
+  const display = useMemo(() => displayFor(byDevice, device), [byDevice, device]);
 
   // Per-user filters only apply when signed in; guests never see the chips.
   // Server-side per-user filters need a signed-in session; the local shelf is
@@ -1106,7 +1128,23 @@ export default function Library() {
             onFavorites={setFavorites}
           />
         )}
+        {/* View and Sort answer the same kind of question — how the shelf is
+            presented — so they travel together at the right edge rather than
+            drifting apart with two independent auto-margins. */}
+        <div className="filters-actions">
+        <DisplayControl
+          prefs={display}
+          device={device}
+          onChange={(patch) => setDisplay(device, patch)}
+          onReset={() => {
+            resetDisplay(device);
+            // Sort is part of "the view" too — resetting one and leaving the
+            // other would answer half the question.
+            setSort({ sortBy: "title", sortOrder: "asc" });
+          }}
+        />
         <SortControl sort={sort} onSortBy={setSortBy} onToggleOrder={toggleOrder} />
+        </div>
       </div>
 
       {/* A search term survives a scope change — but only because it stays
@@ -1247,7 +1285,7 @@ export default function Library() {
                   </span>
                 </div>
               )}
-              <div className="grid">
+              <div className={gridClassName(display)}>
                 {records.map((r) => (
                   <CoverCard
                     key={r.id}

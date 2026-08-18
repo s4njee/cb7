@@ -73,6 +73,23 @@
   color: var(--accent);
   font-size: 12px;
 }
+.sort-menu-eyebrow {
+  padding: 6px 12px 2px;
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.sort-menu-note {
+  padding: 8px 12px 4px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.sort-menu-item:disabled {
+  opacity: .45;
+  cursor: default;
+}
 .sort-menu-sep {
   height: 1px;
   background: var(--line);
@@ -215,8 +232,17 @@
   /* Stable block when chips mount (sign-in / shelf change) so the grid doesn't jump. */
   min-height: calc(12px + 32px);
 }
-/* `.sort-control` already carries `margin-left: auto`, which parks it at the
-   right edge of this row whether or not the status chips are there. */
+/* The View + Sort pair parks at the right edge of this row whether or not the
+   status chips are there; inside the pair, spacing is the group's business. */
+.filters-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.filters-actions .sort-control {
+  margin-left: 0;
+}
 .status-chips {
   display: flex;
   align-items: center;

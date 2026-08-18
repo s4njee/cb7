@@ -25,10 +25,12 @@ import { runViewMemoryVectors } from "../components/library/viewMemory.test";
 import { runServerIsolationVectors } from "./serverIsolation.test";
 import { runTagChipVectors } from "../components/library/tagChips.test";
 import { runHomeShelfVectors } from "../components/library/homeShelfData.test";
+import { runDisplayVectors } from "../store/display.test";
 
 const runners = [
   ["bookmarks", runBookmarkVectors],
   ["bookContext", runBookContextVectors],
+  ["display", runDisplayVectors],
   ["downloadStatus", runDownloadStatusVectors],
   ["haptic", runHapticVectors],
   ["highlights", runHighlightVectors],

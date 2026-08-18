@@ -361,9 +361,48 @@ v3 makes them a system you can rely on for a decade of marginalia.
   shelf.
 
   </details>
-- [ ] **Library display controls — M.** Compact/comfortable density,
-  optional metadata lines, and a list view; persisted per device class;
-  one "Reset view" action. (From backlog P3.)
+- [x] **Library display controls — M.** A "View" pill beside Sort: grid or
+  list, comfortable or compact, details on or off — each remembered per
+  device class, with one "Reset view" that puts this device's shelf back to
+  the factory view. (From backlog P3.)
+
+  <details><summary>Implementation report</summary>
+
+  **Per device class is the point.** A phone wants a tight grid; an iPad wants
+  room. One shared setting means whichever device you touched last decides for
+  all of them, so `shelf.display` stores a record per class and they never
+  overwrite each other. Class is `desktop` for a desktop *build* at any window
+  size — resizing a window is not changing device — and otherwise splits phone
+  from tablet at 768px. No UA sniffing, in keeping with the platform module:
+  the only inputs are the Rust `isDesktop` flag and the width.
+
+  **CSS, not a second component.** Layout, density and the detail line are
+  class modifiers on the shelf container (`as-list`, `is-compact`, `no-meta`),
+  so one `CoverCard` serves every view. List mode makes the wrap static and the
+  card positioned, which moves the heart and overflow off the 44px thumbnail
+  and out to the end of the row where there is room for them. Details-off keeps
+  the title — a shelf of untitled covers is a puzzle, not a clean view.
+
+  **"Reset view" resets the view.** That includes the sort order: sort is part
+  of how the shelf is presented, and resetting half of it would answer half the
+  question. It only touches *this* device class — the others are not yours to
+  undo from here — and is disabled when nothing is customized, so the menu says
+  plainly when you are already on the default.
+
+  **Verified.** `display` vector module (registered in `vectorSuite`, 17 tests
+  green): the desktop-at-any-width rule, the 768px split, per-class isolation,
+  partial records resolving to complete views, when Reset is offered, and the
+  container class names. Exercised live in the dev preview — this is the first
+  of these library items the browser vehicle could actually show, since the
+  control does not need a populated shelf. Selecting List + Compact wrote
+  `{"tablet":{"layout":"list","density":"compact"}}`; resizing to phone width
+  flipped the menu back to Grid/Comfortable and "Saved for this phone —
+  currently the default view", with the tablet's record untouched (the
+  requirement, demonstrated rather than asserted); Reset view emptied that
+  class's record and put the sort back to Title ascending. Not exercised: the
+  compact and list *grids* themselves, which need books on the shelf.
+
+  </details>
 - [ ] **Empty-state and first-run guidance — S.** Distinct states for
   empty library vs empty filter vs failed search; "Add books" / "Connect a
   server" / "Browse a catalog" affordances; non-blocking reconnect banner

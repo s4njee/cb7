@@ -425,6 +425,95 @@
   justify-content: space-between;
 }
 
+/* --------------------------------------------------- display controls
+   Layout, density and the optional detail line are class modifiers on the
+   shelf container, so one card component serves every view instead of
+   branching into two shapes. */
+
+/* Compact: more books per screen, same card. */
+.grid.is-compact {
+  grid-template-columns: repeat(auto-fill, 110px);
+  gap: 18px 16px;
+}
+.grid.is-compact .cover-card,
+.grid.is-compact .cover {
+  width: 110px;
+}
+.grid.is-compact .cover {
+  height: 157px;
+}
+.grid.is-compact .cover-meta-title {
+  font-size: 12px;
+}
+
+/* Details off: the title stays — a shelf of untitled covers is a puzzle. */
+.grid.no-meta .cover-meta-status {
+  display: none;
+}
+
+/* List: one row per book, for hunting by title rather than by spine. */
+.grid.as-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.grid.as-list .cover-card {
+  position: relative;
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+}
+.grid.as-list .cover-card:hover {
+  background: var(--surface);
+}
+/* Static wrap + positioned card moves the hover controls off the thumbnail and
+   out to the end of the row, where there is room for them. */
+.grid.as-list .cover-wrap {
+  position: static;
+  flex: none;
+}
+.grid.as-list .cover {
+  width: 44px;
+  height: 62px;
+  border-radius: 3px;
+}
+.grid.as-list .cover-inner {
+  display: none;
+}
+.grid.as-list .cover-card > div:last-child {
+  flex: 1;
+  min-width: 0;
+  padding-right: 76px;
+}
+.grid.as-list .cover-meta-title {
+  font-size: 14px;
+}
+.grid.as-list .fav-heart {
+  top: 50%;
+  right: 44px;
+  transform: translateY(-50%);
+  opacity: 1;
+}
+.grid.as-list .fav-heart:hover {
+  transform: translateY(-50%) scale(1.1);
+}
+.grid.as-list .cover-overflow {
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  opacity: 1;
+}
+.grid.as-list.is-compact .cover {
+  width: 34px;
+  height: 48px;
+}
+.grid.as-list.is-compact .cover-card {
+  padding: 4px 10px;
+}
+
 .cover-card {
   text-align: left;
   width: 150px;
