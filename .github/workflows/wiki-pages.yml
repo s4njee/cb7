@@ -4,9 +4,9 @@ on:
   push:
     branches: [main]
     paths:
-      - 'webui/packaging/wiki-nextra/**'
-      - 'webui/packaging/wiki/content/**'
-      - 'webui/docs/**'
+      - 'server/packaging/wiki-nextra/**'
+      - 'server/packaging/wiki/content/**'
+      - 'server/docs/**'
       - 'reader/docs/**'
       - 'reader/README.md'
       - 'reader/plan-desktop-v2.md'
@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: webui/packaging/wiki-nextra
+        working-directory: server/packaging/wiki-nextra
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -37,7 +37,7 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-          cache-dependency-path: webui/packaging/wiki-nextra/pnpm-lock.yaml
+          cache-dependency-path: server/packaging/wiki-nextra/pnpm-lock.yaml
       - name: Install
         run: pnpm install --frozen-lockfile --ignore-workspace
       - name: Build static site
@@ -47,7 +47,7 @@ jobs:
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: webui/packaging/wiki-nextra/out
+          path: server/packaging/wiki-nextra/out
 
   deploy:
     needs: build

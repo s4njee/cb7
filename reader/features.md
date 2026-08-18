@@ -12,7 +12,7 @@ drag/drop import, and file-association open (cold and warm).
 
 What a full-featured ebook/comic reader client should support, scoped to this
 app (the CB8 server handles ingest/metadata/search server-side — see
-`../webui/features.md` for that list). Checked items are implemented and
+`../server/features.md` for that list). Checked items are implemented and
 verified; unchecked items are the roadmap.
 
 > **Verified against real content (2026-07-16 polish pass):** PDF rendering
@@ -75,7 +75,7 @@ verified; unchecked items are the roadmap.
 ## Annotations & Marks
 - [x] Bookmarks — comics, PDF, and EPUB; local-first on device, synced when a
       signed-in server session is available
-- [x] **EPUB bookmarks synced to server** (CFI `location` anchors; server endpoint added to webui)
+- [x] **EPUB bookmarks synced to server** (CFI `location` anchors; server endpoint added to server)
 - [x] Text highlights with colors (EPUB)
 - [ ] Notes attached to highlights/bookmarks
 - [ ] Highlight/note export (Markdown/JSON)
@@ -121,7 +121,7 @@ verified; unchecked items are the roadmap.
       nearby servers as tappable cards) — verified desktop↔server on a real LAN;
       Android MulticastLock held for each browse window (DISC-5); iOS entitlements
       in place; physical Android/iOS smoke still recommended
-- [x] **QR pairing** (webui "Pair a device" panel → scan on phone → connected *and*
+- [x] **QR pairing** (server "Pair a device" panel → scan on phone → connected *and*
       signed in via a single-use 2-minute token) — full loop verified server↔client;
       the camera scan itself is unproven on a physical device
 - [ ] Multiple saved servers / fast server switching
@@ -130,7 +130,7 @@ verified; unchecked items are the roadmap.
 - [x] OPDS catalog browsing as a secondary source (server exposes `/api/opds`;
       desktop also adds Standard Ebooks / Gutenberg / Calibre-Web as
       user-added catalogs)
-- [ ] Change-password screen (admin creates accounts; password change is in webui only)
+- [ ] Change-password screen (admin creates accounts; password change is in server only)
 
 ## Platform Integration (iOS/Android)
 - [ ] Store-ready release pipeline (signing, TestFlight / Play internal track)

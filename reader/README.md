@@ -2,7 +2,7 @@
 
 Project documentation: [CB8 Wiki](https://s4njee.github.io/cb7/)
 
-A Tauri v2 ebook & comic reader for **CB8 servers** (the server in `../webui`).
+A Tauri v2 ebook & comic reader for **CB8 servers** (the server in `../server`).
 Primary deployment targets are **iOS and Android**, plus a **supported desktop
 build** (macOS, Windows, Linux) — the same codebase, packaged as native apps.
 The UI recreates the iPad-first design handoff (library "Shelf", reflowable
@@ -63,7 +63,7 @@ CB8_SERVER=http://localhost:4218 pnpm dev     # http://localhost:1430
 pnpm tauri dev
 ```
 
-A local CB8: `cd ../webui/packaging/docker && ./cb8-init.sh && docker compose up -d`
+A local CB8: `cd ../server/packaging/docker && ./cb8-init.sh && docker compose up -d`
 → `http://localhost:4218`, first-boot admin password in `docker logs cb8`.
 
 Dev server runs on port **1430** (not Tauri's usual 1420 — other Tauri

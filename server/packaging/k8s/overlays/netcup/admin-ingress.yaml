@@ -1,0 +1,19 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: cb8-admin
+  namespace: cb8
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`books.s8njee.com`) && PathPrefix(`/admin`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: cb8-admin-strip
+      services:
+        - name: cb8
+          port: 4218
+  tls:
+    secretName: books-s8njee-com-tls

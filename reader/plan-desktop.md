@@ -12,7 +12,7 @@ For this plan, **standalone** means:
 - a user can import and read local books with no account and no network;
 - connecting to a CB8 server remains optional and enables the existing remote
   catalog, downloads, authentication, and cross-device progress;
-- the desktop app does **not** embed `webui/`, Postgres, or the CB8 worker.
+- the desktop app does **not** embed `server/`, Postgres, or the CB8 worker.
 
 The desktop version should remain the same product and codebase as the iOS and
 Android app. This is a Tauri desktop release, not a rewrite in Electron, Flutter,
@@ -46,7 +46,7 @@ The missing work is productizing that desktop build:
 | Window | Fixed defaults in `tauri.conf.json` | Persist size/position/maximized state and recover safely after monitor changes |
 | Menus/shortcuts | Reader-level keys only | Add native File/View/Window/Help commands and conventional shortcuts |
 | Platform detection | Media protocol base is selected from the user agent | Replace the desktop UA guess with a native platform value |
-| Quality gates | `pnpm build` and Rust tests are manual; root CI covers only `webui/` | Add reader CI, desktop smoke tests, and an artifact matrix |
+| Quality gates | `pnpm build` and Rust tests are manual; root CI covers only `server/` | Add reader CI, desktop smoke tests, and an artifact matrix |
 | Distribution | Icons and `bundle.active` exist | Add installers, signing/notarization, updater metadata, checksums, and release docs |
 
 ## Definition of done
@@ -103,7 +103,7 @@ designed separately.
 
 ### Do not bundle the CB8 server
 
-Embedding `webui/` would also mean embedding and operating Postgres, pgvector,
+Embedding `server/` would also mean embedding and operating Postgres, pgvector,
 the job worker, archive tools, migrations, ports, and background lifecycle. It
 is unnecessary for local reading and would turn a small reader port into a
 second server distribution. Keep remote shelves optional and unchanged.
@@ -460,7 +460,7 @@ Add reader-specific CI rather than extending the web server job implicitly.
 - [x] Convert the current exported test-vector files into tests the CI runner
   actually executes. Today the TypeScript build checks their types, but there
   is no `reader` test script in `package.json`.
-  → Added **vitest** (matches webui) + `vitest.config.ts` +
+  → Added **vitest** (matches server) + `vitest.config.ts` +
   `src/lib/vectorSuite.test.ts`, which imports every `run*Vectors()` module and
   executes them under vitest. `pnpm test` now runs all 9 vector suites.
 - [x] Unit-test platform/open-request normalization and menu action routing.

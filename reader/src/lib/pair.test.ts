@@ -1,6 +1,6 @@
 /**
  * Test vectors for {@link parsePairPayload} — the client half of the QR pairing
- * contract. **These mirror webui's `pairPayload.test.ts`**: both are written
+ * contract. **These mirror server's `pairPayload.test.ts`**: both are written
  * from docs/CONTRACT.md § "QR pairing payload" and must not drift.
  *
  * The repo has no test runner configured (no vitest/jest — see package.json), so

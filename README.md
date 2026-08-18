@@ -3,7 +3,7 @@
 CB8 is a self-hosted comic and book ecosystem designed for libraries you already own. Point the server at your existing directory of `.cbz`, `.cbr`, `.cb7`, `.epub`, `.pdf`, or `.mobi` files, and it builds a fast, searchable, metadata-rich catalog over them without ever moving, modifying, or renaming the original files.
 
 This monorepo contains the complete CB8 platform:
-1. **[CB8 Server & Web UI](webui/)** — A high-performance Fastify backend + Postgres/pgvector catalog + pg-boss background worker + responsive React SPA.
+1. **[CB8 Server & Web UI](server/)** — A high-performance Fastify backend + Postgres/pgvector catalog + pg-boss background worker + responsive React SPA.
 2. **[CB8 Reader App](reader/)** — A local-first, multi-platform native reader for **iOS, Android, macOS, Windows, and Linux** built with Tauri v2, Rust, React, and Readium.
 
 ---
@@ -31,7 +31,7 @@ This monorepo contains the complete CB8 platform:
    ┌───────────────────────────────────┴───────────────────────────────────┐
    │                                                                       │
    ▼                                                                       ▼
-[ webui/ ] — Server & Web UI                           [ reader/ ] — Native Multi-Platform App
+[ server/ ] — Server & Web UI                           [ reader/ ] — Native Multi-Platform App
  • Fastify HTTP API (Node 20+)                          • Tauri v2 (Rust Core + React 18 Webview)
  • Durable Background Worker (pg-boss)                  • Targets: iOS, Android, macOS, Win, Linux
  • Postgres + pgvector Database                         • Local-first: on-device library & offline mode
@@ -111,7 +111,7 @@ This monorepo contains the complete CB8 platform:
 The easiest way to get the CB8 server and worker running with Postgres and pgvector:
 
 ```bash
-cd webui/packaging/docker
+cd server/packaging/docker
 
 # Generate secret environment variables (.env)
 ./cb8-init.sh
@@ -128,7 +128,7 @@ docker compose up -d --build
 Requires Node.js 20+, pnpm 11+, and a PostgreSQL instance with the `vector` extension enabled:
 
 ```bash
-cd webui
+cd server
 pnpm install
 
 # Build frontend and compile standalone server & worker bundles
@@ -168,7 +168,7 @@ pnpm tauri android dev
 
 ```
 cb7/
-├── webui/                          # CB8 Server & Web UI (Fastify + Postgres + React)
+├── server/                          # CB8 Server & Web UI (Fastify + Postgres + React)
 │   ├── src/
 │   │   ├── main/                   # Node.js backend: DB, ingest, routes, jobs, search
 │   │   │   ├── db/                 # Postgres connection pool & domain schemas (pgvector)
@@ -203,16 +203,16 @@ cb7/
 
 Detailed documentation is available across both sub-projects:
 
-### Server & Web UI (`webui/`)
-- [webui/README.md](webui/README.md) — Server overview, features, and configuration.
-- [webui/ARCHITECTURE.md](webui/ARCHITECTURE.md) — Deep architectural walkthrough: request lifecycle, auth, job queues, and database schemas.
-- [webui/DEPLOY.md](webui/DEPLOY.md) — Production operations guide (k3s Kubernetes, Argo CD GitOps).
-- [webui/docs/DEPLOYMENT.md](webui/docs/DEPLOYMENT.md) — Environment variables, Docker Compose, and bare-metal setup.
-- [webui/docs/QR-PAIRING.md](webui/docs/QR-PAIRING.md) — Specification and implementation details of QR device pairing.
-- [webui/docs/STUDY_GUIDE.md](webui/docs/STUDY_GUIDE.md) — Codebase onboarding guide and module map for developers.
-- [webui/docs/READER.md](webui/docs/READER.md) — Web reader UI controls, shortcuts, and behavior.
-- [webui/docs/diagrams.md](webui/docs/diagrams.md) — Mermaid diagrams for ingest, page retrieval, and API flows.
-- [webui/CONTRIBUTING.md](webui/CONTRIBUTING.md) — Development conventions and guide for adding features.
+### Server & Web UI (`server/`)
+- [server/README.md](server/README.md) — Server overview, features, and configuration.
+- [server/ARCHITECTURE.md](server/ARCHITECTURE.md) — Deep architectural walkthrough: request lifecycle, auth, job queues, and database schemas.
+- [server/DEPLOY.md](server/DEPLOY.md) — Production operations guide (k3s Kubernetes, Argo CD GitOps).
+- [server/docs/DEPLOYMENT.md](server/docs/DEPLOYMENT.md) — Environment variables, Docker Compose, and bare-metal setup.
+- [server/docs/QR-PAIRING.md](server/docs/QR-PAIRING.md) — Specification and implementation details of QR device pairing.
+- [server/docs/STUDY_GUIDE.md](server/docs/STUDY_GUIDE.md) — Codebase onboarding guide and module map for developers.
+- [server/docs/READER.md](server/docs/READER.md) — Web reader UI controls, shortcuts, and behavior.
+- [server/docs/diagrams.md](server/docs/diagrams.md) — Mermaid diagrams for ingest, page retrieval, and API flows.
+- [server/CONTRIBUTING.md](server/CONTRIBUTING.md) — Development conventions and guide for adding features.
 
 ### Native Reader App (`reader/`)
 - [reader/README.md](reader/README.md) — Native reader overview, prerequisites, and build commands.
@@ -231,7 +231,7 @@ Detailed documentation is available across both sub-projects:
 
 #### Server & Web UI:
 ```bash
-cd webui
+cd server
 pnpm typecheck
 pnpm test
 
@@ -254,4 +254,4 @@ cargo clippy --all-targets -- -D warnings
 
 ## License
 
-This project is licensed under the [MIT License](webui/LICENSE).
+This project is licensed under the [MIT License](server/LICENSE).

@@ -1,7 +1,7 @@
 # CB8 (reader/) — Architecture & Wire Contract
 
 CB8 is a Tauri v2 app (Rust core + React/TS/Vite webview UI) that is a client
-for a **CB8 server** (the Fastify+Postgres server in `/Users/sanjee/projects/cb7/webui`).
+for a **CB8 server** (the Fastify+Postgres server in `/Users/sanjee/projects/cb7/server`).
 Deployment targets: **iOS, Android, and desktop** (macOS/Windows/Linux). The
 app is **local-first** — the on-device library works with no server at all,
 and connecting to a CB8 server is optional. Desktop release details live in
@@ -86,7 +86,7 @@ path matches (no query) and whenever the network errors.
 
 ### LAN discovery (mDNS)
 
-**Service advertisement (webui side — the wire contract):** a CB8 server
+**Service advertisement (server side — the wire contract):** a CB8 server
 advertises service type **`_cb8._tcp.local.`** on the port it listens on, with
 TXT records:
 
@@ -168,7 +168,7 @@ at runtime and the feature silently does nothing.
 
 ### QR pairing payload
 
-One versioned string, produced by the webui pair panel, consumed by the client
+One versioned string, produced by the server pair panel, consumed by the client
 scanner. **Definition (v1):**
 
 ```
@@ -185,11 +185,11 @@ cb8pair://v1?url=<urlencoded origin>[&token=<opaque>]
 Client parsing is the pure function `parsePairPayload(text)` in
 `src/lib/pair.ts` → `{ ok: true, url, token? } | { ok: false, reason }`, with
 `reason` ∈ `not-shelf | bad-version | bad-url`. Test vectors live beside it and
-are mirrored in webui's `pairPayload.test.ts` — the two must not drift.
+are mirrored in server's `pairPayload.test.ts` — the two must not drift.
 
 ### Pair tokens (QR v2 — auth surface)
 
-Server endpoints (webui), both **rate-limited on the login limiter**:
+Server endpoints (server), both **rate-limited on the login limiter**:
 
 - `POST /api/auth/pair-token` — **signed-in only**. Mints a single-use token
   bound to the calling user. → `{ token, expiresAt }` (ISO). TTL **120 s**.
@@ -300,7 +300,7 @@ double-click, and second-instance opens all produce the same catalog record:
 - **While reading**: an import lands on the shelf with a toast rather than
   replacing the active session — progress is never discarded.
 
-## CB8 REST API (verified against webui source)
+## CB8 REST API (verified against server source)
 
 Base: everything under `/api`. JSON in/out; errors `{ "error": string }`.
 Default port **8008** (`CB8_PORT`); docker compose publishes **4218**.

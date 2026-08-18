@@ -28,7 +28,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::error::ApiError;
 use crate::state::{AppState, DiscoveryHandle};
 
-/// Service type CB8 servers advertise (DISC-1, webui side).
+/// Service type CB8 servers advertise (DISC-1, server side).
 const SERVICE_TYPE: &str = "_cb8._tcp.local.";
 
 /// Instance-name suffix on a resolved fullname, e.g.

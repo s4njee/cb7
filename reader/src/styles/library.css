@@ -302,6 +302,21 @@
   text-transform: uppercase;
   color: var(--muted);
 }
+.scope-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  width: fit-content;
+  min-width: 74px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+.scope-toggle:hover {
+  color: var(--fg);
+}
 .scope-chips {
   display: flex;
   flex-wrap: wrap;

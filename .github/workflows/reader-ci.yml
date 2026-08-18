@@ -1,6 +1,6 @@
 # Reader CI (Phase 6).
 #
-# Separate from the webui job (which guards the server) so a reader-only change
+# Separate from the server job (which guards the server) so a reader-only change
 # gets its own gates: frontend typecheck + unit tests + production build, and
 # Rust fmt + clippy (warnings denied) + tests. Runs on every push/PR touching
 # reader/.

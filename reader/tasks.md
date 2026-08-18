@@ -22,7 +22,7 @@ and they share the connect-screen surface, so DISC-6/QR-5 should land behind
 one coherent UI.
 
 Estimates: **S** ≤ half a day · **M** a day or two · **L** multi-day.
-Stories marked **(webui)** change the server repo; everything else is `reader/`.
+Stories marked **(server)** change the server repo; everything else is `reader/`.
 
 ---
 
@@ -35,7 +35,7 @@ Flow: server advertises `_cb8._tcp.local.` → Rust side browses via mDNS →
 connect screen lists discovered servers as tappable cards above the manual
 field. Manual entry always remains (VPNs, cross-subnet, disabled discovery).
 
-### DISC-1 · Advertise `_cb8._tcp` from the server **(webui, M)**
+### DISC-1 · Advertise `_cb8._tcp` from the server **(server, M)**
 As a self-hoster, I want my server to announce itself on the LAN so client
 apps can find it without configuration.
 - [x] mDNS advertisement (e.g. `bonjour-service`) started with the HTTP
@@ -49,7 +49,7 @@ apps can find it without configuration.
 - [x] Unit test for the TXT-record builder; manual verification with
       `dns-sd -B _cb8._tcp` documented in the PR.
 
-### DISC-2 · Container/deployment reality check **(webui docs, S)**
+### DISC-2 · Container/deployment reality check **(server docs, S)**
 As a Docker/k8s operator, I want to know why discovery does or doesn't work in
 my deployment, so I don't file bugs at the network stack.
 - [x] Document in DEPLOYMENT.md: bridge-network containers cannot multicast to
@@ -145,10 +145,10 @@ becomes an implicit contract.
       ignored; unknown scheme/version → "This code isn't a Shelf pairing
       code."
 - [x] Shared validation rules written as pure functions with unit tests on
-      the client (`parsePairPayload`); mirrored test vectors in webui.
+      the client (`parsePairPayload`); mirrored test vectors in server.
 
-### QR-2 · Show the code in the web UI **(webui, M)**
-As a signed-in webui user, I want a "Pair a device" panel, so I can bring my
+### QR-2 · Show the code in the web UI **(server, M)**
+As a signed-in server user, I want a "Pair a device" panel, so I can bring my
 phone onto the same library.
 - [x] Settings → "Pair a device": renders a QR (local `qrcode` lib, no CDN)
       of the v1 payload built from `window.location.origin`.
@@ -172,7 +172,7 @@ pair without typing.
       non-technical error copy.
 - [x] Cancel returns to the connect screen with state intact.
 
-### QR-4 · One-tap sign-in token — v2 **(webui + client, L, security review)**
+### QR-4 · One-tap sign-in token — v2 **(server + client, L, security review)**
 As a phone user, I want scanning to also sign me in as me, so I never type my
 password on a phone.
 - [x] Server: `POST /api/auth/pair-token` (signed-in) mints a single-use,
@@ -201,7 +201,7 @@ don't compete.
 ### QR-6 · End-to-end verification (M)
 - [x] Browser-mode: `parsePairPayload` unit tests; mocked scan path drives
       probe + routing.
-- [~] Device: webui QR on a desktop monitor scanned by the iPhone simulator
+- [~] Device: server QR on a desktop monitor scanned by the iPhone simulator
       is not possible — physical-device checklist item; simulator run verifies
       the button gating + permission plumbing instead.
       **Still open by nature**: a simulator has no camera. Everything either

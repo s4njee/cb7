@@ -34,12 +34,13 @@ pnpm-debug.log*
 *.tmp.*
 
 # Webui-specific
-webui/docs/api/
-webui/test_typedoc.log
-webui/typedoc-warnings.log
-webui/Marvel Omnibus*/
-webui/comics/
-webui/library/
+/DEPLOYMENT.md
+server/docs/api/
+server/test_typedoc.log
+server/typedoc-warnings.log
+server/Marvel Omnibus*/
+server/comics/
+server/library/
 
 # Local library media — never commit
 *.cbz

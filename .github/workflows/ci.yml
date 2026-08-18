@@ -1,8 +1,8 @@
-# CB8 webui CI (P2-5).
+# CB8 server CI (P2-5).
 #
-# The webui was previously built/pushed without any automated checks running —
+# The server was previously built/pushed without any automated checks running —
 # everything was manual (`pnpm typecheck`, `pnpm test`, `pnpm build:renderer`).
-# This runs the same checks on every push/PR touching webui/, plus the
+# This runs the same checks on every push/PR touching server/, plus the
 # Postgres-gated suite against a throwaway pgvector service container so the
 # SQL-heavy paths are actually exercised.
 #
@@ -15,9 +15,9 @@ name: CI
 on:
   push:
     branches: [main]
-    paths: ['webui/**']
+    paths: ['server/**']
   pull_request:
-    paths: ['webui/**']
+    paths: ['server/**']
 
 jobs:
   checks:
@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: webui
+        working-directory: server
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -35,7 +35,7 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-          cache-dependency-path: webui/pnpm-lock.yaml
+          cache-dependency-path: server/pnpm-lock.yaml
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Typecheck
@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: webui
+        working-directory: server
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -75,7 +75,7 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-          cache-dependency-path: webui/pnpm-lock.yaml
+          cache-dependency-path: server/pnpm-lock.yaml
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Postgres-gated suite

@@ -294,6 +294,10 @@ export default function Library() {
   // mean showing an empty room to someone with a library one tap away.
   useEffect(() => {
     if (shelfChoice !== null) return;
+    if (!api.localSupported) {
+      setShelfChoice("server");
+      return;
+    }
     if (api.localSupported && localQuery.isLoading) return;
     setShelfChoice(localBooks.length > 0 || !serverReady ? "local" : "server");
   }, [shelfChoice, localQuery.isLoading, localBooks.length, serverReady]);
@@ -309,7 +313,7 @@ export default function Library() {
     if (librarySearchTick > 0) searchRef.current?.focus();
   }, [librarySearchTick]);
 
-  const shelf: Shelf = shelfChoice ?? "local";
+  const shelf: Shelf = shelfChoice ?? (api.localSupported ? "local" : "server");
   const onServer = shelf === "server";
 
   // The background indexer's live status, so a search can say "still building"
@@ -1086,18 +1090,20 @@ export default function Library() {
       {/* The shelf switch sits above every other control: which library you are
           looking at is a bigger question than how it is filtered. */}
       <div className="shelf-tabs" role="tablist" aria-label="Library">
-        <button
-          role="tab"
-          aria-selected={!onServer}
-          className={`shelf-tab${!onServer ? " active" : ""}`}
-          onClick={() => {
-            setShelfChoice("local");
-            setScope({ type: "all" });
-          }}
-        >
-          On device
-          {localBooks.length > 0 && <span className="shelf-tab-n">{localBooks.length}</span>}
-        </button>
+        {api.localSupported && (
+          <button
+            role="tab"
+            aria-selected={!onServer}
+            className={`shelf-tab${!onServer ? " active" : ""}`}
+            onClick={() => {
+              setShelfChoice("local");
+              setScope({ type: "all" });
+            }}
+          >
+            On device
+            {localBooks.length > 0 && <span className="shelf-tab-n">{localBooks.length}</span>}
+          </button>
+        )}
         {serverReady ? (
           <button
             role="tab"

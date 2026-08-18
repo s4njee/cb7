@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cb8-reader
+  namespace: cb8
+  labels:
+    app: cb8-reader
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cb8-reader
+  template:
+    metadata:
+      labels:
+        app: cb8-reader
+    spec:
+      imagePullSecrets:
+        - name: registry-s8njee-pull
+      containers:
+        - name: reader
+          image: registry.s8njee.com/cb8-reader:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cb8-reader
+  namespace: cb8
+  labels:
+    app: cb8-reader
+spec:
+  type: ClusterIP
+  selector:
+    app: cb8-reader
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

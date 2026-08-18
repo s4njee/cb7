@@ -482,7 +482,7 @@ v3 makes them a system you can rely on for a decade of marginalia.
 - [ ] **Self-signed certificate trust — M.** First-connect fingerprint
   prompt with pin-on-accept for home-lab HTTPS; Rust owns verification so
   all three WebViews behave identically.
-- [ ] **Change-password screen — S.** Parity with webui; small but it
+- [ ] **Change-password screen — S.** Parity with server; small but it
   completes the account story on-device.
 - [ ] **Multiple user profiles on one device — L, later.** Per-profile
   progress/annotations/prefs on a shared library; gate on demand — family

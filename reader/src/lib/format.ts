@@ -125,7 +125,7 @@ export type ReaderFormat = "comic" | "epub" | "pdf";
  * `epubcfi` location implies EPUB, a real page count without one implies PDF.
  *
  * Mirrors `determineReaderFormat` in the CB8 server's own SPA
- * (webui/src/renderer/pages/readerPageHelpers.ts) — the two must agree, or a
+ * (server/src/renderer/pages/readerPageHelpers.ts) — the two must agree, or a
  * book opens as a different format depending on which client you use.
  */
 export function readerFormat(r: WebComicRecord): ReaderFormat {

@@ -17,7 +17,7 @@ export interface EpubColors {
 }
 
 /* Hearth Noir reading canvas — page themes only, not app chrome.
-   Dark matches Flutter/webui black theme (warm page + reading-text). */
+   Dark matches Flutter/server black theme (warm page + reading-text). */
 const COLORS: Record<ThemeName, EpubColors> = {
   dark: { bg: "#0d0b0a", fg: "#ddd4c3", link: "#e08a6f", rule: "#3a3226" },
   sepia: { bg: "#e8dcc2", fg: "#4a3d28", link: "#8a5320", rule: "#cbbb9c" },

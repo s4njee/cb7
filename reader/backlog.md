@@ -1,7 +1,7 @@
 # Shelf backlog
 
 Reviewed 2026-08-01 against the current `reader/` Tauri 2 client and the
-`webui/` CB8 server. This is a code-based backlog, not a generic reader feature
+`server/` CB8 server. This is a code-based backlog, not a generic reader feature
 list. The broader checklist remains in [features.md](features.md).
 
 Effort estimates assume one developer familiar with the codebase:
@@ -310,7 +310,7 @@ or an immediate manual rescan.
 
 **Existing scaffolding to build on (do not reinvent):**
 
-- `webui/src/main/folderScheduler.ts` — non-overlapping interval scheduling
+- `server/src/main/folderScheduler.ts` — non-overlapping interval scheduling
 - `POST /api/folders/:id/rescan` + incremental `folder_scan_ts:*` cursors
 - `GET/PUT /api/settings/auto-rescan-interval`
 - Worker `ingest-scan` jobs (`jobs/queues.ts`, `producer.ts`, `handlers.ts`)
@@ -431,9 +431,9 @@ remove one file → policy applied without failing the job.
 
 #### ~~6. Ops / docs — S~~
 
-Done (2026-08-14): `webui/README.md` updated — registering a root vs one-shot
+Done (2026-08-14): `server/README.md` updated — registering a root vs one-shot
 add-path, interval config, worker requirement, offline/missing-mount badge.
-Wiki / `AGENTS.md` follow-ups tracked in the webui backlog.
+Wiki / `AGENTS.md` follow-ups tracked in the server backlog.
 
 Update server docs (`README`, wiki ops, `AGENTS.md`) for:
 
@@ -456,7 +456,7 @@ show up” from the docs alone.
 
 ### Notes for implementers
 
-- Primary work is **`webui/`** (API, worker, admin SPA), not the Tauri reader.
+- Primary work is **`server/`** (API, worker, admin SPA), not the Tauri reader.
 - Prefer extending `folderScheduler` + folder rescan over a new FS watcher.
 - Realtime inotify/FSEvents can be a later epic if interval + Rescan is not
   enough for large drop volumes.

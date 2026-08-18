@@ -104,7 +104,7 @@ export default function App() {
       const guestChosen = useSession.getState().guestChosen;
       if (session.authenticated && session.user) {
         enterAsUser(session.user, serverUrl);
-      } else if (guestChosen && session.guestAccess) {
+      } else if (session.guestAccess && (!isTauri || guestChosen)) {
         enterAsGuest(serverUrl);
       }
       // Otherwise: a known server we aren't signed into. The library shows the

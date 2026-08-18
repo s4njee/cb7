@@ -9,6 +9,7 @@
  *  device shelf can count a tag's books — the server endpoint returns names
  *  alone — so counts appear where they are actually known.
  */
+import { useEffect, useState } from "react";
 import type { LibraryInfo, SeriesInfo } from "../../lib/api";
 import type { Scope, TagChip } from "./libraryData";
 
@@ -27,6 +28,14 @@ export default function ScopeRow({
   onPick: (scope: Scope) => void;
   onPickTag: (tag: string | null) => void;
 }) {
+  const [tagsExpanded, setTagsExpanded] = useState(false);
+
+  // Keep an active tag visible so the current filter never becomes mysterious
+  // after returning to the library or switching between scopes.
+  useEffect(() => {
+    if (activeTag) setTagsExpanded(true);
+  }, [activeTag]);
+
   // Series of one are just a single title — nothing to browse into.
   const interestingSeries = series.filter((s) => s.count > 1);
   if (libraries.length === 0 && interestingSeries.length === 0 && tags.length === 0) return null;
@@ -53,25 +62,35 @@ export default function ScopeRow({
 
       {tags.length > 0 && (
         <div className="scope-group">
-          <span className="scope-eyebrow">Tags</span>
-          <div className="scope-chips">
-            {tags.map((tag) => {
-              const active = tag.name === activeTag;
-              return (
-                <button
-                  key={`tag-${tag.name}`}
-                  className={`scope-chip${active ? " active" : ""}`}
-                  aria-pressed={active}
-                  // Tapping the active tag clears it: the chip you used to get
-                  // here is the obvious thing to press to get back.
-                  onClick={() => onPickTag(active ? null : tag.name)}
-                >
-                  <span className="scope-chip-name">{tag.name}</span>
-                  {tag.count != null && <span className="scope-chip-count">{tag.count}</span>}
-                </button>
-              );
-            })}
-          </div>
+          <button
+            type="button"
+            className="scope-eyebrow scope-toggle"
+            aria-expanded={tagsExpanded}
+            onClick={() => setTagsExpanded((expanded) => !expanded)}
+          >
+            <span>Tags</span>
+            <span aria-hidden="true">{tagsExpanded ? "−" : "+"}</span>
+          </button>
+          {tagsExpanded && (
+            <div className="scope-chips">
+              {tags.map((tag) => {
+                const active = tag.name === activeTag;
+                return (
+                  <button
+                    key={`tag-${tag.name}`}
+                    className={`scope-chip${active ? " active" : ""}`}
+                    aria-pressed={active}
+                    // Tapping the active tag clears it: the chip you used to get
+                    // here is the obvious thing to press to get back.
+                    onClick={() => onPickTag(active ? null : tag.name)}
+                  >
+                    <span className="scope-chip-name">{tag.name}</span>
+                    {tag.count != null && <span className="scope-chip-count">{tag.count}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

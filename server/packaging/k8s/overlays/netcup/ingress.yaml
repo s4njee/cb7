@@ -1,0 +1,33 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cb8
+  namespace: cb8
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: books.s8njee.com
+      http:
+        paths:
+          - backend:
+              service:
+                name: cb8
+                port:
+                  name: http
+            path: /api
+            pathType: Prefix
+          - backend:
+              service:
+                name: cb8-reader
+                port:
+                  name: http
+            path: /
+            pathType: Prefix
+  tls:
+    - hosts:
+        - books.s8njee.com
+      secretName: books-s8njee-com-tls

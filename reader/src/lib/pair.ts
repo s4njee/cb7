@@ -4,7 +4,7 @@
  *     cb8pair://v1?url=<urlencoded origin>[&token=<opaque>]
  *
  * This module is **pure**: no I/O, no globals beyond `URL`/`URLSearchParams`, so
- * it is unit-testable in node and mirrors webui's `pairPayload.test.ts` vectors
+ * it is unit-testable in node and mirrors server's `pairPayload.test.ts` vectors
  * byte for byte. The two must not drift.
  */
 

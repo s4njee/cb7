@@ -84,9 +84,48 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
 
 /* ------------------------------------------------------------- browser dev */
 
-// In browser mode there is no persisted server config; a successful probe
-// stores the same-origin base ('') in memory so the boot flow can route.
-let browserServer: string | null = null;
+// Browser server profiles live in localStorage. Private browsing may make this
+// storage temporary or unavailable; in that case the profile lasts only for
+// the current private session, which is a browser privacy guarantee we cannot
+// override. Requests still use relative same-origin paths below.
+const BROWSER_SERVERS_KEY = "cb8.reader.servers";
+
+function readBrowserServers(): SavedServer[] {
+  try {
+    const raw = localStorage.getItem(BROWSER_SERVERS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (value): value is SavedServer =>
+        typeof value === "object" &&
+        value !== null &&
+        typeof (value as SavedServer).url === "string" &&
+        typeof (value as SavedServer).name === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
+let browserServers = readBrowserServers();
+let browserServer: string | null = browserServers[0]?.url ?? null;
+
+function writeBrowserServers(): void {
+  try {
+    localStorage.setItem(BROWSER_SERVERS_KEY, JSON.stringify(browserServers));
+  } catch {
+    // Storage can be disabled or quota-limited in private browsing.
+  }
+}
+
+function browserServerName(url: string): string {
+  try {
+    return new URL(url).hostname || url;
+  } catch {
+    return url;
+  }
+}
 
 async function browserRequest<T>(
   method: string,
@@ -134,39 +173,61 @@ async function browserRequest<T>(
 
 export function getConfig(): Promise<AppConfig> {
   if (isTauri) return invoke<AppConfig>("get_config");
-  return Promise.resolve({ server_url: browserServer });
+  return Promise.resolve({ server_url: browserServer, servers: browserServers });
 }
 
 /** Every saved server, most recently used first. The active one is
  *  `getConfig().server_url`. */
 export function listServers(): Promise<SavedServer[]> {
-  if (!isTauri) return Promise.resolve([]);
+  if (!isTauri) return Promise.resolve(browserServers);
   return invoke<SavedServer[]>("list_servers");
 }
 
 export function renameServer(url: string, name: string): Promise<SavedServer[]> {
-  if (!isTauri) return Promise.resolve([]);
+  if (!isTauri) {
+    browserServers = browserServers.map((server) => (server.url === url ? { ...server, name } : server));
+    writeBrowserServers();
+    return Promise.resolve(browserServers);
+  }
   return invoke<SavedServer[]>("rename_server", { url, name });
 }
 
 /** Drop the profile and its session. Downloads, pins and on-device annotations
  *  stay keyed by this URL, so re-adding the server later finds them again. */
 export function forgetServer(url: string): Promise<SavedServer[]> {
-  if (!isTauri) return Promise.resolve([]);
+  if (!isTauri) {
+    browserServers = browserServers.filter((server) => server.url !== url);
+    if (browserServer === url) browserServer = browserServers[0]?.url ?? null;
+    writeBrowserServers();
+    return Promise.resolve(browserServers);
+  }
   return invoke<SavedServer[]>("forget_server", { url });
 }
 
 /** Remember who signed in here so the next sign-in prefills. Never a password. */
 export function rememberServerUser(url: string, username: string): Promise<void> {
-  if (!isTauri) return Promise.resolve();
+  if (!isTauri) {
+    browserServers = browserServers.map((server) =>
+      server.url === url ? { ...server, lastUsername: username } : server,
+    );
+    writeBrowserServers();
+    return Promise.resolve();
+  }
   return invoke<void>("remember_server_user", { url, username });
 }
 
 export async function setServer(url: string): Promise<unknown> {
   if (isTauri) return invoke<unknown>("set_server", { url });
-  // Browser: ignore the address, probe the proxied same-origin session.
+  // Browser: the Vite proxy owns the server address; probe the proxied
+  // same-origin session and retain a truthy identity for the connected shelf.
   const payload = await browserRequest<unknown>("GET", "/api/auth/session");
-  browserServer = "";
+  browserServer = window.location.origin;
+  const existing = browserServers.find((server) => server.url === browserServer);
+  browserServers = [
+    existing ?? { url: browserServer, name: browserServerName(browserServer) },
+    ...browserServers.filter((server) => server.url !== browserServer),
+  ];
+  writeBrowserServers();
   return payload;
 }
 

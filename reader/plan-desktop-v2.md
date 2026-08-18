@@ -44,7 +44,7 @@ Grounded in [features.md](features.md) and the current code:
 | In-book / library full-text search | `/api/search` (server, embeddings) | Title substring match only |
 | Reading history | Server history API | None (stats exist on-device, history view does not) |
 | Folder-sized libraries | Server watches folders | One-file-at-a-time import; directories are explicitly rejected |
-| Metadata correction | webui edit surfaces | None |
+| Metadata correction | server edit surfaces | None |
 
 Everything below is organized so each area independently improves the
 standalone story. Effort tags follow [backlog.md](backlog.md): S (≤½ day),
@@ -63,7 +63,7 @@ with a 500-book folder.
   catalogs supported files, and watches for changes (`notify` crate) with a
   manual Rescan action as the fallback. Books keep a `source: linked` origin
   in `catalog.json`; a moved/deleted file becomes a "missing" record with a
-  Locate/Remove flow (mirror webui's missing-file handling). This was
+  Locate/Remove flow (mirror server's missing-file handling). This was
   explicitly deferred by v1's "keep local files app-owned" decision — v2
   designs it properly: linked books are read-only sources, all app state
   (progress, annotations, covers cache) still lives in app storage keyed by
@@ -95,7 +95,7 @@ with a 500-book folder.
   dropping a folder routes through the same scan→confirm→import flow. Tests:
   walk collects supported recursively, depth cap, file cap (61 Rust tests).
   Verified: clippy clean, iOS target compiles, `pnpm build` passes.
-- [x] **Duplicate detection — M.** Content-hash imported files (webui already
+- [x] **Duplicate detection — M.** Content-hash imported files (server already
   hashes; reuse the approach) so re-importing the same book dedupes to the
   existing record instead of creating a second copy.
   → Implemented 2026-08-16 (v2 commit `…`). `LocalBook` gained `contentHash`
@@ -152,7 +152,7 @@ import/scan time and never requires the network.
   downloads, and linked-folder scans all use the same extractor. Verified with
   82 Rust tests, the live-server test, Clippy, frontend typecheck, and build.
 - [x] **Filename/series heuristics — M.** For comics without ComicInfo.xml,
-  parse `Series v02 #013 (2019)`-style names the way the webui scanner does;
+  parse `Series v02 #013 (2019)`-style names the way the server scanner does;
   share the rules in one documented module so client and server agree.
 - [x] **Proper cover pipeline — M.** Extract the declared EPUB cover (not just
   a first-image guess), render PDF page 1 at a bounded size, first page for
@@ -243,7 +243,7 @@ import/scan time and never requires the network.
   tests plus the live-server test), `pnpm typecheck`, and `pnpm build` pass.
 - [ ] **FB2 and plain TXT/Markdown — M.** Cheap wins via the same
   convert-to-EPUB import path; TXT/MD matter for fanfic and drafts.
-- [x] **CB7 and plain image folders — M.** The webui already supports both
+- [x] **CB7 and plain image folders — M.** The server already supports both
   (P1-6); desktop parity via the existing `local_zip` abstraction (7z via the
   `sevenz-rust` crate — keep v1's no-sidecar rule) and the linked-folder
   scanner treating an image directory as a comic.

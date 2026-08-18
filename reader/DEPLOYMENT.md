@@ -142,7 +142,7 @@ React app (the device needs Settings → Safari → Advanced → Web Inspector o
 
 The app ships with no server baked in. On first run, the connect screen takes
 the CB8 server's **LAN** address — `http://192.168.x.y:4218` for the Docker
-compose setup in `webui/packaging/docker` — since `localhost` on the iPad is the
+compose setup in `server/packaging/docker` — since `localhost` on the iPad is the
 iPad. Prefer HTTPS for anything reachable from outside the network.
 
 ## Profile expiry
