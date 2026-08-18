@@ -270,8 +270,48 @@ v3 makes them a system you can rely on for a decade of marginalia.
 
 ### 5. Library and personalization
 
-- [ ] **Tag browsing — M.** `/api/tags` scope chips for server libraries;
-  the local tag model already exists — unify both behind the same chip UI.
+- [x] **Tag browsing — M.** Tag chips now sit in the browse row on both
+  shelves — from `/api/tags` on a server, from the on-device catalog
+  otherwise — behind one chip UI. Selecting one narrows the grid (the server
+  filters `?tag=` itself, so a tagged view pages properly); tapping it again,
+  or its chip in the active-filter bar, clears it.
+
+  <details><summary>Implementation report</summary>
+
+  **One UI, two sources.** `ScopeRow` grew a Tags group beside Collections and
+  Series. Collections and series *switch scope*; a tag is a *filter* that
+  narrows whatever scope you are in — different semantics, but the same
+  question ("show me a slice"), so they share the row. The active tag chip
+  stays lit, and tapping it clears the filter: the chip you used to get here is
+  the obvious thing to press to get back.
+
+  **Counts only where they are real.** The device shelf holds its whole catalog
+  in memory, so `tagChipsFromRecords` counts exactly what is there. The
+  server's `/api/tags` returns names alone, so those chips carry no count
+  rather than an invented one — the same rule the result counts follow.
+
+  **The server was already able to do this.** `/api/comics?tag=` filters
+  server-side (`comicQueryHelpers` joins `comic_tags`), but the reader never
+  sent the parameter — tag filtering was on-device only, so tapping a tag on a
+  server book filtered nothing. The paged query now passes `tag` and carries it
+  in the query key, so a tagged view pages and caches correctly instead of
+  filtering just the page in hand.
+
+  **Grouping is exact, not case-folded.** The on-device filter matches tags
+  exactly, so folding "Noir" and "noir" into one chip would produce a chip
+  whose count is larger than what selecting it shows. The vectors assert that
+  invariant directly: for every chip, the count equals the number of books
+  filtering by that chip actually returns.
+
+  **Verified.** `tagChips` vector module (registered in `vectorSuite`, 15 tests
+  green): ordering, counts, empty shelves, the count-matches-filter invariant
+  including the mixed-case case, and composition with search. `tsc`, `vitest`,
+  `vite build`; the library screen re-rendered clean in the dev preview. Not
+  exercised: the chips against live data — the browser dev vehicle cannot reach
+  the server shelf, and the CB8 server on hand has no tags defined
+  (`/api/tags` → `[]`).
+
+  </details>
 - [ ] **Richer home shelves — M.** Continue reading, up next in series,
   recently added, favorites as independent, hide-when-empty rows; local
   and server sources feed the same shelves.

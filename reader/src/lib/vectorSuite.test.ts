@@ -23,6 +23,7 @@ import { runBookmarkVectors } from "./bookmarks.test";
 import { runHighlightVectors } from "./highlights.test";
 import { runViewMemoryVectors } from "../components/library/viewMemory.test";
 import { runServerIsolationVectors } from "./serverIsolation.test";
+import { runTagChipVectors } from "../components/library/tagChips.test";
 
 const runners = [
   ["bookmarks", runBookmarkVectors],
@@ -36,6 +37,7 @@ const runners = [
   ["scrubPreview", runScrubPreviewVectors],
   ["searchText", runSearchTextVectors],
   ["serverIsolation", runServerIsolationVectors],
+  ["tagChips", runTagChipVectors],
   ["viewMemory", runViewMemoryVectors],
   ["virtualWindow", runVirtualWindowVectors],
 ] as const;

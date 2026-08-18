@@ -403,6 +403,13 @@ export interface SeriesInfo {
   thumbnailUrl: string | null;
 }
 
+/** Every tag on the server, alphabetical. The server returns names only — it
+ *  has no per-tag count — so the chip UI shows counts for the on-device shelf
+ *  (where the whole catalog is in memory) and names alone for the server. */
+export function listTags(): Promise<string[]> {
+  return apiGet<string[]>("/api/tags");
+}
+
 export function listSeries(): Promise<SeriesInfo[]> {
   return apiGet<SeriesInfo[]>(`/api/series`);
 }

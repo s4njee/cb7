@@ -296,6 +296,15 @@
 .scope-chip:hover {
   border-color: var(--accent);
 }
+/* A tag chip is a toggle, not a doorway: the active one stays lit so the row
+   itself shows what is filtering the grid. */
+.scope-chip.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.scope-chip.active .scope-chip-count {
+  color: var(--accent);
+}
 .scope-chip-name {
   overflow: hidden;
   text-overflow: ellipsis;

@@ -41,6 +41,7 @@ import { useLibraryActions } from "./library/useLibraryActions";
 import {
   applyClientParams,
   scopeKey,
+  tagChipsFromRecords,
   type Scope,
 } from "./library/libraryData";
 import ActiveFilters, { type FilterChip } from "./library/ActiveFilters";
@@ -84,7 +85,9 @@ export default function Library() {
   const [readStatus, setReadStatus] = useState<api.ReadStatus | null>(restored?.readStatus ?? null);
   const [favorites, setFavorites] = useState(restored?.favorites ?? false);
   const [scope, setScope] = useState<Scope>(restored?.scope ?? { type: "all" });
-  /** Local-only filters by tag / collection (server scopes handle their own). */
+  /** Tag narrows either shelf (the server filters `/api/comics?tag=` itself);
+   *  `collection` is the on-device grouping — a server's collections are
+   *  libraries, and those are a scope rather than a filter. */
   const [tagFilter, setTagFilter] = useState<string | null>(restored?.tag ?? null);
   const [collectionFilter, setCollectionFilter] = useState<string | null>(restored?.collection ?? null);
   // Null until the first local listing settles, so the initial shelf can be
@@ -365,6 +368,7 @@ export default function Library() {
       sort.sortOrder,
       effStatus ?? "any",
       effFav,
+      tagFilter ?? "",
     ],
     initialPageParam: 0,
     queryFn: ({ pageParam }) => {
@@ -376,6 +380,9 @@ export default function Library() {
       const params: api.ListParams = {
         mediaType,
         search: serverSearch || undefined,
+        // The server filters by tag itself (`/api/comics?tag=`), so a tagged
+        // view pages properly instead of filtering only the page in hand.
+        tag: tagFilter ?? undefined,
         sortBy: sort.sortBy,
         sortOrder: sort.sortOrder,
         readStatus: effStatus ?? undefined,
@@ -412,6 +419,15 @@ export default function Library() {
     queryFn: api.listLibraries,
     enabled: onServer && serverReady,
   });
+  // Server tags. Optional like everything else on a server: a failure means no
+  // Tags group, not an error.
+  const tagsQuery = useQuery({
+    queryKey: ["tags", serverUrl ?? ""],
+    queryFn: api.listTags,
+    enabled: onServer && serverReady,
+    retry: false,
+  });
+
   const seriesListQuery = useQuery({
     queryKey: ["seriesList", serverUrl ?? ""],
     queryFn: api.listSeries,
@@ -494,6 +510,17 @@ export default function Library() {
       : narrowed != null
         ? `${totalCount} of ${narrowed} titles`
         : `${totalCount} ${totalCount === 1 ? "title" : "titles"}`;
+
+  // One chip list, two sources. The device shelf holds its whole catalog in
+  // memory, so its tags come with counts and reflect exactly what is here; the
+  // server's `/api/tags` returns names only, so those chips carry no count
+  // rather than a made-up one.
+  const tagChips = useMemo(() => {
+    if (onServer) {
+      return (tagsQuery.data ?? []).map((name) => ({ name }));
+    }
+    return tagChipsFromRecords(localBooks);
+  }, [onServer, tagsQuery.data, localBooks]);
 
   /** One tap back to an unfiltered shelf — the explicit reset the backlog asks
    *  for, so a narrowing you didn't mean to keep is never a scavenger hunt. */
@@ -1053,11 +1080,17 @@ export default function Library() {
         )}
 
         <div className="lib-content" style={{ transform: pull ? `translateY(${pull}px)` : undefined }}>
-          {onServer && scope.type === "all" && (
+          {scope.type === "all" && (
             <ScopeRow
-              libraries={librariesQuery.data ?? []}
-              series={seriesListQuery.data ?? []}
+              libraries={onServer ? librariesQuery.data ?? [] : []}
+              series={onServer ? seriesListQuery.data ?? [] : []}
+              tags={tagChips}
+              activeTag={tagFilter}
               onPick={setScope}
+              onPickTag={(tag) => {
+                setTagFilter(tag);
+                setCollectionFilter(null);
+              }}
             />
           )}
 

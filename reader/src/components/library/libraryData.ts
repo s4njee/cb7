@@ -32,6 +32,29 @@ export function scopeKey(scope: Scope): string {
   }
 }
 
+/** One tag chip in the browse row. `count` is present only where it is
+ *  genuinely knowable — the on-device shelf, which holds its whole catalog in
+ *  memory. The server's `/api/tags` returns names alone. */
+export interface TagChip {
+  name: string;
+  count?: number;
+}
+
+/** Tag chips for an in-memory shelf, alphabetical, with counts.
+ *
+ *  Grouping is exact, not case-folded, because the on-device filter matches
+ *  tags exactly — folding "Noir" and "noir" into one chip here would produce a
+ *  chip that filters away half its own books. */
+export function tagChipsFromRecords(records: WebComicRecord[]): TagChip[] {
+  const counts = new Map<string, number>();
+  for (const record of records) {
+    for (const tag of record.tags ?? []) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, count]) => ({ name, count }));
+}
+
 /** The subset of a record shape a status filter can decide from the record alone. */
 export function matchesReadStatus(r: WebComicRecord, status: ReadStatus): boolean {
   switch (status) {
